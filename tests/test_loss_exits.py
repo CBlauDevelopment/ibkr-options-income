@@ -70,6 +70,9 @@ async def test_loss_exit_fires_at_the_configured_multiple():
     ):
         await check_loss_exits(ib_scan, ib_exec, bot, "chat")
     close.assert_awaited_once()
+    from src.common.schemas import CloseReason
+
+    assert close.await_args.kwargs["reason"] is CloseReason.LOSS_EXIT  # not "profit-take"
     bot.send_message.assert_awaited_once()
     call_args = bot.send_message.call_args
     text = call_args.kwargs["text"]

@@ -38,7 +38,7 @@ from sqlalchemy import select
 
 from src.claude.memory import FILLED, record_outcome
 from src.common.config import get_config
-from src.common.schemas import OrderState
+from src.common.schemas import CloseReason, OrderState
 from src.storage.db import session_scope
 from src.storage.models import CandidateRow, FillRow, OrderRow
 from src.storage.orders import open_short_candidate_id
@@ -415,6 +415,7 @@ async def _recover_close_fill(
                 filled_qty=total_qty,
                 avg_price=avg_price,
                 commission=commission or None,
+                close_reason=order.close_reason,  # the reason the close was placed with
                 ib_exec_id=exec_id,
                 is_live=is_live,
             )
@@ -568,6 +569,7 @@ async def reconcile_external_closes(ib: IB, bot: object, chat_id: str) -> None:
                     filled_qty=shares,
                     avg_price=price,
                     commission=commission or None,
+                    close_reason=CloseReason.MANUAL.value,
                     ib_exec_id=exec_id,
                     is_live=is_live,
                 )

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.common.schemas import OptionRight, OrderState, PositionSnapshot
+from src.common.schemas import CloseReason, OptionRight, OrderState, PositionSnapshot
 from src.execution.position_manager import close_candidate_id, close_short_position
 from src.storage.models import FillRow, OrderRow
 
@@ -90,7 +90,9 @@ async def test_close_writes_order_and_buy_fill(tmp_path, monkeypatch):
     _mock_cfg(monkeypatch)
     ib = _make_close_ib(filled=True, fill_qty=2.0, avg_price=0.40)
 
-    result = await close_short_position(ib, _make_pos(), bid=0.38, ask=0.42)
+    result = await close_short_position(
+        ib, _make_pos(), bid=0.38, ask=0.42, reason=CloseReason.PROFIT_TAKE
+    )
 
     assert result.status == "filled"
     assert result.filled_qty == 2.0
@@ -106,6 +108,10 @@ async def test_close_writes_order_and_buy_fill(tmp_path, monkeypatch):
         assert len(fills) == 1
         assert fills[0].action == "BUY"  # buy-to-close debit → EOD cashflow sign
         assert fills[0].filled_qty == 2.0
+        # The reason is stamped on both rows, so a loss exit is never read as a profit-take.
+        assert orders[0].close_reason == "profit_take"
+        assert fills[0].close_reason == "profit_take"
+        assert orders[0].detail == "buy-to-close (profit_take)"
 
 
 async def test_close_is_idempotent_no_double_order(tmp_path, monkeypatch):
@@ -115,12 +121,16 @@ async def test_close_is_idempotent_no_double_order(tmp_path, monkeypatch):
 
     # First close fills.
     ib1 = _make_close_ib(filled=True)
-    first = await close_short_position(ib1, _make_pos(), bid=0.38, ask=0.42)
+    first = await close_short_position(
+        ib1, _make_pos(), bid=0.38, ask=0.42, reason=CloseReason.PROFIT_TAKE
+    )
     assert first.status == "filled"
 
     # Second close on the same contract — a FILLED order is an active order → skipped.
     ib2 = _make_close_ib(filled=True)
-    second = await close_short_position(ib2, _make_pos(), bid=0.38, ask=0.42)
+    second = await close_short_position(
+        ib2, _make_pos(), bid=0.38, ask=0.42, reason=CloseReason.PROFIT_TAKE
+    )
     assert second.status == "skipped"
     ib2.placeOrder.assert_not_called()
 
@@ -136,7 +146,9 @@ async def test_close_cancels_on_timeout(tmp_path, monkeypatch):
     _mock_cfg(monkeypatch, fill_timeout_minutes=0.0)  # deadline already passed
     ib = _make_close_ib(filled=False)
 
-    result = await close_short_position(ib, _make_pos(), bid=0.38, ask=0.42)
+    result = await close_short_position(
+        ib, _make_pos(), bid=0.38, ask=0.42, reason=CloseReason.PROFIT_TAKE
+    )
 
     assert result.status == "working"
     ib.cancelOrder.assert_called_once()
@@ -177,7 +189,9 @@ async def test_close_reprice_steps_toward_ask(tmp_path, monkeypatch):
 
     ib.placeOrder.return_value.isDone.side_effect = _isdone
 
-    result = await close_short_position(ib, _make_pos(), bid=0.38, ask=0.42)
+    result = await close_short_position(
+        ib, _make_pos(), bid=0.38, ask=0.42, reason=CloseReason.PROFIT_TAKE
+    )
 
     assert result.status == "filled"
     # Two placeOrder calls: initial mid-price order + one reprice toward the ask.

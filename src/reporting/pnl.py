@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from src.common.schemas import (
     CampaignPnl,
+    CloseReason,
     EquityCurve,
     EquityPoint,
     OptionRight,
@@ -188,6 +189,9 @@ def build_legs(
                 roc_pct=roc_pct,
                 annualized_pct=annualized_pct,
                 outcome=out.outcome,
+                close_reason=(
+                    _close_reason(fills) if out.outcome == VerdictOutcome.CLOSED_EARLY else None
+                ),
                 is_live=leg_is_live,
             )
         )
@@ -198,6 +202,17 @@ def build_legs(
 
 def _is_buy(f: FillRow) -> bool:
     return (f.action or "SELL").upper() == "BUY"
+
+
+def _close_reason(fills: list[FillRow]) -> CloseReason | None:
+    """The latest BUY fill's CloseReason; None when it predates the stamp or is unknown."""
+    buys = sorted((f for f in fills if _is_buy(f)), key=lambda f: f.filled_at)
+    if not buys or buys[-1].close_reason is None:
+        return None
+    try:
+        return CloseReason(buys[-1].close_reason)
+    except ValueError:
+        return None
 
 
 def _option_symbol(

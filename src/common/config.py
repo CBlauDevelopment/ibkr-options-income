@@ -96,12 +96,25 @@ class IBKRCfg(BaseModel):
     reconnect: ReconnectCfg = Field(default_factory=ReconnectCfg)
 
 
+class ProfitTakeTier(BaseModel):
+    """One row of ``scheduler.profit_take_schedule``: a profit-take % for a strategy and an
+    entry-DTE range. A short matches when its strategy agrees (or the row says ``any``) and
+    its DTE on the day it was sold is ``<= max_entry_dte``."""
+
+    strategy: Literal["any", "cash_secured_put", "covered_call"] = "any"
+    max_entry_dte: int = Field(ge=0)
+    pct: float = Field(gt=0, lt=100)
+
+
 class SchedulerCfg(BaseModel):
     timezone: str = "America/New_York"
     eod_report: str = "16:15"
     intraday_poll_seconds: int = 60
     intraday_loop_minutes: int = 15  # how often the intraday scan+profit-take loop fires
     profit_take_pct: float = 50.0  # close a short position once this % of premium is captured
+    # Optional DTE-keyed overrides of profit_take_pct; first matching row wins, no match (or an
+    # unknown entry DTE) falls back to profit_take_pct. Empty = the flat profit_take_pct.
+    profit_take_schedule: list[ProfitTakeTier] = Field(default_factory=list)
     entry_cutoff: str = "15:00"  # no new entries surfaced/queued after this ET time
     # Hard ceiling on a single EOD run (scripts.run_eod), enforced by the scripts.start
     # supervisor loop, not by run_eod itself. A hung run (IBKR account-summary/IV requests

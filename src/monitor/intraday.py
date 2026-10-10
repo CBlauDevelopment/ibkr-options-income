@@ -36,7 +36,6 @@ from src.common.schemas import (
     FundamentalStats,
     OptionQuote,
     OptionRight,
-    OrderState,
     PositionSnapshot,
     RollAlert,
     RollReview,
@@ -47,7 +46,9 @@ from src.ibkr.market_data import req_fresh_mkt_data
 from src.ibkr.portfolio import get_account_snapshot_async, get_positions
 from src.monitor.triggers import check_all
 from src.storage.db import init_db, session_scope
-from src.storage.models import CandidateRow, FillRow, OrderRow, RollAlertRow
+from src.storage.models import CandidateRow, FillRow, RollAlertRow
+from src.storage.orders import entry_dte as _entry_dte
+from src.storage.orders import position_opened_at as _load_opened_at
 from src.storage.portfolio_snapshots import (
     latest_capture_time,
     save_portfolio_snapshot,
@@ -143,57 +144,6 @@ def _cancel_mkt_data(ib: Any, contract: Any, req_id: int | None) -> None:
             by_ticker.pop(ticker, None)
     ib.wrapper._reqId2Contract.pop(req_id, None)
     ib.client.cancelMktData(req_id)
-
-
-def _load_opened_at(pos: PositionSnapshot) -> datetime | None:
-    """Return when this short option position was opened, or None.
-
-    The latest entry fill, matched the same way as ``_load_entry_iv``; failing that, the
-    latest working/filled order for the contract — IBKR reports the position before the
-    executor records its fill (2026-10-01: GOOGL showed up two minutes before its FillRow).
-    None for a position with no order on record (e.g. opened by hand in TWS) — the alert
-    policy then treats it as always-held.
-    """
-    if pos.strike is None or pos.expiry is None or pos.right is None:
-        return None
-    contract_match = (
-        CandidateRow.underlying == (pos.underlying or pos.symbol),
-        CandidateRow.strike == pos.strike,
-        CandidateRow.expiry == pos.expiry,
-        CandidateRow.right == pos.right.value,
-    )
-    with session_scope() as session:
-        row = (
-            session.query(FillRow.filled_at)
-            .join(CandidateRow, CandidateRow.candidate_id == FillRow.candidate_id)
-            .filter(*contract_match, FillRow.action == "SELL")
-            .order_by(FillRow.filled_at.desc())
-            .first()
-        )
-        if row is None:
-            row = (
-                session.query(OrderRow.created_at)
-                .join(CandidateRow, CandidateRow.candidate_id == OrderRow.candidate_id)
-                .filter(
-                    *contract_match,
-                    OrderRow.state.in_(
-                        [OrderState.SUBMITTED, OrderState.PARTIAL, OrderState.FILLED]
-                    ),
-                )
-                .order_by(OrderRow.created_at.desc())
-                .first()
-            )
-    if row is None or row[0] is None:
-        return None
-    opened: datetime = row[0]
-    return opened if opened.tzinfo else opened.replace(tzinfo=UTC)
-
-
-def _entry_dte(pos: PositionSnapshot, opened_at: datetime | None) -> int | None:
-    """The position's DTE on the ET date it was opened, or None when unknown."""
-    if opened_at is None or pos.expiry is None:
-        return None
-    return (pos.expiry - opened_at.astimezone(_ET).date()).days
 
 
 def _load_entry_iv(pos: PositionSnapshot) -> float | None:

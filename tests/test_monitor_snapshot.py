@@ -125,7 +125,10 @@ async def test_nothing_is_written_inside_the_interval(monitor_env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_failing_snapshot_write_never_reaches_the_refresh_loop(monitor_env) -> None:
+async def test_a_failing_snapshot_write_never_reaches_the_refresh_loop(
+    monitor_env,
+    db: object,  # isolated DB, not data/
+) -> None:
     """If this escapes, the refresh task dies and roll alerts stop for new positions."""
     from src.common.schemas import OptionRight, PositionSnapshot
 

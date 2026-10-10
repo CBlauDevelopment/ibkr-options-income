@@ -29,6 +29,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "fills": {
         "action": "VARCHAR(4) DEFAULT 'SELL'",
         "entry_iv": "FLOAT",
+        "close_reason": "VARCHAR(16)",  # CloseReason on BUY fills (2026-10-11)
     },
     # Frozen approved candidate payload (N2a) — see Approval/Order row docstrings.
     "approvals": {
@@ -36,6 +37,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     },
     "orders": {
         "snapshot": "JSON",
+        "close_reason": "VARCHAR(16)",  # CloseReason on buy-to-close orders (2026-10-11)
     },
     # risk_verdicts existed as an empty, unwired table long before anything wrote to it, so
     # deployed databases already have the original three-column shape. These are the columns

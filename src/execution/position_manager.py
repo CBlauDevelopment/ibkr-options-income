@@ -38,7 +38,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.common.config import get_config
-from src.common.schemas import OrderState, PositionSnapshot
+from src.common.schemas import CloseReason, OrderState, PositionSnapshot
 from src.execution.executor import _as_float, _refetch_bid_ask, _safe_float
 from src.execution.order_builder import reprice_limit
 from src.ibkr.contracts import build_option
@@ -78,11 +78,14 @@ async def close_short_position(
     pos: PositionSnapshot,
     bid: float,
     ask: float,
+    *,
+    reason: CloseReason,
 ) -> CloseResult:
     """Buy-to-close a short option position at mid, recording the full order/fill lifecycle.
 
     Idempotent at the contract level: if an active close order already exists for this
-    position, returns ``status="skipped"`` without placing anything.
+    position, returns ``status="skipped"`` without placing anything. *reason* is stamped on
+    the OrderRow and the BUY FillRow so a loss exit is never recorded as a profit-take.
     """
     assert pos.expiry is not None and pos.strike is not None and pos.right is not None
 
@@ -106,7 +109,8 @@ async def close_short_position(
             state=OrderState.QUEUED,
             limit_price=limit_price,
             is_live=cfg.is_live,
-            detail="buy-to-close (profit-take)",
+            detail=f"buy-to-close ({reason.value})",
+            close_reason=reason.value,
         )
         session.add(order_row)
         session.flush()
@@ -228,6 +232,7 @@ async def close_short_position(
                         filled_qty=filled_qty,
                         avg_price=avg_price,
                         commission=commission,
+                        close_reason=reason.value,
                         ib_exec_id=exec_id,
                         is_live=cfg.is_live,
                     )

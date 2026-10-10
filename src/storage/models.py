@@ -139,6 +139,9 @@ class OrderRow(Base):
     # approval and execution can never alter the size the human approved. Nullable for rows
     # created before the freeze was introduced (execution falls back to CandidateRow then).
     snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # A CloseReason value on buy-to-close orders (position_manager); None on entries/rolls.
+    # `detail` is overwritten on cancel/error, so the reason lives in its own column.
+    close_reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -301,6 +304,9 @@ class FillRow(Base):
     avg_price: Mapped[float] = mapped_column(Float)
     commission: Mapped[float | None] = mapped_column(Float, nullable=True)
     entry_iv: Mapped[float | None] = mapped_column(Float, nullable=True)  # IV at execution time
+    # A CloseReason value on BUY fills (why the short was bought back); None on SELL fills
+    # and on BUY fills recorded before the reason was stamped (2026-10-11).
+    close_reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_live: Mapped[bool] = mapped_column(Boolean, default=False)
     filled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 

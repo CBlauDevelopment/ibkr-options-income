@@ -39,6 +39,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from src.claude.memory import FILLED, record_outcome
 from src.common.config import get_config
 from src.common.schemas import (
+    CloseReason,
     OptionQuote,
     OptionRight,
     OrderState,
@@ -561,6 +562,7 @@ def _record_roll_fills(
                 filled_qty=close_qty,
                 avg_price=close_price,
                 commission=close_comm,
+                close_reason=CloseReason.ROLL.value,
                 is_live=is_live,
             )
         )

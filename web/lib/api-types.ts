@@ -1770,6 +1770,15 @@ export interface components {
             /** Evidence */
             evidence?: string[];
         };
+        /**
+         * CloseReason
+         * @description Why a short option was bought back — stamped on the closing order and its BUY fill.
+         *
+         *     `VerdictOutcome.CLOSED_EARLY` says only *that* a leg closed before expiry; this says why,
+         *     so profit-takes can be analysed apart from loss exits, rolls and hand-placed closes.
+         * @enum {string}
+         */
+        CloseReason: "profit_take" | "loss_exit" | "roll" | "manual";
         /** ClusterOut */
         ClusterOut: {
             /** Id */
@@ -3166,6 +3175,7 @@ export interface components {
             /** Annualized Pct */
             annualized_pct?: number | null;
             outcome: components["schemas"]["VerdictOutcome"];
+            close_reason?: components["schemas"]["CloseReason"] | null;
             /** Is Live */
             is_live: boolean;
         };

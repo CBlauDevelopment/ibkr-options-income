@@ -1,8 +1,9 @@
 """Profit-take orchestration — extracted from the notify layer (N23).
 
-The 50%-profit-take check is trading control flow (it reads positions, prices the cost-to-close,
-and either auto-buys-to-close or alerts), so it belongs in `src/execution/`, not in the Telegram
-service. `approval_service` re-exports these names and the intraday loop calls `check_profit_takes`;
+The profit-take check (``scheduler.profit_take_pct``, optionally keyed on strategy and entry
+DTE by ``scheduler.profit_take_schedule``) is trading control flow (it reads positions, prices
+the cost-to-close, and either auto-buys-to-close or alerts), so it belongs in `src/execution/`,
+not in the Telegram service. `approval_service` re-exports these names and the intraday loop calls `check_profit_takes`;
 the Telegram sends go through the passed `bot` (a thin notifier), keeping this module's trading
 logic independent of the notify layer.
 """
@@ -19,15 +20,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from telegram import Bot
 
-from src.common.config import get_config
+from src.common.config import SchedulerCfg, get_config
 from src.common.market_hours import today_et
-from src.common.schemas import PositionSnapshot
+from src.common.schemas import CloseReason, OptionRight, PositionSnapshot, Strategy
 from src.common.universe import is_leveraged_etf
 from src.execution.position_manager import close_short_position
 from src.ibkr.contracts import build_option
 from src.ibkr.market_data import req_fresh_mkt_data
 from src.storage.db import session_scope
 from src.storage.models import CandidateRow, FillRow
+from src.storage.orders import entry_dte, position_opened_at
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,23 @@ def net_entry_credit_per_share(
     commission = sum(r.commission or 0.0 for r in rows)
     net_per_share = (gross_dollars - commission) / (total_qty * 100)
     return net_per_share if net_per_share > 0 else None
+
+
+def resolve_profit_take_pct(
+    scheduler: SchedulerCfg, right: OptionRight, entry_dte: int | None
+) -> float:
+    """The profit-take % for a short of *right* sold at *entry_dte* days to expiry.
+
+    First ``scheduler.profit_take_schedule`` row whose strategy matches (a short put is a
+    CSP, a short call a covered call) and whose ``max_entry_dte`` covers *entry_dte* wins.
+    No match, an empty schedule, or an unknown entry DTE falls back to ``profit_take_pct``.
+    """
+    if entry_dte is not None:
+        strategy = Strategy.CASH_SECURED_PUT if right == OptionRight.PUT else Strategy.COVERED_CALL
+        for tier in scheduler.profit_take_schedule:
+            if tier.strategy in ("any", strategy.value) and entry_dte <= tier.max_entry_dte:
+                return tier.pct
+    return scheduler.profit_take_pct
 
 
 async def _quote_short(ib_scan: IB, pos: PositionSnapshot) -> tuple[float, float | None]:
@@ -151,7 +170,7 @@ async def _auto_close_position(
     from src.execution.position_manager import close_short_position
     from src.notify.formatters import format_auto_close_result
 
-    result = await close_short_position(ib_exec, pos, bid, ask)
+    result = await close_short_position(ib_exec, pos, bid, ask, reason=CloseReason.PROFIT_TAKE)
 
     if result.status == "skipped":
         # A close is already working for this contract — no duplicate, no extra message.
@@ -201,14 +220,15 @@ async def check_profit_takes(
     bot: Bot,
     chat_id: str,
 ) -> None:
-    """Detect short option positions that have reached the profit-take threshold.
+    """Detect short option positions that have reached their profit-take threshold.
+
+    The threshold is per position: ``resolve_profit_take_pct`` on its strategy and entry DTE.
 
     Uses ib_scan for market-data quotes and ib_exec for placing BUY-to-close orders when
     ``automation.auto_close_enabled`` is on; sends a Telegram alert only when it's off. Closing
     risk is independent of the autonomy level (that ladder governs *opening* exposure only).
     """
     cfg = get_config()
-    threshold = cfg.scheduler.profit_take_pct / 100.0
 
     from src.ibkr.portfolio import get_positions
 
@@ -243,6 +263,9 @@ async def check_profit_takes(
         if entry_price is None or entry_price <= 0:
             continue
 
+        dte_at_entry = entry_dte(pos, position_opened_at(pos))
+        threshold = resolve_profit_take_pct(cfg.scheduler, pos.right, dte_at_entry) / 100.0
+
         bid, ask = await _quote_short(ib_scan, pos)
         if ask is None:
             continue
@@ -254,11 +277,14 @@ async def check_profit_takes(
             continue
 
         log.info(
-            "Profit target reached: %s — entry=%.2f mid=%.2f profit=%.0f%%",
+            "Profit target reached: %s — entry=%.2f mid=%.2f profit=%.0f%% "
+            "(target %.0f%%, entry DTE %s)",
             pos.symbol,
             entry_price,
             mid,
             profit_pct * 100,
+            threshold * 100,
+            dte_at_entry,
         )
 
         if cfg.automation.auto_close_enabled and ib_exec is not None:
@@ -338,7 +364,7 @@ async def check_loss_exits(
             mid,
             mid / entry,
         )
-        result = await close_short_position(ib_exec, pos, bid, ask)
+        result = await close_short_position(ib_exec, pos, bid, ask, reason=CloseReason.LOSS_EXIT)
 
         if result.status == "skipped":
             # A close is already working for this contract — no duplicate, no extra message.

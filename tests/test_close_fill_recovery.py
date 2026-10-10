@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.common.schemas import OptionRight, OrderState, PositionSnapshot
+from src.common.schemas import CloseReason, OptionRight, OrderState, PositionSnapshot
 from src.storage.models import CandidateRow, FillRow, OrderRow
 
 _EXPIRY = date.today() + timedelta(days=30)
@@ -135,7 +135,9 @@ async def test_close_fill_is_attributed_to_the_entry_candidate(tmp_path, monkeyp
     with dbmod.session_scope() as s:
         _seed_entry(s)
 
-    result = await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    result = await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
 
     assert result.status == "filled"
     with dbmod.session_scope() as s:
@@ -154,7 +156,9 @@ async def test_close_fill_without_a_system_entry_keeps_the_synthetic_id(tmp_path
     _cfg(monkeypatch, pm)
     monkeypatch.setattr(pm.asyncio, "sleep", AsyncMock())
 
-    await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
 
     with dbmod.session_scope() as s:
         assert s.query(FillRow).filter_by(action="BUY").one().candidate_id == _CLOSE_ID
@@ -177,7 +181,9 @@ async def test_exception_after_placement_keeps_the_order_active(tmp_path, monkey
         pm, "_refetch_bid_ask", AsyncMock(side_effect=ConnectionError("Not connected"))
     )
 
-    result = await pm.close_short_position(_close_ib(filled=False), _pos(), bid=0.48, ask=0.52)
+    result = await pm.close_short_position(
+        _close_ib(filled=False), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
 
     assert result.status == "error"
     with dbmod.session_scope() as s:
@@ -186,7 +192,9 @@ async def test_exception_after_placement_keeps_the_order_active(tmp_path, monkey
         assert order.ib_order_id == 136
         assert "reconcil" in (order.detail or "")
 
-    again = await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    again = await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
     assert again.status == "skipped"
 
 
@@ -199,7 +207,9 @@ async def test_exception_before_placement_still_rejects(tmp_path, monkeypatch):
     ib = MagicMock()
     ib.qualifyContractsAsync = AsyncMock(side_effect=ConnectionError("Not connected"))
 
-    result = await pm.close_short_position(ib, _pos(), bid=0.48, ask=0.52)
+    result = await pm.close_short_position(
+        ib, _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
 
     assert result.status == "error"
     with dbmod.session_scope() as s:
@@ -224,6 +234,7 @@ def _recon_setup(tmp_path, monkeypatch, *, state: str, created_at: datetime | No
                 state=state,
                 ib_order_id=136,
                 limit_price=0.51,
+                close_reason="loss_exit",
                 created_at=created_at or datetime.now(UTC) - timedelta(minutes=2),
             )
         )
@@ -249,6 +260,7 @@ async def test_reconcile_recovers_a_lost_close_fill(tmp_path, monkeypatch):
         assert buys[0].order_id == 23
         assert buys[0].ib_exec_id == "buy-1"
         assert abs((buys[0].commission or 0) - 3.395293) < 1e-9
+        assert buys[0].close_reason == "loss_exit"  # carried over from the close order
     bot.send_message.assert_awaited()
 
 
@@ -322,11 +334,15 @@ async def test_a_new_sale_of_the_same_contract_can_be_closed_again(tmp_path, mon
     monkeypatch.setattr(pm.asyncio, "sleep", AsyncMock())
     with dbmod.session_scope() as s:
         _seed_entry(s)
-    first = await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    first = await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
     assert first.status == "filled"
 
     # Same contract right after the close fills: still blocked (stale-snapshot guard).
-    stale = await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    stale = await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
     assert stale.status == "skipped"
 
     # The system sells the same contract again later.
@@ -356,5 +372,7 @@ async def test_a_new_sale_of_the_same_contract_can_be_closed_again(tmp_path, mon
             )
         )
 
-    again = await pm.close_short_position(_close_ib(filled=True), _pos(), bid=0.48, ask=0.52)
+    again = await pm.close_short_position(
+        _close_ib(filled=True), _pos(), bid=0.48, ask=0.52, reason=CloseReason.LOSS_EXIT
+    )
     assert again.status == "filled"

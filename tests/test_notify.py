@@ -1491,6 +1491,7 @@ async def test_external_close_records_buy_fill_under_original_candidate(tmp_path
     assert len(buys) == 1
     assert buys[0].avg_price == 0.80 and buys[0].filled_qty == 2.0
     assert buys[0].ib_exec_id == "x1"
+    assert buys[0].close_reason == "manual"
     bot.send_message.assert_awaited()
 
 

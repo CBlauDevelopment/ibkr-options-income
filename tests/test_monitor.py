@@ -972,7 +972,9 @@ class _RealishIB:
         return True
 
 
-async def test_refresh_subscriptions_qualifies_before_reqmktdata() -> None:
+async def test_refresh_subscriptions_qualifies_before_reqmktdata(
+    db: object,
+) -> None:  # isolated DB, not data/
     """Regression: before the fix, `build_option`'s unqualified contract went straight into
     `reqMktData`, which raised inside ib_async's own ticker bookkeeping — silently caught by
     the surrounding `except Exception`, so the monitor never actually subscribed to a single
@@ -1016,7 +1018,9 @@ async def test_refresh_subscriptions_qualifies_before_reqmktdata() -> None:
     assert getattr(contract, "conId", 0) != 0
 
 
-async def test_double_subscribe_prevention_on_repeated_refresh() -> None:
+async def test_double_subscribe_prevention_on_repeated_refresh(
+    db: object,
+) -> None:  # isolated DB, not data/
     """P0-06: calling _refresh_subscriptions twice for the same position must call
     reqMktData exactly once — the second call sees the position already subscribed and
     updates the snapshot without adding a new subscription.
@@ -1080,7 +1084,9 @@ async def test_cancel_uses_stored_contract() -> None:
     mock_ib.cancelMktData.assert_called_once_with(stored_contract)
 
 
-async def test_unsubscribe_survives_another_subscriber_on_the_same_contract() -> None:
+async def test_unsubscribe_survives_another_subscriber_on_the_same_contract(
+    db: object,
+) -> None:  # isolated DB, not data/
     """2026-10-02: the roll-alert chain fetch subscribed to the monitored GOOGL $335P on the
     monitor's connection and cancelled, which left ib_async with no reqId for the monitor's
     stream — cancelMktData(contract) then found "No reqId" and the line streamed for hours.

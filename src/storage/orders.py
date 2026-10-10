@@ -14,13 +14,17 @@ for manual approvals).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.common.schemas import OrderState
+from src.common.schemas import OrderState, PositionSnapshot
+from src.storage.db import session_scope
 from src.storage.models import CandidateRow, FillRow, OrderRow
+
+_ET = ZoneInfo("America/New_York")
 
 # States in which a prior order for the same candidate makes a new order a duplicate:
 # still working (QUEUED/SUBMITTED) or already executed (FILLED/PARTIAL). Terminal
@@ -105,3 +109,54 @@ def open_short_candidate_id(
         net[candidate_id] = net.get(candidate_id, 0.0) + sign * (qty or 0.0)
     open_ids = [cid for cid, q in net.items() if q > 0]
     return open_ids[-1] if open_ids else None
+
+
+def position_opened_at(pos: PositionSnapshot) -> datetime | None:
+    """Return when this short option position was opened, or None.
+
+    The latest entry fill for the contract; failing that, the latest working/filled order —
+    IBKR reports the position before the executor records its fill (2026-10-01: GOOGL showed
+    up two minutes before its FillRow). None for a position with no order on record (e.g.
+    opened by hand in TWS). Shared by the intraday monitor's alert policy and the DTE-keyed
+    profit-take schedule, so both agree on a position's entry DTE.
+    """
+    if pos.strike is None or pos.expiry is None or pos.right is None:
+        return None
+    contract_match = (
+        CandidateRow.underlying == (pos.underlying or pos.symbol),
+        CandidateRow.strike == pos.strike,
+        CandidateRow.expiry == pos.expiry,
+        CandidateRow.right == pos.right.value,
+    )
+    with session_scope() as session:
+        row = (
+            session.query(FillRow.filled_at)
+            .join(CandidateRow, CandidateRow.candidate_id == FillRow.candidate_id)
+            .filter(*contract_match, FillRow.action == "SELL")
+            .order_by(FillRow.filled_at.desc())
+            .first()
+        )
+        if row is None:
+            row = (
+                session.query(OrderRow.created_at)
+                .join(CandidateRow, CandidateRow.candidate_id == OrderRow.candidate_id)
+                .filter(
+                    *contract_match,
+                    OrderRow.state.in_(
+                        [OrderState.SUBMITTED, OrderState.PARTIAL, OrderState.FILLED]
+                    ),
+                )
+                .order_by(OrderRow.created_at.desc())
+                .first()
+            )
+    if row is None or row[0] is None:
+        return None
+    opened: datetime = row[0]
+    return opened if opened.tzinfo else opened.replace(tzinfo=UTC)
+
+
+def entry_dte(pos: PositionSnapshot, opened_at: datetime | None) -> int | None:
+    """The position's DTE on the ET date it was opened, or None when unknown."""
+    if opened_at is None or pos.expiry is None:
+        return None
+    return (pos.expiry - opened_at.astimezone(_ET).date()).days

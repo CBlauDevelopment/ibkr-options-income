@@ -372,6 +372,28 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Built (2026-10-11 — close-reason labels and a DTE-keyed profit-take schedule)
+
+From the profit-taking-by-DTE research (2026-10-11): the threshold barely moves expected profit,
+closing friction is what decides it, and the system could not tell its own closes apart.
+
+- **Close reason.** Every buy-to-close now records why: `CloseReason` (`profit_take`,
+  `loss_exit`, `roll`, `manual`) on `orders.close_reason` and `fills.close_reason`, and
+  `PnlLeg.close_reason` on `/pnl/*` legs. `close_short_position` takes it as a required keyword,
+  so a new caller cannot forget it. Before this, the close path hard-coded
+  `"buy-to-close (profit-take)"` — the 2026-10-02 GOOGL 335P loss exit is stored that way.
+  Closes recorded before 2026-10-11 keep `close_reason = NULL`; they are not back-filled.
+- **DTE-keyed profit-take.** `scheduler.profit_take_schedule` (default `[]`, so behaviour is
+  unchanged) maps strategy + entry DTE to a profit-take %, first match wins, falling back to
+  `profit_take_pct`. Entry DTE is the DTE on the ET date of the latest SELL fill
+  (`storage/orders.py::position_opened_at`/`entry_dte`, moved out of `monitor/intraday.py`).
+  The research suggests a higher target (≈70–75%) for short-dated CSPs and covered calls only
+  once measured close cost exceeds ~2% of the credit per side; nothing is turned on by default.
+- **Test isolation.** Four monitor tests read the real `data/income_system.db` (a fresh
+  worktree failed them on "no such table"); they now use the isolated `db` fixture.
+- Not built: a time stop (close at ≥50% once ~21 DTE remain — irrelevant at today's 7–28 DTE
+  entries), spread-cost logging, and a backtest sweep of target × entry DTE.
+
 ## Fixed (2026-10-11 — News thread card quality, from the first day's posts in thread 4409)
 
 - **Wrong-company headline.** The ASTS −14.4% card led with "Why Is Arm Stock Falling

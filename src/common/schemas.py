@@ -611,6 +611,19 @@ class VerdictOutcome(StrEnum):
     RISK_REJECTED = "risk_rejected"  # second-pass risk gate blocked at send time
 
 
+class CloseReason(StrEnum):
+    """Why a short option was bought back — stamped on the closing order and its BUY fill.
+
+    `VerdictOutcome.CLOSED_EARLY` says only *that* a leg closed before expiry; this says why,
+    so profit-takes can be analysed apart from loss exits, rolls and hand-placed closes.
+    """
+
+    PROFIT_TAKE = "profit_take"  # check_profit_takes hit the (DTE-keyed) threshold
+    LOSS_EXIT = "loss_exit"  # check_loss_exits hit max_loss_multiple (leveraged ETFs)
+    ROLL = "roll"  # the buy-back leg of an executed roll
+    MANUAL = "manual"  # closed outside the system; recorded by external-close reconciliation
+
+
 class BaselineDecision(BaseModel):
     """What the deterministic Rules+Scoring layer would do WITHOUT Claude — the counterfactual.
 
@@ -743,6 +756,9 @@ class PnlLeg(BaseModel):
     roc_pct: float | None = None
     annualized_pct: float | None = None
     outcome: VerdictOutcome
+    # Why a CLOSED_EARLY leg was bought back (the latest BUY fill's reason). None for legs that
+    # did not close early, and for closes recorded before the reason was stamped (2026-10-11).
+    close_reason: CloseReason | None = None
     is_live: bool
 
 

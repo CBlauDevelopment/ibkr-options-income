@@ -233,6 +233,7 @@ async def test_roll_fills_writes_two_legs(tmp_path, monkeypatch):
         assert sell.entry_iv == pytest.approx(0.30)
         # No original CandidateRow → synthetic close attribution.
         assert buy.candidate_id.startswith("roll-close:AAPL:")
+        assert buy.close_reason == "roll" and sell.close_reason is None
 
 
 async def test_roll_close_leg_attributed_to_original_short(tmp_path, monkeypatch):

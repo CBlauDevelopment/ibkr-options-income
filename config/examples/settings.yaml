@@ -40,6 +40,19 @@ scheduler:
   intraday_loop_minutes: 15
   # Close a short option position when this fraction of max profit has been captured.
   profit_take_pct: 50
+  # Optional per-strategy / entry-DTE overrides of profit_take_pct. Rows are checked top to
+  # bottom; the first whose `strategy` matches (any | cash_secured_put | covered_call) and
+  # whose `max_entry_dte` is >= the DTE the short was sold at wins. No match, or a position
+  # whose entry date is unknown, uses profit_take_pct. Empty (the default) = flat
+  # profit_take_pct, exactly the pre-2026-10-11 behaviour. Research (2026-10-11, see
+  # STATUS.md): the threshold barely moves expected profit; closing friction is the largest
+  # share of small short-dated premiums, so short-dated CSPs and covered calls are where a
+  # target above 50% most plausibly pays. Measure close cost first (fills.close_reason).
+  # Example:
+  #   profit_take_schedule:
+  #     - {strategy: covered_call, max_entry_dte: 60, pct: 75}
+  #     - {strategy: cash_secured_put, max_entry_dte: 14, pct: 70}
+  profit_take_schedule: []
   # No new-entry scans after this ET time — profit-take checks still run until close.
   # 16:00 == RTH close, so this no longer trims anything off the trading day: the last
   # 15-min cycle (15:45) is now the last one, same as `is_rth` would allow anyway. That
