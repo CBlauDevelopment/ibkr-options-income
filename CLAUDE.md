@@ -149,6 +149,9 @@ bounded tool-calling research turn the local Ollama reviewer may run before judg
 plus their keyless data-layer backend `src/data/google_news_backend.py`, reach the prompt and the
 local reviewer only — never `engine/`, `execution/`, or `strategies/`. Enforced by
 `tests/test_eval_skills.py::test_news_and_tool_research_never_reach_the_deterministic_layer`.
+`src/spreads_ai/` is enrichment too (on `tests/test_eval_skills.py`'s list): it reads the
+deterministic and enrichment analytics and `news.db`, and its only output is a menu letter
+that the spreads service validates and re-gates.
 
 The trap: `analytics/fair_value.py` produces the ideal-price zone, and its output reaches the
 deterministic layer through **two different fields of the same `IdealZone`, doing two different
@@ -250,6 +253,17 @@ credit spreads in the **same IBKR account and Gateway** as the wheel, with its o
   unchanged: nothing an LLM produces reaches a spreads order (the package imports nothing from
   `src.claude`). The entry trigger (`src/spreads/tape.py`) is deterministic too; it only decides
   *when* the chain is fetched and *which side* is offered to the gate, never a size.
+- **Claude picks from the menu, never beyond it (`src/spreads_ai/`, 2026-10-12 spec).** With
+  `spreads.ai.enabled`, the service builds a menu (one strike inside the baseline pick, the
+  pick, up to two further out), gates and sizes every item with `risk.validate`, and hands it to
+  a plug-in `Picker` that returns a letter or `skip`. The service maps the letter back to its
+  own candidate (anything else → the baseline item), re-quotes it and re-runs `risk.validate`
+  before the executor; Claude never sets a strike, a size, a price or an exit. A simulated
+  `baseline` book always takes the deterministic pick beside it. `src/spreads/` imports nothing
+  from `src.claude`, `src.news` or `src.spreads_ai`; `scripts/run_spreads.py` is the only module
+  that imports `src.spreads_ai`; `src/spreads_ai/` imports nothing from `src.spreads`, the trading
+  path, `src.notify`, `src.ledger` or `src.storage`, and reaches Claude only through
+  `src.claude.cli` (which imports nothing from `src/`). Enforced by `tests/test_spreads_fence.py`.
 - `src/spreads/` imports nothing from `src.claude`, `src.engine`, `src.execution`,
   `src.strategies`, `src.orchestrator`, `src.monitor`, `src.notify`, `src.reporting`, `src.api`,
   `src.research`; only `src/spreads/service.py` may import `src.ledger` / `src.storage`.
@@ -275,6 +289,8 @@ process loads no wheel layer even transitively), `tests/test_wheel_spreads_isola
 Telegram thread (`TELEGRAM_THREAD_NEWS`). It explains news; it never trades. The rules:
 
 1. `src/engine/`, `src/execution/`, `src/strategies/` and `src/spreads/` never import `src.news`.
+   `src/spreads_ai/` (enrichment) may read `news.db` through `src.news.store.readonly` + `queries`;
+   `src/spreads/` itself may not.
 2. `src/news/` imports nothing from `src.engine`, `src.execution`, `src.strategies`, `src.spreads`,
    `src.orchestrator` or `src.notify.approval_service`. Reading the deterministic analytics tier
    (technicals, IV, realized vol, price data, sector context, market conditions) is allowed —

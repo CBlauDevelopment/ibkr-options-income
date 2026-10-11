@@ -372,6 +372,29 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Built (2026-10-12 — Claude picks the daily credit spread)
+
+Spec: `docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md`; plan: `docs/superpowers/plans/2026-10-12-spreads-claude-picker.md`. Ships `spreads.ai.enabled: false`.
+
+- At 09:31 Claude writes a day plan (bias, risk flags, skip conditions, preferred distance). When the entry trigger fires, the service builds a menu (one strike inside the baseline pick, the pick, up to two further out), gates and sizes every item, and Claude returns a letter or `skip` (Opus/high for both calls by default; ~16 s per pick when measured). The chosen spread is re-quoted and re-gated before the executor. A failed or off-menu reply trades the baseline item.
+- A simulated `baseline` book always takes the deterministic pick, gated on its own capital and limits; both books take at most one spread per trigger episode. A skip stands until the trigger re-arms; at most `ai.max_pick_calls_per_day` (4) calls a day.
+- Every pick is recorded with its menu, the conditions it saw, the prompt and the raw reply (`spread_picks`). `python -m scripts.spreads_report --mode paper --compare` compares the books by decision type and by condition (regime, move size, gap, VIX, trend, event, side, plan bias); `--day` shows one day in full; `--csv` exports every decision. `--compare`/`--day` read `--mode` (default `shadow`), so paper users pass `--mode paper`.
+- Send-path guards: a pick is not sent (recorded `send_rejected`) when the re-quote has no spot (`no_fresh_spot`) or when the pick resolves more than 2 × (`pick_timeout_seconds` + 30 s) after it started (`stale_pick`, e.g. after a Gateway disconnect). A service-side timeout records the real latency. Each book's exits run under their own guard, so a main-book failure cannot stop the baseline book's exits.
+- `claude -p` runs from `spreads.ai.workdir` (default `~/.cache/ibkr-spreads-ai`, outside the repo): it walks up from its cwd and would otherwise load the project `CLAUDE.md` into every pick. The menu shows each strike's distance from the gamma flip (`dist_flip_pts`) and the prompt carries HV30.
+- New: `src/spreads_ai/` (context, prompts, parse, picker), `src/claude/cli.py`, `src/spreads/menu.py`.
+
+**Known limitations:**
+- Paper fills (main book) and simulated fills (baseline) differ; `--compare` prints the fill bias so it can be separated from choice quality.
+- The inside strike ignores the expected-move/wall boundary by design (only the delta cap and credit floor apply).
+- The comparison needs ~50 decisions (2–3 months at 1–2 a day) before it means much.
+- An episode whose whole menu fails the main gate has no pick row; its baseline trade counts only in the book totals.
+- A pick in flight when the process restarts is lost without a row; the restarted service asks again on that episode.
+- `stale_pick` assumes `schedule.manage_interval_seconds` stays well under ~75 s; nothing validates that at load.
+- With `entry.trigger: always` and both sides offered, a fallback trades the first side's baseline item, which can differ from the baseline book's spread.
+- A transiently blocked main book at resolve time consumes the episode and a cap slot.
+
+---
+
 ## Built (2026-10-11 — roll redesign: breach-triggered, credit-floored, one roll per chain)
 
 Plan: `docs/superpowers/plans/2026-10-11-roll-redesign.md` (Progress log). Evidence:

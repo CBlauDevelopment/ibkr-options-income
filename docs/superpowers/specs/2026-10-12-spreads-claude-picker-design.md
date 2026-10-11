@@ -155,7 +155,10 @@ It also adds an async single-shot variant for the spreads picker. `cli.py` impor
 the wheel prompt stack, `runner`, `ollama_runner`, or `parser`.
 
 The spreads calls run with:
-- `cwd = ai.workdir`, an empty directory, so no project CLAUDE.md is loaded;
+- `cwd = ai.workdir`, a directory with no CLAUDE.md in any ancestor, so no project context is loaded
+  (amended 2026-10-12 at checkpoint A: `claude -p` walks up from its cwd, so the original
+  `data/spreads_ai` inside the repo loaded the project `CLAUDE.md`; the default is now
+  `~/.cache/ibkr-spreads-ai`, `~` expanded, a relative path resolving under the repo root);
 - `--max-turns 1`;
 - all tools disallowed and no MCP servers;
 - `--model` and `--effort` per call (§7).
@@ -276,7 +279,7 @@ ai:
   pick_timeout_seconds: 45
   max_pick_calls_per_day: 4
   max_headlines: 20
-  workdir: data/spreads_ai    # empty working directory for claude -p (no project context loaded)
+  workdir: ~/.cache/ibkr-spreads-ai  # outside the repo so claude -p loads no project CLAUDE.md (amended 2026-10-12 at checkpoint A; was data/spreads_ai)
 selection:
   menu_size: 4                # inside item + baseline + up to 2 outer items
 ```

@@ -1751,6 +1751,14 @@ Live trading is not supported by this build. The service refuses to run with `LI
 | `python -m scripts.spreads_combo_check --short K --long K [--fill]` | Paper-only check of the combo order sign: display only by default, a filled-and-closed one-lot with `--fill` |
 | `python -m scripts.spreads_resolve --spread-id ID --debit D [--contracts N] [--commission C]` | Settle by hand a spread the service can no longer close (it expired while still open, or the broker no longer holds it) |
 
+### Letting Claude pick the spread (optional)
+
+1. Make sure `claude -p` works for the user the supervisor runs as: `echo 'Reply {"ok":true}' | ~/.local/bin/claude -p --output-format json` prints a JSON envelope.
+2. In `config/spreads.yaml`: keep `enabled: true` and `mode: paper` (or `shadow`), then set `ai.enabled: true`. The defaults (Opus/high for both calls, 45 s pick timeout, 4 calls a day, `menu_size: 4`) are in `config/examples/spreads.yaml`. `ai.workdir` (default `~/.cache/ibkr-spreads-ai`, created on first use) is where `claude -p` runs; keep it outside the repo so the project `CLAUDE.md` is not loaded into the prompt.
+3. `./ibkr restart`. In the spreads thread you will see a **DAY PLAN** card after the 09:31 map, and a **PICK** card per decision (the menu, Claude's choice and reason, and what the baseline book did). A failure says `picker failed (...)` and trades the baseline item.
+4. Weekly: `python -m scripts.spreads_report --mode paper --compare`. Read the by-decision rows first (did Claude's skips and strike changes make or lose money against the baseline?), then the by-condition rows — rows marked *noise* have fewer than 5 decisions. `--day YYYY-MM-DD` shows exactly what Claude saw and said; `--csv data/spreads_compare.csv` exports every decision.
+5. To stop Claude picking, set `ai.enabled: false` and restart: the system goes back to the baseline rule alone.
+
 ---
 
 ## 17. News thread

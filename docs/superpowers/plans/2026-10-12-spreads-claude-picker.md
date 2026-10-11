@@ -1,6 +1,6 @@
 # Claude Picks the Daily Credit Spread — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Claude chooses the day's SPY 0DTE credit spread from a menu of gate-approved, gate-sized spreads (or skips), driving paper orders, while a baseline book that always takes the deterministic pick is simulated beside it for comparison.
 
@@ -14,19 +14,29 @@
 
 | Task | Status | Commits | Gate | Date | Rulings |
 |---|---|---|---|---|---|
-| 1 Config | not started | | | | |
-| 2 Schemas + menu | not started | | | | |
-| 3 Store | not started | | | | |
-| 4 `src/claude/cli.py` | not started | | | | |
-| 5 Parse + prompts | not started | | | | |
-| 6 Context + picker + fences | not started | | | | |
-| 7 Service: two books | not started | | | | |
-| 8 Service: pick flow | not started | | | | |
-| 9 Wiring + process fence | not started | | | | |
-| 10 Report `--compare` | not started | | | | |
-| 11 Docs + final gate | not started | | | | |
+| 1 Config | done | 4276e24 | 3405 passed | 2026-10-12 | sonnet |
+| 2 Schemas + menu | done | d6ef9df | 3415 passed | 2026-10-12 | sonnet |
+| 3 Store | done | af1df1a | 3419 passed | 2026-10-12 | sonnet |
+| 4 `src/claude/cli.py` | done | 8f4fae7 | 3426 passed | 2026-10-12 | sonnet; fake-CLI test helper uses an sh wrapper (the repo path has a space, so a python shebang fails) |
+| 5 Parse + prompts | done | b13dbe7 | 3444 passed | 2026-10-12 | sonnet |
+| 6 Context + picker + fences | done | 8846c0e | 3454 passed | 2026-10-12 | sonnet |
+| Checkpoint A (review T1–6) | done | 16d91d2 | 3462 passed | 2026-10-12 | 0 C / 2 I / 7 M. Ruling: workdir moved outside the repo (claude -p loaded the project CLAUDE.md from data/spreads_ai); added dist_flip_pts (spec §5.3); fixed CLI kill race + cancel test, letters A–Z, HV30 + macro-failure test |
+| 7 Service: two books | done | 7393c84 | 3465 passed | 2026-10-12 | sonnet instead of opus (Opus subagents hit the weekly limit) |
+| 8 Service: pick flow | done | 2c81877 | 3476 passed | 2026-10-12 | sonnet instead of opus; added a send_error guard (_send_pick) |
+| 9 Wiring + process fence | done | eae4fc7 | 3478 passed | 2026-10-12 | sonnet |
+| Checkpoint B (review T7–9) | done | e126d79, 39e0044 | 3488 passed | 2026-10-12 | 0 C / 2 I (tests) / 7 M. Mutant-killing tests (fresh-requote send, re-gate sizing, per-episode baseline, new-extreme episode, picker_error, send_error) + paper-mode books test; fixed no_fresh_spot, per-book manage guard, stale_pick, timeout latency. Parked: transient block burns the episode; `always`+both sides fallback; in-flight pick lost on restart; baseline expired_open alert wording |
+| 10 Report `--compare` | done | 9ebeb0e | 3493 passed | 2026-10-12 | sonnet; nested def instead of noqa lambda; extra format_day test |
+| 11 Docs + final gate | done | this commit | 3493 passed, 1 skipped; ruff check + mypy src clean | 2026-10-12 | sonnet; spec §5.1/§7 workdir wording amended; ARCHITECTURE `cli.py` row no longer says "empty working directory" |
 
-Baseline before Task 1 (main @ `835a30d`): `python -m pytest -q` → **3400 passed, 1 skipped**.
+Execution: hybrid subagent-driven (per-task implementers, checkpoint reviews after Tasks 6 and 9, final whole-branch review). Opus subagents unavailable (weekly limit until 2026-10-14 15:00 SGT): all tasks and reviews ran on Sonnet.
+
+Operator checks owed after merge (not done by the implementer):
+1. `./ibkr restart` with `ai.enabled: true` and `mode: paper`. Check that the DAY PLAN card arrives after the 09:31 map.
+2. On the first trigger, check that the PICK card arrives within ~20 s, that the chosen spread's paper order goes through the re-gate, and that `spread_picks` has the row (`--day today`).
+3. After a week, run the first `--compare`.
+4. Confirm the DAY PLAN card's prompt carries no project CLAUDE.md (run from `~/.cache/ibkr-spreads-ai`).
+
+Baseline before Task 1 (main @ `835a30d`): `python -m pytest -q` → **3400 passed, 1 skipped**.  Final gate (Task 11): **3493 passed, 1 skipped** (+93 tests).
 
 ## Spec rulings (decided while planning; record any new ones in the log above)
 
@@ -89,7 +99,7 @@ Baseline before Task 1 (main @ `835a30d`): `python -m pytest -q` → **3400 pass
   - `SpreadsCfg.ai: SpreadsAiCfg`;
   - `Config.spreads_ai_workdir() -> Path`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_spreads_config.py`; add `SpreadsAiCfg, SpreadsSelectionCfg` to the existing `from src.common.config import (...)` block)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_spreads_config.py`; add `SpreadsAiCfg, SpreadsSelectionCfg` to the existing `from src.common.config import (...)` block)
 
 ```python
 import subprocess
@@ -148,12 +158,12 @@ def test_ai_workdir_resolves_under_the_root_and_is_gitignored() -> None:
     assert ignored.returncode == 0
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_config.py -q`
 Expected: FAIL. The new tests raise `ImportError: cannot import name 'SpreadsAiCfg'`.
 
-- [ ] **Step 3: Implement the config**
+- [x] **Step 3: Implement the config**
 
 In `src/common/config.py`, inside `SpreadsSelectionCfg` after `strike_band_pct`:
 
@@ -232,7 +242,7 @@ In `Config`, after `spreads_halt_path`:
         return ROOT / self.spreads.ai.workdir
 ```
 
-- [ ] **Step 4: Update the example YAML and `.gitignore`**
+- [x] **Step 4: Update the example YAML and `.gitignore`**
 
 In `config/examples/spreads.yaml`, under `selection:` after `strike_band_pct: 0.03`:
 
@@ -263,12 +273,12 @@ In `.gitignore`, under the `# Daily credit spreads:` comment block, add a line:
 data/spreads_ai/
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `python -m pytest tests/test_spreads_config.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Update `ARCHITECTURE.md`**
+- [x] **Step 6: Update `ARCHITECTURE.md`**
 
 In the `config/` section's `spreads.yaml` row, insert after "`execution` (price ladder, shadow slippage, commission)":
 
@@ -276,7 +286,7 @@ In the `config/` section's `spreads.yaml` row, insert after "`execution` (price 
 , `selection.menu_size` (the pick menu: one strike inside the baseline pick, the pick, up to two further out), `ai` (Claude picks from the gate-approved menu: `enabled` ships `false`; per-call `brief_model`/`brief_effort` and `pick_model`/`pick_effort`, default Opus/high; `pick_timeout_seconds` 45, which must be shorter than an entry check; `max_pick_calls_per_day` 4; `max_headlines`; `workdir`, an empty cwd for `claude -p`)
 ```
 
-- [ ] **Step 7: Run the gate and commit**
+- [x] **Step 7: Run the gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -324,7 +334,7 @@ class SpreadPickRecord(BaseModel): ...
 - `src.spreads.selector.select_menu(chain, levels, cfg, now, sides=None) -> list[tuple[SpreadCandidate, SpreadMenuPosition]]`
 - `src.spreads.menu.LETTERS: str`, `round_trip_cost(cfg) -> float`, `breakeven(win, loss) -> float | None`, `build_menu(items: list[tuple[SpreadCandidate, SpreadMenuPosition, int]], levels: GexLevels, cfg: SpreadsCfg) -> list[SpreadMenuItem]`
 
-- [ ] **Step 1: Add the schemas**
+- [x] **Step 1: Add the schemas**
 
 In `src/common/schemas.py`, change `SpreadPosition.mode` and `SpreadTradeRecord.mode` from `Literal["shadow", "paper"]` to `SpreadBookMode`. Define `SpreadBookMode` just above `class SpreadPosition`:
 
@@ -511,7 +521,7 @@ class SpreadPickRecord(BaseModel):
 
 (`date`, `datetime`, `Field`, `Literal`, `SpreadSide`, `GexLevels` are already imported or defined earlier in `schemas.py`; check with `grep -n "^from\|^import" src/common/schemas.py`.)
 
-- [ ] **Step 2: Write the failing selector tests** (append to `tests/test_spreads_selector.py`)
+- [x] **Step 2: Write the failing selector tests** (append to `tests/test_spreads_selector.py`)
 
 ```python
 from src.spreads.selector import select_menu
@@ -569,12 +579,12 @@ def test_select_candidates_is_still_the_baseline_item() -> None:
     assert c.short_strike == 679
 ```
 
-- [ ] **Step 3: Run them and confirm they fail**
+- [x] **Step 3: Run them and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_selector.py -q`
 Expected: FAIL with `ImportError: cannot import name 'select_menu'`.
 
-- [ ] **Step 4: Rebuild the selector on a strike walk**
+- [x] **Step 4: Rebuild the selector on a strike walk**
 
 Replace `select_candidates` in `src/spreads/selector.py` with the following, adding `import itertools` and `from collections.abc import Iterator` at the top, and `SpreadMenuPosition` to the schemas import:
 
@@ -709,12 +719,12 @@ def select_menu(
     return out
 ```
 
-- [ ] **Step 5: Run the selector tests (old and new)**
+- [x] **Step 5: Run the selector tests (old and new)**
 
 Run: `python -m pytest tests/test_spreads_selector.py tests/test_spreads_service.py -q`
 Expected: PASS. Every existing selector and service test still passes, so the walk behaves as before.
 
-- [ ] **Step 6: Write the failing menu tests** (`tests/test_spreads_menu.py`)
+- [x] **Step 6: Write the failing menu tests** (`tests/test_spreads_menu.py`)
 
 ```python
 from __future__ import annotations
@@ -814,12 +824,12 @@ def test_letters_run_puts_first_then_calls_closest_to_spot_first() -> None:
     ]
 ```
 
-- [ ] **Step 7: Run and confirm they fail**
+- [x] **Step 7: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_menu.py -q`
 Expected: FAIL with `ModuleNotFoundError: No module named 'src.spreads.menu'`.
 
-- [ ] **Step 8: Write `src/spreads/menu.py`**
+- [x] **Step 8: Write `src/spreads/menu.py`**
 
 ```python
 """The pick menu's economics — what Claude is shown about each gate-approved spread.
@@ -901,18 +911,18 @@ def build_menu(
     return out
 ```
 
-- [ ] **Step 9: Run the tests, then the gate**
+- [x] **Step 9: Run the tests, then the gate**
 
 Run: `python -m pytest tests/test_spreads_menu.py tests/test_spreads_selector.py -q`, then the full gate.
 Expected: PASS.
 
-- [ ] **Step 10: Update `ARCHITECTURE.md`**
+- [x] **Step 10: Update `ARCHITECTURE.md`**
 
 In the `src/spreads/` table:
 - Extend the `selector.py` row with: "`select_menu` builds Claude's menu: one strike inside the baseline pick (delta cap and credit floor only), the pick, then up to `menu_size − 2` further out."
 - Add a row: `| `menu.py` | The pick menu's economics: round-trip costs, credit after costs, distances from spot/expected move/wall, and break-even win rates at full max loss and under the exit rules. Pure; the prompt only formats these numbers. |`
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add src/common/schemas.py src/spreads/selector.py src/spreads/menu.py tests/test_spreads_selector.py tests/test_spreads_menu.py ARCHITECTURE.md
@@ -944,7 +954,7 @@ git commit -m "feat(spreads-ai): pick menu — selector walk, menu economics, pi
   - `episode_trade(episode_key: str, mode: str) -> SpreadTradeRecord | None`.
   - `SpreadPosition`/`SpreadTradeRecord` now carry `pick_id`/`episode_key`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_spreads_store.py`)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_spreads_store.py`)
 
 ```python
 from src.common.schemas import (
@@ -1044,12 +1054,12 @@ def test_init_adds_the_new_columns_to_an_existing_spreads_db(tmp_path, monkeypat
     assert {"pick_id", "episode_key"} <= cols
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_store.py -q`
 Expected: FAIL (`AttributeError: module 'src.spreads.store' has no attribute 'day_plan'`).
 
-- [ ] **Step 3: Implement the store changes**
+- [x] **Step 3: Implement the store changes**
 
 In `src/spreads/store.py`:
 
@@ -1320,18 +1330,18 @@ def episode_trade(episode_key: str, mode: str) -> SpreadTradeRecord | None:
         return _record(row) if row is not None else None
 ```
 
-- [ ] **Step 4: Run the store tests, then the full spreads suite**
+- [x] **Step 4: Run the store tests, then the full spreads suite**
 
 Run: `python -m pytest tests/test_spreads_store.py tests/test_spreads_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Update `ARCHITECTURE.md`**
+- [x] **Step 5: Update `ARCHITECTURE.md`**
 
 Extend the `store.py` row in the `src/spreads/` table with:
 
 > "With `ai.enabled`, also `spread_day_plans` (the morning brief per day) and `spread_picks` (one row per pick: the menu, Claude's choice and reason, any fallback, what was sent, model/latency/cost, the prompt and raw reply, and the condition snapshot as JSON plus typed columns). `spread_positions` gains `pick_id`/`episode_key`, added to an existing database by an additive `ALTER TABLE` at init. `mode` may also be `baseline`."
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -1366,7 +1376,7 @@ async def run_claude(
 
   `error` is one of `None`, `"cli_missing"`, `"timeout"`, `"cli_error"`, `"bad_envelope"`.
 
-- [ ] **Step 1: Write the failing tests** (`tests/test_claude_cli.py`)
+- [x] **Step 1: Write the failing tests** (`tests/test_claude_cli.py`)
 
 ```python
 from __future__ import annotations
@@ -1455,12 +1465,12 @@ def test_cli_module_imports_nothing_from_src() -> None:
     assert [m for m in mods if m == "src" or m.startswith("src.")] == []
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_claude_cli.py -q`
 Expected: FAIL with `ModuleNotFoundError: No module named 'src.claude.cli'`.
 
-- [ ] **Step 3: Write `src/claude/cli.py`**
+- [x] **Step 3: Write `src/claude/cli.py`**
 
 ```python
 """Async, single-shot ``claude -p`` for callers that must not load the wheel's prompt stack.
@@ -1562,18 +1572,18 @@ async def run_claude(
     return CliResult(reply, None, elapsed(), cost, raw)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_claude_cli.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Update `ARCHITECTURE.md`**
+- [x] **Step 5: Update `ARCHITECTURE.md`**
 
 In the `src/claude/` section's file table, add:
 
 > `| `cli.py` | Async single-shot `claude -p` (stdin prompt, one turn, no MCP servers, tools refused, an empty working directory). Imports nothing from `src/`, so the spreads picker can call Claude without loading the wheel's prompt stack. Returns the reply, notional cost and latency, or why it failed (`cli_missing`/`timeout`/`cli_error`/`bad_envelope`). |`
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -1599,7 +1609,7 @@ git commit -m "feat(claude): light async claude -p runner for the spreads picker
   - `prompts.build_pick_prompt(req: SpreadPickRequest, market: SpreadMarketSnapshot) -> str`
   - `prompts.REALIZED_MIN_TRADES = 20`
 
-- [ ] **Step 1: Write the failing parse tests** (`tests/test_spreads_ai_parse.py`)
+- [x] **Step 1: Write the failing parse tests** (`tests/test_spreads_ai_parse.py`)
 
 ```python
 from __future__ import annotations
@@ -1649,12 +1659,12 @@ def test_day_plan_parses_and_rejects_an_unknown_bias() -> None:
     assert parse_day_plan("no json here") is None
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_ai_parse.py -q`
 Expected: FAIL with `ModuleNotFoundError: No module named 'src.spreads_ai'`.
 
-- [ ] **Step 3: Write the package and `parse.py`**
+- [x] **Step 3: Write the package and `parse.py`**
 
 `src/spreads_ai/__init__.py`:
 
@@ -1741,12 +1751,12 @@ def parse_day_plan(text: str) -> SpreadDayPlan | None:
         return None
 ```
 
-- [ ] **Step 4: Run the parse tests**
+- [x] **Step 4: Run the parse tests**
 
 Run: `python -m pytest tests/test_spreads_ai_parse.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Write the failing prompt tests** (`tests/test_spreads_ai_prompts.py`)
+- [x] **Step 5: Write the failing prompt tests** (`tests/test_spreads_ai_prompts.py`)
 
 ```python
 from __future__ import annotations
@@ -1829,12 +1839,12 @@ def test_brief_prompt_asks_for_a_concrete_plan() -> None:
     assert "concrete and observable" in p
 ```
 
-- [ ] **Step 6: Run and confirm they fail**
+- [x] **Step 6: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_ai_prompts.py -q`
 Expected: FAIL with `ModuleNotFoundError: No module named 'src.spreads_ai.prompts'`.
 
-- [ ] **Step 7: Write `src/spreads_ai/prompts.py`**
+- [x] **Step 7: Write `src/spreads_ai/prompts.py`**
 
 ```python
 """Prompts for the spreads picker — formatting only.
@@ -2074,12 +2084,12 @@ def build_pick_prompt(req: SpreadPickRequest, market: SpreadMarketSnapshot) -> s
     )
 ```
 
-- [ ] **Step 8: Run the prompt tests**
+- [x] **Step 8: Run the prompt tests**
 
 Run: `python -m pytest tests/test_spreads_ai_parse.py tests/test_spreads_ai_prompts.py -q`
 Expected: PASS.
 
-- [ ] **Step 9: Gate and commit**
+- [x] **Step 9: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -2109,7 +2119,7 @@ git commit -m "feat(spreads-ai): strict reply parsing and brief/pick prompts (Ta
     - `async def pick(self, req: SpreadPickRequest) -> SpreadPick`.
     - Neither method raises.
 
-- [ ] **Step 1: Write the failing context tests** (`tests/test_spreads_ai_context.py`)
+- [x] **Step 1: Write the failing context tests** (`tests/test_spreads_ai_context.py`)
 
 ```python
 from __future__ import annotations
@@ -2151,7 +2161,7 @@ def test_technicals_become_percent_distances(monkeypatch) -> None:
     assert snap.rsi14 == 52.0 and "news" not in snap.unavailable  # max_headlines 0 = not asked
 ```
 
-- [ ] **Step 2: Write the failing picker tests** (`tests/test_spreads_ai_picker.py`)
+- [x] **Step 2: Write the failing picker tests** (`tests/test_spreads_ai_picker.py`)
 
 ```python
 from __future__ import annotations
@@ -2231,12 +2241,12 @@ async def test_the_brief_parses_a_plan_or_reports_why_not() -> None:
     assert bad.plan is None and bad.call.error == "unparseable"
 ```
 
-- [ ] **Step 3: Run and confirm they fail**
+- [x] **Step 3: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_ai_context.py tests/test_spreads_ai_picker.py -q`
 Expected: FAIL with `ModuleNotFoundError` for `src.spreads_ai.context` / `.picker`.
 
-- [ ] **Step 4: Write `src/spreads_ai/context.py`**
+- [x] **Step 4: Write `src/spreads_ai/context.py`**
 
 ```python
 """The enrichment inputs the spreads picker gathers itself: macro backdrop, SPY daily
@@ -2350,7 +2360,7 @@ def market_snapshot(now: datetime, *, symbol: str, max_headlines: int) -> Spread
     )
 ```
 
-- [ ] **Step 5: Write `src/spreads_ai/picker.py`**
+- [x] **Step 5: Write `src/spreads_ai/picker.py`**
 
 ```python
 """ClaudePicker — the spreads service's ``Picker``, backed by ``claude -p``.
@@ -2514,12 +2524,12 @@ class ClaudePicker:
             )
 ```
 
-- [ ] **Step 6: Run the picker and context tests**
+- [x] **Step 6: Run the picker and context tests**
 
 Run: `python -m pytest tests/test_spreads_ai_context.py tests/test_spreads_ai_picker.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Write the fence tests** (append to `tests/test_spreads_fence.py`; extend `FORBIDDEN_FOR_SPREADS` with `"src.spreads_ai"` and `"src.news"`)
+- [x] **Step 7: Write the fence tests** (append to `tests/test_spreads_fence.py`; extend `FORBIDDEN_FOR_SPREADS` with `"src.spreads_ai"` and `"src.news"`)
 
 ```python
 SPREADS_AI = sorted((ROOT / "src" / "spreads_ai").rglob("*.py"))
@@ -2574,12 +2584,12 @@ def test_only_the_spreads_entrypoint_imports_spreads_ai() -> None:
 
 In `tests/test_eval_skills.py`, add `"src.spreads_ai",` to `_ENRICHMENT_ONLY` with the comment `# Claude picks the daily spread (2026-10-12 spec §5.4)`.
 
-- [ ] **Step 8: Run the fences**
+- [x] **Step 8: Run the fences**
 
 Run: `python -m pytest tests/test_spreads_fence.py tests/test_eval_skills.py tests/test_news_fence.py -q`
 Expected: PASS.
 
-- [ ] **Step 9: Update `ARCHITECTURE.md`**
+- [x] **Step 9: Update `ARCHITECTURE.md`**
 
 Add a section after `### src/spreads/ — Daily credit spreads (a second, isolated system)`:
 
@@ -2596,7 +2606,7 @@ Spec: `docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md`. Plugg
 | `picker.py` | `ClaudePicker` (`brief`, `pick`): per-call model/effort/timeout from `spreads.ai`, never raises (a failure comes back as a `fallback_reason`) |
 ```
 
-- [ ] **Step 10: Gate and commit**
+- [x] **Step 10: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -2627,7 +2637,7 @@ git commit -m "feat(spreads-ai): market context, ClaudePicker, spreads_ai fences
     - `_open_candidate(cand, contracts, levels, excess, now, *, mode, executor, gex_chain, pick_id=None, episode_key=None) -> tuple[SpreadPosition | None, str | None]`.
   - `src.spreads.notify.fmt_books(mode, main_today, base_today, main_total, base_total) -> str`.
 
-- [ ] **Step 1: Write the failing tests** (`tests/test_spreads_books.py`)
+- [x] **Step 1: Write the failing tests** (`tests/test_spreads_books.py`)
 
 ```python
 from __future__ import annotations
@@ -2709,12 +2719,12 @@ async def test_the_eod_summary_compares_the_books(tmp_path, spreads_db) -> None:
 
 (`T1610` must be in the import list from `tests.test_spreads_service`; it is defined there.)
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_books.py -q`
 Expected: FAIL with `TypeError: SpreadsService.__init__() got an unexpected keyword argument 'picker'`.
 
-- [ ] **Step 3: Implement the two books in `src/spreads/service.py`**
+- [x] **Step 3: Implement the two books in `src/spreads/service.py`**
 
 (a) Imports:
 - add `SpreadBriefRequest, SpreadBriefResult, SpreadPick, SpreadPickRequest` to the schemas import;
@@ -2914,12 +2924,12 @@ def fmt_books(
     )
 ```
 
-- [ ] **Step 4: Run the new and existing service tests**
+- [x] **Step 4: Run the new and existing service tests**
 
 Run: `python -m pytest tests/test_spreads_books.py tests/test_spreads_service.py tests/test_spreads_notify.py -q`
 Expected: PASS. All existing service tests are unchanged and green.
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -2948,7 +2958,7 @@ git commit -m "feat(spreads): a baseline book beside the main book, managed and 
   - `fmt_brief(result, mode) -> str`;
   - `fmt_pick(menu, pick, fallback, chosen, baseline, mode) -> str`.
 
-- [ ] **Step 1: Write the failing tests** (`tests/test_spreads_picker_flow.py`)
+- [x] **Step 1: Write the failing tests** (`tests/test_spreads_picker_flow.py`)
 
 ```python
 from __future__ import annotations
@@ -3221,12 +3231,12 @@ async def test_a_halt_during_the_pick_records_it_without_trading(tmp_path, sprea
     assert rec.send_reasons == ["halted"] and spreads_db.open_positions("shadow") == []
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_picker_flow.py -q`
 Expected: FAIL. With `ai.enabled` but no pick flow yet, `spreads_db.picks()` is empty and the baseline never trades.
 
-- [ ] **Step 3: Implement the pick flow in `src/spreads/service.py`**
+- [x] **Step 3: Implement the pick flow in `src/spreads/service.py`**
 
 (a) Imports:
 - `from dataclasses import dataclass`;
@@ -3698,12 +3708,12 @@ def fmt_pick(
     )
 ```
 
-- [ ] **Step 4: Run the flow tests and every spreads test**
+- [x] **Step 4: Run the flow tests and every spreads test**
 
 Run: `python -m pytest tests/test_spreads_picker_flow.py tests/test_spreads_books.py tests/test_spreads_service.py -q`
 Expected: PASS. If `test_a_skip_stands_for_its_episode_even_across_a_restart` fails because the restarted tape arms on a different extreme, print `svc2._episode_key(...)` alongside the stored `episode_key`. Fix the key, not the test: the key must survive a restart.
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -3729,7 +3739,7 @@ git commit -m "feat(spreads): Claude picks from the gate-approved menu — brief
   - `run(stop_event: asyncio.Event | None = None, picker_factory: PickerFactory | None = None)`;
   - `scripts.run_spreads.make_picker(cfg: Config) -> Picker`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_run_spreads.py`:
 
@@ -3777,12 +3787,12 @@ def test_the_full_spreads_process_loads_claude_only_through_the_light_cli() -> N
     assert not _reaches(loaded, "src.news.store.session")
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_run_spreads.py tests/test_spreads_fence.py -q`
 Expected: FAIL with `ImportError: cannot import name 'make_picker'`.
 
-- [ ] **Step 3: Implement the wiring**
+- [x] **Step 3: Implement the wiring**
 
 In `src/spreads/service.py`, change the config import to `from src.common.config import Config, SpreadsCfg, get_config`, add `PickerFactory = Callable[[Config], Picker]` below `Picker`, and update `run`:
 
@@ -3858,16 +3868,16 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_run_spreads.py tests/test_spreads_fence.py tests/test_spreads_service.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Update `SETUP.md`**
+- [x] **Step 5: Update `SETUP.md`**
 
 In the scripts table row for `scripts.run_spreads`, append: "With `spreads.ai.enabled: true` it also wires in the Claude picker (§16)."
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -3897,7 +3907,7 @@ git commit -m "feat(spreads): wire the Claude picker into the spreads process; p
   - `decision_rows(decisions) -> list[dict[str, object]]`;
   - `format_day(day, plan_row_text, picks, main_log, base_log) -> list[str]`.
 
-- [ ] **Step 1: Write the failing tests** (append to `tests/test_spreads_report.py`)
+- [x] **Step 1: Write the failing tests** (append to `tests/test_spreads_report.py`)
 
 ```python
 from datetime import UTC, date, datetime
@@ -3969,12 +3979,12 @@ def test_the_compare_text_and_csv_rows() -> None:
     assert row["menu"].startswith("A inside 680/675")
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `python -m pytest tests/test_spreads_report.py -q`
 Expected: FAIL with `ImportError: cannot import name 'build_decisions'`.
 
-- [ ] **Step 3: Implement the comparison in `src/spreads/report.py`**
+- [x] **Step 3: Implement the comparison in `src/spreads/report.py`**
 
 Add `SpreadPickRecord, SpreadTradeRecord` imports from `src.common.schemas`, then:
 
@@ -4203,7 +4213,7 @@ def format_day(
 
 Also add `from datetime import date` and `from src.common.schemas import SpreadPickRecord, SpreadTradeRecord` at the top.
 
-- [ ] **Step 4: Extend `scripts/spreads_report.py`**
+- [x] **Step 4: Extend `scripts/spreads_report.py`**
 
 Replace `main()`:
 
@@ -4247,12 +4257,12 @@ python -m scripts.spreads_report --mode paper --compare [--csv data/spreads_comp
 python -m scripts.spreads_report --mode paper --day 2026-10-14
 ```
 
-- [ ] **Step 5: Run the report tests and smoke the script**
+- [x] **Step 5: Run the report tests and smoke the script**
 
 Run: `python -m pytest tests/test_spreads_report.py -q && IBKR_CONFIG_USE_EXAMPLES=1 python -m scripts.spreads_report --mode paper --compare`
 Expected: tests PASS. The script prints both books' stats lines and `decisions: N (M settled)`, with no traceback. `data/spreads_compare.csv` is covered by the existing `data/spreads_*.csv` ignore rule.
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 python -m pytest -q && ruff format . && ruff check . && mypy src
@@ -4271,7 +4281,7 @@ git commit -m "feat(spreads): --compare/--day/decision CSV — Claude's book aga
 - Modify: `ARCHITECTURE.md`: the `service.py`, `notify.py` and `report.py` rows in the `src/spreads/` table
 - Modify: this plan's Progress log
 
-- [ ] **Step 1: `CLAUDE.md`**
+- [x] **Step 1: `CLAUDE.md`**
 
 (a) In "The spreads fence", after the `src/spreads/risk.py::validate` bullet, add:
 
@@ -4293,7 +4303,7 @@ git commit -m "feat(spreads): --compare/--day/decision CSV — Claude's book aga
 
 (c) In "Analytics tiers", after the enrichment-tier rule extending to `src/claude/news_context.py`, add: "`src/spreads_ai/` is enrichment too (on `tests/test_eval_skills.py`'s list): it reads the deterministic and enrichment analytics and `news.db`, and its only output is a menu letter that the spreads service validates and re-gates."
 
-- [ ] **Step 2: `STATUS.md`**
+- [x] **Step 2: `STATUS.md`**
 
 Add a section above `## Built (2026-10-11 — roll redesign ...)`:
 
@@ -4315,7 +4325,7 @@ Spec: `docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md`; plan:
 - A pick in flight when the process restarts is lost without a row; the restarted service asks again on that episode.
 ```
 
-- [ ] **Step 3: `SETUP.md` §16**
+- [x] **Step 3: `SETUP.md` §16**
 
 Add a subsection at the end of §16:
 
@@ -4329,14 +4339,14 @@ Add a subsection at the end of §16:
 5. To stop Claude picking, set `ai.enabled: false` and restart: the system goes back to the baseline rule alone.
 ```
 
-- [ ] **Step 4: `ARCHITECTURE.md`**
+- [x] **Step 4: `ARCHITECTURE.md`**
 
 In the `src/spreads/` table:
 - `service.py`: append "With a `Picker` (ai.enabled): the 09:31 brief, the menu, the baseline book (`-BL` ids, simulated), the pick as a background task resolved on a later tick, the fallback to the baseline item, the daily call cap, and the re-quote + re-gate before the executor. `run(picker_factory=...)` takes the picker from `scripts/run_spreads.py`."
 - `notify.py`: append "`fmt_brief`, `fmt_pick` (the menu, the choice and what the baseline did), `fmt_books` (the EOD comparison line)."
 - `report.py`: append "`--compare`: decisions (pick ↔ main trade by `pick_id`, ↔ baseline trade by `episode_key`) by kind and by condition, choice distribution, fill bias; `decision_rows` for the CSV; `format_day`."
 
-- [ ] **Step 5: Run the full gate**
+- [x] **Step 5: Run the full gate**
 
 ```bash
 python -m pytest -q
@@ -4347,7 +4357,7 @@ mypy src
 
 Expected: all green. The test count is 3400 plus this plan's new tests, with 1 skipped. Record the exact count in the Progress log.
 
-- [ ] **Step 6: Update the Progress log and commit**
+- [x] **Step 6: Update the Progress log and commit**
 
 Tick every task row with its commits, gate result and date, and list any new rulings. Then:
 
@@ -4356,7 +4366,7 @@ git add CLAUDE.md STATUS.md SETUP.md ARCHITECTURE.md docs/superpowers/plans/2026
 git commit -m "docs(spreads-ai): fences, status, setup and architecture for the Claude picker (Task 11)"
 ```
 
-- [ ] **Step 7: Operator checks owed after merge** (record them in the Progress log; they are not done by the implementer)
+- [x] **Step 7: Operator checks owed after merge** (record them in the Progress log; they are not done by the implementer)
 
 1. `./ibkr restart` with `ai.enabled: true` and `mode: paper`. Check that the DAY PLAN card arrives after the 09:31 map.
 2. On the first trigger, check that the PICK card arrives within ~20 s, that the chosen spread's paper order goes through the re-gate, and that `spread_picks` has the row (`--day today`).
