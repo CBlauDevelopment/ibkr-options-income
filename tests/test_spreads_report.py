@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -274,11 +274,15 @@ def test_compare_is_scoped_to_the_main_mode_and_the_ai_era() -> None:
     ]
     base = [
         _trade("baseline", 5.0, episode="old", opened=early),
-        _trade("baseline", -10.0, episode="ep2"),
+        # the service opens the baseline trade in _decide, ~30 s before the pick row is written
+        _trade("baseline", -10.0, episode="ep2", opened=T - timedelta(seconds=30)),
+        _trade("baseline", 7.0, episode="later", opened=T + timedelta(hours=1)),
     ]
     sp, sm, sb, since = scope_compare(picks, main, base, "paper")
     assert [p.pick_id for p in sp] == [2] and since == T
-    assert [t.pnl_usd for t in sm] == [30.0] and [t.pnl_usd for t in sb] == [-10.0]
+    assert [t.pnl_usd for t in sm] == [30.0] and [t.pnl_usd for t in sb] == [-10.0, 7.0]
+    (d,) = build_decisions(sp, sm, sb)
+    assert d.base_pnl == -10.0 and d.diff == 40.0  # the first episode keeps its baseline trade
     assert scope_compare([], main, base, "paper")[3] is None
 
 

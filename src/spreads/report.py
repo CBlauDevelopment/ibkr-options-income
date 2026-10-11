@@ -167,18 +167,23 @@ def scope_compare(
 ]:
     """Restrict a comparison to the main mode and to the AI era.
 
-    Picks are filtered to ``book_mode == main_mode``; both books' trades to those opened at or
-    after the first such pick (pre-AI trades, and a baseline from another era, are not part of
-    the comparison). Returns the cut-off too (``None`` when there are no picks, in which case there is nothing to compare).
+    Picks are filtered to ``book_mode == main_mode``; Claude's trades to those opened at or after
+    the first such pick. The baseline trade of an episode opens in ``_decide``, 15-75 s *before*
+    its pick row is written, so the baseline is cut at the earliest baseline trade belonging to a
+    scoped pick's episode instead (pre-AI trades, and a baseline from another era, stay out).
+    Returns the first pick's time too (``None`` when there are no picks, in which case there is
+    nothing to compare).
     """
     mine = sorted((p for p in picks if p.book_mode == main_mode), key=lambda p: p.created_at)
     if not mine:
         return [], [], [], None
     since = mine[0].created_at
+    episodes = {p.episode_key for p in mine}
+    base_since = min((t.opened_at for t in base_log if t.episode_key in episodes), default=since)
     return (
         mine,
         [t for t in main_log if t.opened_at >= since],
-        [t for t in base_log if t.opened_at >= since],
+        [t for t in base_log if t.opened_at >= min(since, base_since)],
         since,
     )
 
