@@ -375,7 +375,7 @@ The auto-close circuit breakers live in `config/settings.yaml → automation`:
 | `automation.max_auto_trades_per_day` | 10 | Max new-exposure entry orders opened per ET trading day (auto or manual). 0 disables. |
 | `automation.daily_loss_halt_pct` | 3.0 | Auto-engage the `/halt` kill switch when today's **mark-to-market** loss exceeds this % of net liquidation — measured from the prior EOD position snapshot's summed `unrealized_pnl`, not fill cashflow (D3: a day the system sells premium into a real drawdown always shows a positive *cashflow*, so the old cashflow-based measure never caught it). 0 disables. |
 | `automation.drawdown_halt_pct` | 10.0 | Auto-engage the `/halt` kill switch when net liquidation falls this % below its trailing high-water mark (`system_settings.get_high_water_mark`). Catches a slow bleed that no single day's loss trips. 0 disables. |
-| `automation.max_loss_multiple` | 2.0 | The loss line: cost-to-close reaching this multiple of the entry credit. Shorts on `leveraged_etfs` are bought back (checked every 15 minutes during the intraday loop); every other short gets a defensive roll proposal (Approve/Reject card) from the intraday monitor instead of a close. 0 disables both. |
+| `automation.max_loss_multiple` | 2.0 | The loss line: cost-to-close reaching this multiple of the entry credit. Shorts on `leveraged_etfs` are bought back (checked every 15 minutes during the intraday loop); every other short gets an information-only loss-line alert — since 2026-10-11 a roll is proposed only on a strike breach near expiry (see `roll:` below). 0 disables both. |
 | `automation.auto_close_enabled` | true | Enable auto-close: both risk-reducing loss-side exits (buy-to-close at max\_loss\_multiple × entry credit) and profit-takes (`scheduler.profit_take_pct`, 50% by default, or a per-strategy/entry-DTE `scheduler.profit_take_schedule` row) buy to close automatically when true; alert-only when false. Independent of the autonomy rung (`/autonomy`) — that ladder governs opening new exposure only, not closing an existing position. |
 
 ### Checking what's actually tradeable
@@ -443,6 +443,27 @@ documented but not wired. You can leave these at the `yfinance` defaults; swappi
 later is a config change here, not a code change.
 
 ---
+
+### `config/settings.yaml` — the `roll:` block (2026-10-11)
+
+How breached shorts are handled. Evidence and grades: `docs/research/2026-10-11-rolling-short-options.md`;
+every value is yours to edit (nothing learned changes it).
+
+| Key | Shipped | Meaning |
+|---|---|---|
+| `roll.trigger.breach_delta` | 0.50 | A short counts as breached when the stock is through the strike or \|delta\| reaches this… |
+| `roll.trigger.evaluate_within_dte` / `min_extrinsic` | 10 / 0.10 | …and it is within this many days of expiry, or its time value ($/sh) is this thin. Tested shorts with weeks left often recover. |
+| `roll.trigger.min_minutes_after_open` / `reevaluate_minutes` | 15 / 30 | No alert or roll check in the first 15 minutes; a breached short is re-checked every 30 minutes while it stays breached. |
+| `roll.csp.when_assignable` | `roll_if_credit` | A breached put on a would-own name: roll for a net credit if one exists, else let it assign. `assign` skips the roll attempt. A put on a name **not** on `would_own` gets a Close recommendation. |
+| `roll.cc.keep_shares` / `max_debit` | true / 0.25 | A breached covered call: roll up-and-out paying at most $0.25/sh to keep the shares; otherwise let it be called away (or hold, if the strike is below your cost basis). |
+| `roll.new_leg.*` | 3 expiries, ≤35 DTE, 5 strikes out, 10 lines, $0.05 floor | What the targeted roll fetch prices and the minimum net credit per share. |
+| `roll.limits.max_rolls_per_chain` / `max_extension_days` | 1 / 28 | A position may be rolled once; the chain may not run more than 28 days past its original expiry. |
+| `roll.exec.reprice_steps` | 3 | An unfilled roll walks from the mid toward the natural price in this many steps, never past the floor. |
+
+`risk_limits.yaml → events.ex_dividend_assignment_guard` is the master switch for the ex-dividend
+roll check (a short call whose time value no longer covers the next dividend). Leveraged ETFs are
+never rolled. The 21/7-day timers, delta drift, IV spike, assignment risk and the non-leveraged loss
+line are information-only alerts.
 
 ## 6. Set up the daemons
 
@@ -738,7 +759,7 @@ the same second `[CONFIRM LIVE]` step execution has always required.
 |---|---|---|
 | Approve / Reject | `/options`, per pending approval | The exact `_process_button` mutation Telegram's ✅/❌ buttons perform — the web is a second front door onto the same order path, never a second path. |
 | Promote | `/options` → Assessed tab, per gate-passed-but-not-yet-approved contract | Re-prices and re-gates the contract fresh (a stored score never gets promoted on trust) and, only if it still clears the Rules Engine, raises a PENDING approval for you to approve above. |
-| Propose a roll | `/options` → Shorts tab, per open short | Prices a defensive roll for that position and raises it as a PENDING approval — it does **not** execute the roll. You still approve the proposal separately. |
+| Propose a roll | `/options` → Shorts tab, per open short | Runs the roll policy for that position (the same decision the monitor makes on a breach). A `roll` decision raises a PENDING approval — it does **not** execute the roll; you still approve it separately. Any other decision (assign, let called away, close, hold) comes back as `no_qualifying_roll` with the decision and its reason. |
 | Halt / Resume / Autonomy | `/options` controls strip | The same kill switch and autonomy ladder as `/halt`, `/resume`, `/autonomy` in Telegram — one flag, one rung, read by every consumer. Halt is one click, no confirmation; Resume requires typing the word RESUME. |
 | Add/remove `would_own` or `watchlist` | `/universe` | Edits the scan universe without touching `config/universe.yaml` by hand. Adding a symbol to `would_own` means the system may start selling cash-secured puts on it and you may be assigned its shares — the console shows that consequence in a confirmation before submitting. `watchlist` is reporting-only and applies immediately. `sectors` and every other list stay file-only; they are not editable from the browser at all. |
 
@@ -1330,6 +1351,15 @@ python -m scripts.backtest_candidate --symbol AAPL --strategy cash_secured_put \
     --delta 0.30 --dte 30 --earnings --blackout-before 14 --vol-crush-dte 14
 ```
 
+To see what a strike breach has historically cost under each response — let it assign (and sell
+calls), roll the same strike out for a credit, or buy it back — on a symbol's own history
+(Black-Scholes at HV30, indicative only; defaults read your `roll:` block):
+
+```bash
+python -m scripts.roll_backtest --symbol AAPL --start 2019-01-01 --end 2026-09-30
+python -m scripts.roll_backtest --symbol GOOGL --right C --delta 0.25 --dte 14 --roll-dte 7
+```
+
 To have the same per-candidate backtest injected automatically into the Claude strategist prompt at
 scan time (so the reasoning layer sees historical behaviour for each surfaced strike/DTE/delta), set
 `claude.backtest_in_prompt: true` in `config/settings.yaml`. It is **off by default** because it adds
@@ -1810,6 +1840,8 @@ out of cards and digests by `tagging.noise_terms`; a 🧠 read that cites nothin
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| A roll card says **Let it assign**, **Let it be called away** or **Hold** instead of proposing a roll | The roll policy found no roll within its limits; the card's last lines name the reason and the skipped targets (e.g. `net below floor ×4` — no strike paid the $0.05 credit floor; `earnings before expiry`; `roll limit reached` — the chain was already rolled once) | Working as designed. To change the outcome edit `config/settings.yaml → roll:` (e.g. `new_leg.min_net_credit`, `limits.max_rolls_per_chain`) and restart the monitor. `python -m scripts.roll_backtest` shows how the alternatives have played out historically |
+| No roll card at all for a short that is in the money | It is more than `roll.trigger.evaluate_within_dte` (10) days from expiry with time value left, it is before 09:45 ET or outside RTH, or it was checked less than 30 minutes ago | Wait for the next check, or use `/options` → Propose a roll to ask now |
 | Scans complete but propose no CSP/CC; logs show `data-feed outage suspected for X: none of N call quotes had a live bid/ask` for liquid names (NVDA, META) during market hours, and most rejections are `illiquid_no_quote` | The per-batch quote wait is shorter than the time IBKR takes to fill a 40-line batch (fixed 2026-10-09: it was a hard 2 s; real-time quotes land at ~2.5-3 s) | Raise `market_data.chain_quote_ceiling_seconds` (default 8; ib_async's 45-requests/s send throttle alone delays a later batch's ticks by ~2 s) in `config/settings.yaml`. Complete batches return early, so it mainly costs time on batches that never fill; `chain_quote_settle_seconds` (2.5) bounds those. Watch for `chain-fetch budget ... exhausted` |
 | `claude: CLI not found` in the logs (trade reviews and news explanations fall back or go missing) though `claude` works in your terminal | The launchd supervisor's `PATH` has no `~/.local/bin` | Set `claude.cli_command` to the absolute path from `which claude` |
 | Spreads candidates always rejected with `account_unknown` | The account's base currency is not USD and the service could not find a USD exchange rate in the account stream | Fixed 2026-10-09 (it now also reads `$LEDGER-ExchangeRate`). If it recurs, check `ib.accountValues()` for the tag your account sends |

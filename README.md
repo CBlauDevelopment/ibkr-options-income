@@ -37,7 +37,7 @@ live-cutover checklist), **[STATUS.md](STATUS.md)**; to fork and run it yourself
 | Time | What happens |
 |---|---|
 | **Every 15 min (RTH)** | Intraday loop: checks profit-take/loss-exit targets, runs a fresh scan (full sweep on first cycle each session); candidates a symbol's autonomy rung clears (WHITELIST/FULL) auto-execute, everything else sends an approval request (buttons withheld at OBSERVE) |
-| **During market hours** | Event-driven monitor watches open positions for delta drift, IV spikes, ex-dividend and early-assignment risk, and the mechanical **21-DTE management point** (while closing, rolling, or holding are all still viable — not first at 7 days, deep in the gamma window); alerts you to roll when needed |
+| **During market hours** | Event-driven monitor watches open positions for delta drift, IV spikes, ex-dividend and early-assignment risk, and the **21-DTE management point** as information-only alerts (from 09:45 ET); a short actually breached near expiry gets a roll / assign / close decision card instead |
 | **4:15 PM ET (auto)** | End-of-day report: P&L summary, journal entry, tomorrow's watchlist |
 | **Any time** | Telegram bot commands (see below) — query the system interactively from your phone |
 | **When you approve** | Execution engine re-validates, builds a limit order at mid-price, places it, and confirms the fill back to Telegram |
@@ -111,11 +111,13 @@ Each stage links to its full technical writeup in **[ARCHITECTURE.md](ARCHITECTU
 - **[Intraday monitoring](ARCHITECTURE.md#watching-positions-all-day--the-intraday-monitor)** — an
   event-driven watcher for delta drift, IV spikes, ex-dividend risk, and the 21-DTE management
   point.
-- **[Rolling](ARCHITECTURE.md#rolling-a-position)** — income rolls must still clear normal
-  economics; defensive rolls are judged on risk reduction instead.
+- **[Rolling](ARCHITECTURE.md#rolling-a-position)** — only a breached short near expiry is
+  considered: rolled out for a net credit (calls: a capped debit to keep the shares), same-or-better
+  strike, once per position; otherwise assigned, called away, closed or held, with the reason shown.
 - **[Loss management](ARCHITECTURE.md#managing-losses-and-circuit-breakers)** — automatic
-  profit-take per position; at the loss line, leveraged ETFs are closed and everything else gets a
-  defensive roll proposal; plus daily-loss and drawdown circuit breakers at the account level.
+  profit-take per position (measured on the whole roll chain); at the loss line, leveraged ETFs are
+  closed and everything else gets an alert; plus daily-loss and drawdown circuit breakers at the
+  account level.
 - **[The wheel](ARCHITECTURE.md#the-wheel--campaigns)** — CSP→assignment→CC chains tracked as one
   campaign with a real adjusted cost basis.
 - **[End of day](ARCHITECTURE.md#end-of-day--the-daily-report)** — a written P&L narrative,

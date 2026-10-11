@@ -535,4 +535,4 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 12 Reviewer | done | (this commit) | reviewer/monitor/claude suites 200 pass; mypy clean | 2026-10-11 | decision cards reviewed with the proposal; monitor tests patch review_roll |
 | 13 Web roll_request | done | (this commit) | full suite 3383 pass; mypy clean | 2026-10-11 | drain mocks evaluate_roll; old generator + fetch_roll_inputs + queue_roll_for_approval + their tests deleted; invariants re-pinned |
 | 14 Backtest arms | done | (this commit) | arms 6 pass; mypy clean | 2026-10-11 | roll arm = same-strike roll; calls include stock P&L; CLI smoke test added |
-| 15 Docs + gate | pending | | | | |
+| 15 Docs + gate | done | (this commit) | full suite 3389 pass; ruff + mypy clean; web tsc 9 errors = main baseline (test files only) | 2026-10-11 | README/ARCHITECTURE/SETUP/STATUS/commands.md updated; 2026-10-02 STATUS claim marked superseded |

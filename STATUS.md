@@ -319,7 +319,7 @@ MCP so the headless `claude -p` subprocess can do ad-hoc lookups (`ib_portfolio`
 | Item | Status & reason |
 |---|---|
 | **Phase 1 extended Greeks + American pricer** | **Built.** Greeks are resolved in three tiers: (1) `_ticker_to_quote` reads the first available IBKR per-contract computation (`modelGreeks` → `lastGreeks` → `askGreeks` → `bidGreeks` via `_pick_greeks`) so a lagging model tick still yields genuine IBKR greeks (`greeks_source="ibkr"`); (2) `_enrich_greeks_from_ibkr_iv` BS-fills delta locally from an IBKR IV with no network call — Phase 1 extended this to fill **gamma/theta/vega** alongside delta (skipping only when all four greeks are already present); (3) only quotes IBKR could value neither greeks nor IV for fall through to the yfinance Black-Scholes download (`_enrich_greeks_yf`), now **instrumented** (logs how many quotes forced a Yahoo fetch + the elapsed time per symbol) and also filling gamma/theta/vega. Tiers 2/3 set `greeks_source="black_scholes"` so the F6 live gate still treats them as untrusted. The scan batch requests generic ticks `101,106` to capture the IBKR IV. **Phase 1 also added** `src/analytics/american_option.py` (Cox-Ross-Rubinstein binomial-tree American pricer + `early_exercise_premium`) and `bs_gamma`/`bs_theta`/`bs_vega`/`bs_rho` to `black_scholes.py` — the foundation for economic (non-heuristic) assignment triggers. |
-| **Multi-leg / roll execution** | **Built (Phase 4).** A `Strategy.ROLL` candidate is executed as one atomic BAG combo — BUY-to-close the old short + SELL-to-open the new short, no legging risk — via `src/execution/roll_executor.py::execute_roll` (`executor.execute_candidate` delegates instead of refusing). `order_builder.build_combo_roll_order` builds the BAG + net LimitOrder (credit → negative net-debit limit). Re-gates the new leg (`validate_live_quote` delta/live-greeks) + a net-credit floor, LIVE-mode [CONFIRM LIVE] tap, cancel-on-timeout, and writes two FillRows (BUY under the original short's id → ledger `closed_early`; SELL under the new id → monitor tracks it). **Combo limit-price sign convention is mock-tested only — verify on live paper first** (see below). **Wired end-to-end (N20):** when `monitor.roll_execution_enabled` is set, a roll trigger generates a candidate (`execution.roll_pipeline.queue_roll_for_approval`) and sends it with Approve/Reject buttons → QUEUED ROLL order → `execute_roll`. Code default OFF; **turned ON in `config/settings.yaml` on 2026-10-01** for the paper account, so the next approved roll is the D7 BAG-sign verification (Q3 of `docs/live-validation-2026-08.md`) — every roll still needs an Approve tap. **Defensive rolls are now judged on risk, not yield (D4, Task 12):** `roll_pipeline.queue_roll_for_approval` passes `defensive=True`, which skips the ROC/annualized-yield tests and instead requires a `monitor.roll_defensive.min_delta_reduction` cut in \|delta\| within a bounded `max_debit`. |
+| **Multi-leg / roll execution** | **Rebuilt 2026-10-11 (roll redesign — see the Built entry of that date; the generator, triggers and pipeline described below were replaced, the BAG combo itself kept).** **Built (Phase 4).** A `Strategy.ROLL` candidate is executed as one atomic BAG combo — BUY-to-close the old short + SELL-to-open the new short, no legging risk — via `src/execution/roll_executor.py::execute_roll` (`executor.execute_candidate` delegates instead of refusing). `order_builder.build_combo_roll_order` builds the BAG + net LimitOrder (credit → negative net-debit limit). Re-gates the new leg (`validate_live_quote` delta/live-greeks) + a net-credit floor, LIVE-mode [CONFIRM LIVE] tap, cancel-on-timeout, and writes two FillRows (BUY under the original short's id → ledger `closed_early`; SELL under the new id → monitor tracks it). **Combo limit-price sign convention is mock-tested only — verify on live paper first** (see below). **Wired end-to-end (N20):** when `monitor.roll_execution_enabled` is set, a roll trigger generates a candidate (`execution.roll_pipeline.queue_roll_for_approval`) and sends it with Approve/Reject buttons → QUEUED ROLL order → `execute_roll`. Code default OFF; **turned ON in `config/settings.yaml` on 2026-10-01** for the paper account, so the next approved roll is the D7 BAG-sign verification (Q3 of `docs/live-validation-2026-08.md`) — every roll still needs an Approve tap. **Defensive rolls are now judged on risk, not yield (D4, Task 12):** `roll_pipeline.queue_roll_for_approval` passes `defensive=True`, which skips the ROC/annualized-yield tests and instead requires a `monitor.roll_defensive.min_delta_reduction` cut in \|delta\| within a bounded `max_debit`. |
 | **Live limit-order repricing** | **Built (Phase 4 + C5); code default OFF, enabled in `config/settings.yaml` on paper 2026-10-02.** `order_builder.reprice_limit` + chase loops in all three execution paths: (1) entry SELL in `executor.execute_candidate` steps toward the bid (floor: `min_live_premium_ratio × approved premium`); (2) buy-to-close BUY in `position_manager.close_short_position` steps toward the ask; (3) roll BAG combo in `roll_executor.execute_roll` re-fetches per-leg bid/ask, recomputes the live net credit, and steps the BAG net-limit toward market (ceiling: `min_live_premium_ratio × approved credit`). All three gated by `execution.reprice_enabled` (code default false; the shipped paper config sets it true as of 2026-10-02 so the D7 amend question gets observed) — the `placeOrder` amend is unverified on a live account (D7 — Q2 of `docs/live-validation-2026-08.md`, not yet run); see the live-verification list below. |
 | **Unreachable quiet-cycle heartbeat (removed)** | `format_quiet_cycle` / `_send_quiet_heartbeat` could never fire in production: `send_candidates` and `send_buy_list` both return `True` on their *empty* path, so `if not cand_sent and not buy_sent` was never true. Only the mocked tests (which stubbed the return to `False`) ever exercised it. Rather than resurrect it — which would mean two messages per quiet cycle, exactly the flood S6 removed — the heartbeat, `ScanResult.quiet_cycle`, and the likewise orphaned `format_screen_empty` were deleted, and the materiality detail it carried (originally "N/M names moved <0.5%"; reworded 2026-08-27 to "N/M names moved too little" once three different thresholds applied — see the S1 row) now rides on the empty-screen diagnostic that is actually appended. |
 | **`BuyCandidate.rationale`** | A deterministic one-liner built from the screen's own signals (IV richness, VRP, regime, quality, earnings proximity) in `buy_candidates.py` — Claude does **not** review buy-to-own names (only option candidates), by design. The buy-to-own screen applies a score floor + count cap (`scoring_weights.yaml → buy_to_own`, currently 10 names max). The Telegram message (`format_buy_list`) groups candidates by sector (indexes, tech, semis, financials, healthcare, …); all candidate cards are shown inline — the Telegram spoiler wrapping that previously hid each sector behind a "tap to reveal" toggle has been removed. Sectors are sourced from `universe.yaml → sectors` via the `BuyCandidate.sector` field. |
@@ -371,6 +371,58 @@ outside `src/api/commands.py` imports `get_command_engine`); the trading system 
 databases are separate `Base`/engine pairs so `create_all()` can never cross-build.
 
 ---
+
+## Built (2026-10-11 — roll redesign: breach-triggered, credit-floored, one roll per chain)
+
+Plan: `docs/superpowers/plans/2026-10-11-roll-redesign.md` (Progress log). Evidence:
+`docs/research/2026-10-11-rolling-short-options.md`.
+
+**Why.** The roll subsystem had never produced a roll: 54 roll alerts (2026-05-30 → 10-09), zero
+roll candidates, approvals, orders or fills. **The 2026-10-02 entry below that says the delta fix
+made roll alerts approvable was wrong in effect** — production kept logging `approvable=False`,
+because four independent defects each blocked every roll: the chain fetch built only OTM contracts
+inside the entry window (an ITM short was never priced); a 0.10 delta cut inside the 0.20-0.35 band
+meant no short under 0.30Δ could roll; the generator allowed $0.50 debits the executor rejected; and
+the Approve card never showed the candidate. 47 of the 54 alerts were 21/7-DTE timers on healthy
+OTM shorts. The executor could also have closed the wrong short (nearest-dated, not the alerted
+one), there was no roll limit, and alerts fired overnight.
+
+**What changed.**
+- **Trigger** (`strategies/roll_policy.roll_trigger`): a strike breach (spot through the strike or
+  |Δ| ≥ 0.50) within 10 DTE or with ≤ $0.10 extrinsic, or a short call whose extrinsic no longer
+  covers the next dividend (`FundamentalStats.dividend_per_share`; switch:
+  `events.ex_dividend_assignment_guard`, no longer on the unenforced-key list). Evaluated during
+  RTH from 09:45 ET, every 30 minutes while it holds (`monitor/intraday.handle_roll_trigger`).
+- **Decision** (`roll_policy.decide`, operator rulings 2026-10-11): leveraged ETF → hold (2× buyback
+  stays the exit); put not on `would_own` → Close button; would-own put → roll for a net credit
+  (`roll.csp.when_assignable: roll_if_credit`), else assign; covered call → roll up-and-out with a
+  debit ≤ $0.25/sh (`roll.cc.keep_shares: true`), else called away above basis / held below it.
+- **Construction** (`strategies/rolling.construct_roll`): nearest later expiry, most favourable
+  same-or-better strike, net ≥ $0.05 (or the capped debit), |Δ| not increasing, before earnings,
+  one roll per chain, ≤ 28 days past the chain's original expiry; every rejection reason-coded.
+- **Fetch** (`market_data.get_roll_chain_quotes_async`): the alerted contract + ≤ 18 same-or-better
+  targets in 10-line batches — inside the monitor's reserved lines, seconds not minutes.
+- **Gates**: a decision-time `validate_candidates` pass (rolls skip the IV entry floors; earnings
+  only if the new expiry reaches them; `roll_limit_reached` / `roll_extension_cap` /
+  `roll_origin_missing`), the approval-queue re-gate, and the executor's send-time checks from the
+  same `RollCfg` (floor, |Δ| not increasing, live greeks in LIVE) — the new leg is no longer held to
+  the entry delta band. The executor closes the exact short (`roll_from.con_id`), refuses a changed
+  size, walks the combo mid → natural in 3 bounded steps, and attaches both fills to the campaign.
+- **Card** (`format_roll_decision`): both legs, net per share and total, roll n of max, breakeven,
+  reason and skipped-target counts; Claude reviews the proposal (may agree/disagree, never change).
+- **Chain accounting** (`storage/roll_chains.py`): profit-take and loss lines use the chain's net
+  credit, not a rolled leg's gross premium.
+- **Info-only**: the 21/7-DTE timers, delta drift, IV spike, assignment risk and the non-leveraged
+  loss line send alerts without buttons, RTH-gated.
+- **Web** `roll_request` runs the same `evaluate_roll(manual=True)`; `no_qualifying_roll` now carries
+  the decision. **Offline** `scripts/roll_backtest.py` compares assign / same-strike roll / close at
+  a breach (BS at HV30, indicative).
+- Removed: `generate_roll_candidates`, `roll_pipeline.fetch_roll_inputs` /
+  `queue_roll_for_approval`, `monitor.roll_defensive`, the mid-chasing roll repricer.
+
+**Not built / caveats.** Every threshold is consensus or judgement on thin, SPY-only evidence (see
+the research note); the backtest is BS-priced and models only the same-strike roll. No live roll
+has run: the **first approved roll on paper is still the BAG-sign check** (below) — watch it by hand.
 
 ## Built (2026-10-11 — close-reason labels and a DTE-keyed profit-take schedule)
 
@@ -882,6 +934,10 @@ Flex Web Service or a live TWS session yet):**
 ---
 
 ## Changed (2026-10-02 — loss line rolls instead of closing, except leveraged ETFs)
+
+> **Superseded 2026-10-11** by the roll redesign (see that entry): the non-leveraged loss line is now an
+> information-only alert, and the "no roll alert had ever been approvable" fix below did not in fact make
+> any roll approvable — four other defects still blocked every one.
 
 The loss exit (`automation.max_loss_multiple`, D3) bought back *every* short at 2× the credit.
 On 2026-10-01 it closed 2× GOOGL $335P at $7.00 against a $2.98 credit (−$806) on a 4% dip with
@@ -3738,6 +3794,12 @@ Four items below map straight onto that file's questions — **approve → fill 
 rate by liquidity tier), **limit-order repricing** is Q2, the **roll combo (BAG) sign convention** is
 Q3, and **layered IBKR-first greeks** is Q4 (the hard gate) — so record the raw observation there
 and then clear the corresponding item here. Nothing in this list has been cleared yet.
+
+- **Roll redesign (2026-10-11), first live rolls.** The targeted roll fetch (an ITM contract and its
+  later strikes qualifying and quoting on the monitor's connection in 10-line batches), the
+  conId-matched buy-back leg, the bounded mid → natural walk, and the decision card's numbers against
+  what IBKR fills are all mocked-only. The first approved paper roll doubles as the BAG-sign check
+  (Q3) — confirm the fill nets the card's credit (or capped debit) with the right sign.
 
 - **The Phase 2 unattended-action paths (D3), all of which fire without a human tap.** A **loss exit**
   actually firing on paper at `max_loss_multiple × entry credit` and the Telegram notice being
