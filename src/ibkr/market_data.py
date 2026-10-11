@@ -26,7 +26,7 @@ from src.analytics.price_data import get_ohlcv
 from src.common.config import get_config
 from src.common.logging import get_logger
 from src.common.market_hours import today_et
-from src.common.schemas import OptionQuote, OptionRight
+from src.common.schemas import OptionQuote, OptionRight, PositionSnapshot
 from src.ibkr.contracts import (
     build_option,
     qualify_options,
@@ -1138,4 +1138,101 @@ async def get_option_chain_quotes_async(ib: IB, symbol: str) -> list[OptionQuote
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _enrich_greeks_yf, symbol, bs_spot, quotes)
     log.info("get_option_chain_quotes_async: %d quotes for %s", len(quotes), symbol)
+    return quotes
+
+
+# ---------------------------------------------------------------------------
+# Targeted roll fetch (2026-10-11 roll redesign)
+# ---------------------------------------------------------------------------
+
+
+def _roll_contract_specs(
+    expirations: Iterable[str],
+    strikes: Iterable[float],
+    pos: PositionSnapshot,
+    today: date,
+    *,
+    max_expiries: int,
+    target_dte_max: int,
+    strikes_outward: int,
+) -> list[tuple[date, float]]:
+    """The (expiry, strike) pairs a roll of *pos* needs priced, the alerted contract first.
+
+    The alerted contract is always included, whatever its moneyness or DTE — the scan fetch
+    builds only OTM contracts inside the entry window, so an ITM short or one inside a week
+    could never be priced (54 roll alerts, 0 rolls). Then, at the next *max_expiries* listed
+    expirations after the position's (DTE ≤ *target_dte_max*), the current strike and the next
+    *strikes_outward* listed strikes away from the money: lower for a put, higher for a call.
+    A roll only ever moves to a same-or-better strike, so nothing else is fetched.
+    """
+    assert pos.expiry is not None and pos.strike is not None and pos.right is not None
+    specs: list[tuple[date, float]] = [(pos.expiry, pos.strike)]
+    later = []
+    for e in sorted(expirations):
+        exp = date(int(e[:4]), int(e[4:6]), int(e[6:]))
+        if exp > pos.expiry and (exp - today).days <= target_dte_max:
+            later.append(exp)
+    is_put = pos.right == OptionRight.PUT
+    listed = sorted(set(strikes), reverse=is_put)
+    outward = [k for k in listed if (k < pos.strike if is_put else k > pos.strike)]
+    ladder = [pos.strike, *outward[:strikes_outward]]
+    for exp in later[:max_expiries]:
+        specs.extend((exp, k) for k in ladder)
+    return specs
+
+
+async def get_roll_chain_quotes_async(
+    ib: IB,
+    pos: PositionSnapshot,
+    *,
+    max_expiries: int,
+    target_dte_max: int,
+    strikes_outward: int,
+    batch_size: int,
+) -> list[OptionQuote]:
+    """Quote the alerted short plus its same-or-better roll targets (``_roll_contract_specs``).
+
+    A few dozen contracts at most, quoted in *batch_size* batches so the monitor stays inside
+    its reserved market-data lines — the scan fetch's 40-line batches and up to 320 contracts
+    are neither needed nor affordable here. Greeks IBKR did not send are filled by
+    Black-Scholes from IBKR's own IV; the slow yfinance fallback is skipped on purpose.
+    """
+    assert pos.right is not None
+    md = get_config().market_data
+    symbol = pos.underlying or pos.symbol
+    stock = await qualify_stock_async(ib, symbol)
+    chains = await ib.reqSecDefOptParamsAsync(stock.symbol, "", stock.secType, stock.conId)
+    chain = _select_chain(chains, symbol)
+    if chain is None:
+        log.warning("roll fetch: no option chain params for %s", symbol)
+        return []
+    specs = _roll_contract_specs(
+        chain.expirations,
+        chain.strikes,
+        pos,
+        today_et(),
+        max_expiries=max_expiries,
+        target_dte_max=target_dte_max,
+        strikes_outward=strikes_outward,
+    )
+    raw = [build_option(symbol, e, k, pos.right.value, chain.tradingClass) for e, k in specs]
+    qualified = await qualify_options_async(
+        ib,
+        raw,
+        chunk_size=batch_size,
+        throttle_seconds=md.request_throttle_seconds,
+        chunk_timeout_seconds=md.qualify_timeout_seconds,
+    )
+    if not qualified:
+        log.warning("roll fetch: no qualified contracts for %s", symbol)
+        return []
+    quotes = await _batch_quotes_async(ib, qualified, batch_size, md.request_throttle_seconds)
+    if any(q.delta is None for q in quotes):
+        try:
+            fallback = await _resolve_spot_async(ib, stock, symbol)
+            bs_spot = await _bs_fill_spot_async(ib, stock, quotes, fallback=fallback)
+            _enrich_greeks_from_ibkr_iv(symbol, bs_spot, quotes)
+        except Exception:
+            log.warning("roll fetch: BS greeks fill failed for %s", symbol, exc_info=True)
+    log.info("roll fetch: %d quotes for %s (%d contracts)", len(quotes), symbol, len(raw))
     return quotes
