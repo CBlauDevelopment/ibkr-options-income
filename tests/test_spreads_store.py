@@ -4,7 +4,19 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from src.common.schemas import GexLevels, SpreadCandidate, SpreadEntryContext, SpreadVerdict
+from src.common.schemas import (
+    GexLevels,
+    SpreadBriefResult,
+    SpreadCandidate,
+    SpreadDayPlan,
+    SpreadEntryContext,
+    SpreadLlmCall,
+    SpreadMarketSnapshot,
+    SpreadMenuItem,
+    SpreadPick,
+    SpreadPickSnapshot,
+    SpreadVerdict,
+)
 
 NOW = datetime(2026, 10, 7, 14, 30, tzinfo=UTC)
 LATER = datetime(2026, 10, 7, 16, 0, tzinfo=UTC)
@@ -226,3 +238,128 @@ def test_spreads_resolve_settles_an_open_spread(store, monkeypatch, capsys) -> N
     monkeypatch.setattr("sys.argv", ["spreads_resolve", "--spread-id", "gone", "--debit", "0"])
     with pytest.raises(SystemExit):
         resolve.main()
+
+
+def _item(letter: str = "B", position: str = "baseline") -> SpreadMenuItem:
+    return SpreadMenuItem(
+        letter=letter,
+        position=position,
+        candidate=cand(f"s-{letter}"),
+        contracts=3,
+        credit_after_costs=0.5,
+        cost_pct_of_credit=0.17,
+        max_loss_per_contract_usd=439.0,
+        dist_spot_pts=11.0,
+        dist_em_multiple=1.9,
+        beyond_wall_pts=0.69,
+        be_full_loss=0.9,
+        be_nominal_exits=0.8,
+    )
+
+
+def _call() -> SpreadLlmCall:
+    return SpreadLlmCall(
+        model="claude-opus-5-5",
+        effort="high",
+        latency_ms=16000,
+        cost_usd=0.02,
+        prompt_text="P",
+        raw_response="R",
+    )
+
+
+def _pick(choice: str = "B") -> SpreadPick:
+    return SpreadPick(
+        choice=choice, reason="r", market=SpreadMarketSnapshot(vix=17.8), call=_call()
+    )
+
+
+def _snap() -> SpreadPickSnapshot:
+    return SpreadPickSnapshot(
+        regime="positive", move_em=0.84, gap_day=False, side="put", plan_bias="neutral"
+    )
+
+
+def test_a_day_plan_round_trips_and_a_failed_one_counts_as_attempted(store) -> None:
+    day = date(2026, 10, 7)
+    assert store.day_plan(day) is None and store.day_plan_attempted(day) is False
+    store.record_day_plan(
+        day,
+        SpreadBriefResult(
+            plan=None,
+            market=SpreadMarketSnapshot(),
+            call=_call().model_copy(update={"error": "timeout"}),
+        ),
+        NOW,
+    )
+    assert store.day_plan(day) is None and store.day_plan_attempted(day) is True
+    plan = SpreadDayPlan(bias="bearish", risk_flags=["CPI tomorrow"])
+    store.record_day_plan(
+        day, SpreadBriefResult(plan=plan, market=SpreadMarketSnapshot(), call=_call()), NOW
+    )
+    assert store.day_plan(day) == plan
+
+
+def test_picks_are_recorded_counted_and_read_back(store) -> None:
+    menu = [_item("A", "inside"), _item("B", "baseline")]
+    pid = store.record_pick(
+        now=NOW,
+        episode_key="2026-10-07:put:689.80",
+        book_mode="paper",
+        menu=menu,
+        pick=_pick("A"),
+        fallback_reason=None,
+        executed_letter="A",
+        snapshot=_snap(),
+    )
+    assert store.pick_exists("2026-10-07:put:689.80") and not store.pick_exists("other")
+    assert store.pick_calls_today(date(2026, 10, 7)) == 1
+    store.mark_pick_sent(pid, send_rejected=True, send_reasons=["stale_quote"], filled=False)
+    (rec,) = store.picks()
+    assert (rec.pick_id, rec.choice, rec.executed_letter, rec.send_reasons) == (
+        pid,
+        "A",
+        "A",
+        ["stale_quote"],
+    )
+    assert rec.menu == menu and rec.snapshot == _snap() and rec.market.vix == 17.8
+    assert store.picks(date(2026, 10, 8)) == []
+
+
+def test_positions_carry_their_pick_and_episode(store) -> None:
+    pos = store.open_position(
+        cand("s9"),
+        mode="baseline",
+        contracts=2,
+        credit=0.57,
+        commission=1.3,
+        now=NOW,
+        perm_id=None,
+        pick_id=None,
+        episode_key="ep1",
+    )
+    assert (pos.mode, pos.episode_key, pos.pick_id) == ("baseline", "ep1", None)
+    rec = store.episode_trade("ep1", "baseline")
+    assert rec is not None and rec.spread_id == "s9" and rec.episode_key == "ep1"
+    assert store.episode_trade("ep1", "paper") is None
+
+
+def test_init_adds_the_new_columns_to_an_existing_spreads_db(tmp_path, monkeypatch) -> None:
+    import sqlite3
+
+    import src.spreads.store as st
+
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE spread_positions (id INTEGER PRIMARY KEY, spread_id VARCHAR(48), mode VARCHAR(6))"
+    )
+    con.commit()
+    con.close()
+    monkeypatch.setattr(st, "_engine", None)
+    monkeypatch.setattr(st, "_SessionLocal", None)
+    monkeypatch.setattr(st, "_resolve_url", lambda: f"sqlite:///{path}")
+    st.init_spreads_db()
+    st.init_spreads_db()  # idempotent
+    cols = {r[1] for r in sqlite3.connect(path).execute("PRAGMA table_info(spread_positions)")}
+    assert {"pick_id", "episode_key"} <= cols

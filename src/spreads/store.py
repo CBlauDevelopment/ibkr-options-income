@@ -18,15 +18,35 @@ from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Integer, String, create_engine, event
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    event,
+    inspect,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from src.common.config import get_config
 from src.common.schemas import (
     GexLevels,
+    SpreadBriefResult,
     SpreadCandidate,
+    SpreadDayPlan,
     SpreadEntryContext,
+    SpreadMarketSnapshot,
+    SpreadMenuItem,
+    SpreadPick,
+    SpreadPickRecord,
+    SpreadPickSnapshot,
     SpreadPosition,
     SpreadTradeRecord,
     SpreadVerdict,
@@ -81,7 +101,7 @@ class SpreadPositionRow(SpreadsBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spread_id: Mapped[str] = mapped_column(String(48), unique=True)
-    mode: Mapped[str] = mapped_column(String(6), index=True)
+    mode: Mapped[str] = mapped_column(String(8), index=True)
     side: Mapped[str] = mapped_column(String(4))
     expiry: Mapped[date] = mapped_column(Date)
     short_strike: Mapped[float] = mapped_column(Float)
@@ -111,6 +131,10 @@ class SpreadPositionRow(SpreadsBase):
     entry_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # the full context
     # Worst (highest) mid debit-to-close seen while open; MAE = (this − entry_credit) × 100 × qty.
     max_debit_seen: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Claude picks (ai.enabled): the pick that opened a main-book spread, and the trigger
+    # episode of either book's spread — the comparison report lines the books up by these.
+    pick_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    episode_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class SpreadOrderRow(SpreadsBase):
@@ -127,6 +151,67 @@ class SpreadOrderRow(SpreadsBase):
     commission: Mapped[float] = mapped_column(Float)
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class SpreadDayPlanRow(SpreadsBase):
+    __tablename__ = "spread_day_plans"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    failed: Mapped[bool] = mapped_column(Boolean)
+    plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    market: Mapped[dict] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(40))
+    effort: Mapped[str] = mapped_column(String(8))
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prompt_text: Mapped[str] = mapped_column(Text)
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SpreadPickRow(SpreadsBase):
+    __tablename__ = "spread_picks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    episode_key: Mapped[str] = mapped_column(String(64), index=True)
+    book_mode: Mapped[str] = mapped_column(String(8))
+    menu: Mapped[list] = mapped_column(JSON)
+    choice: Mapped[str] = mapped_column(String(8))
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    fallback_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    executed_letter: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    send_rejected: Mapped[bool] = mapped_column(Boolean, default=False)
+    send_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    filled: Mapped[bool] = mapped_column(Boolean, default=False)
+    model: Mapped[str] = mapped_column(String(40))
+    effort: Mapped[str] = mapped_column(String(8))
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prompt_text: Mapped[str] = mapped_column(Text, default="")
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)  # SpreadPickSnapshot — authoritative
+    market: Mapped[dict] = mapped_column(JSON)  # SpreadMarketSnapshot — authoritative
+    # Typed copies of the conditions, for grouping in plain SQL (the report reads the JSON).
+    regime: Mapped[str] = mapped_column(String(10))
+    flip_distance_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expected_move: Mapped[float | None] = mapped_column(Float, nullable=True)
+    move_em: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stall_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gap_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gap_day: Mapped[bool] = mapped_column(Boolean, default=False)
+    side: Mapped[str] = mapped_column(String(9), default="")
+    event_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    plan_bias: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    vix: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vix_term_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spy_vs_sma20_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spy_vs_sma50_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rsi14: Mapped[float | None] = mapped_column(Float, nullable=True)
+    headline_count: Mapped[int] = mapped_column(Integer, default=0)
+    headline_sentiment_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 _engine: Engine | None = None
@@ -156,8 +241,28 @@ def get_spreads_engine() -> Engine:
     return _engine
 
 
+# Columns added after a table's first release: create_all never ALTERs an existing table.
+_ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "spread_positions": (("pick_id", "INTEGER"), ("episode_key", "VARCHAR(64)")),
+}
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    insp = inspect(engine)
+    for table, cols in _ADDED_COLUMNS.items():
+        if not insp.has_table(table):
+            continue
+        have = {c["name"] for c in insp.get_columns(table)}
+        for name, ddl in cols:
+            if name not in have:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
 def init_spreads_db() -> None:
-    SpreadsBase.metadata.create_all(get_spreads_engine())
+    engine = get_spreads_engine()
+    SpreadsBase.metadata.create_all(engine)
+    _add_missing_columns(engine)
 
 
 @contextmanager
@@ -189,6 +294,8 @@ def _to_schema(r: SpreadPositionRow) -> SpreadPosition:
         opened_at=r.opened_at.replace(tzinfo=UTC),
         short_con_id=r.short_con_id,
         long_con_id=r.long_con_id,
+        pick_id=r.pick_id,
+        episode_key=r.episode_key,
     )
 
 
@@ -272,6 +379,8 @@ def open_position(
     now: datetime,
     perm_id: int | None,
     context: SpreadEntryContext | None = None,
+    pick_id: int | None = None,
+    episode_key: str | None = None,
 ) -> SpreadPosition:
     tags: dict = {}
     if context is not None:
@@ -304,6 +413,8 @@ def open_position(
         status="open",
         exit_commission=0.0,
         realized_pnl_usd=0.0,
+        pick_id=pick_id,
+        episode_key=episode_key,
     )
     with spreads_session() as s:
         s.add(row)
@@ -480,6 +591,8 @@ def _record(r: SpreadPositionRow) -> SpreadTradeRecord:
         minutes_after_open=r.minutes_after_open,
         hold_minutes=(closed - opened).total_seconds() / 60.0 if closed is not None else None,
         mae_usd=mae,
+        pick_id=r.pick_id,
+        episode_key=r.episode_key,
     )
 
 
@@ -500,3 +613,159 @@ def closed_results(mode: str) -> list[tuple[str, str, float]]:
     closed = [t for t in trade_log(mode) if t.status == "closed" and t.closed_at is not None]
     closed.sort(key=lambda t: t.closed_at or t.opened_at)
     return [(t.regime, t.exit_reason or "", t.pnl_usd) for t in closed]
+
+
+def record_day_plan(day: date, result: SpreadBriefResult, now: datetime) -> None:
+    c = result.call
+    with spreads_session() as s:
+        s.merge(
+            SpreadDayPlanRow(
+                day=day,
+                created_at=_naive(now),
+                failed=result.plan is None,
+                plan=result.plan.model_dump(mode="json") if result.plan else None,
+                market=result.market.model_dump(mode="json"),
+                model=c.model,
+                effort=c.effort,
+                latency_ms=c.latency_ms,
+                cost_usd=c.cost_usd,
+                error=c.error,
+                prompt_text=c.prompt_text,
+                raw_response=c.raw_response,
+            )
+        )
+
+
+def day_plan(day: date) -> SpreadDayPlan | None:
+    with spreads_session() as s:
+        row = s.get(SpreadDayPlanRow, day)
+        if row is None or row.plan is None:
+            return None
+        return SpreadDayPlan.model_validate(row.plan)
+
+
+def day_plan_attempted(day: date) -> bool:
+    with spreads_session() as s:
+        return s.get(SpreadDayPlanRow, day) is not None
+
+
+def record_pick(
+    *,
+    now: datetime,
+    episode_key: str,
+    book_mode: str,
+    menu: list[SpreadMenuItem],
+    pick: SpreadPick,
+    fallback_reason: str | None,
+    executed_letter: str | None,
+    snapshot: SpreadPickSnapshot,
+) -> int:
+    m, c = pick.market, pick.call
+    row = SpreadPickRow(
+        created_at=_naive(now),
+        day=now.astimezone(ET).date(),
+        episode_key=episode_key,
+        book_mode=book_mode,
+        menu=[i.model_dump(mode="json") for i in menu],
+        choice=pick.choice[:8],
+        reason=pick.reason[:500],
+        fallback_reason=fallback_reason,
+        executed_letter=executed_letter,
+        model=c.model,
+        effort=c.effort,
+        latency_ms=c.latency_ms,
+        cost_usd=c.cost_usd,
+        prompt_text=c.prompt_text,
+        raw_response=c.raw_response,
+        snapshot=snapshot.model_dump(mode="json"),
+        market=m.model_dump(mode="json"),
+        regime=snapshot.regime,
+        flip_distance_pct=snapshot.flip_distance_pct,
+        expected_move=snapshot.expected_move,
+        move_em=snapshot.move_em,
+        stall_minutes=snapshot.stall_minutes,
+        gap_pct=snapshot.gap_pct,
+        gap_day=snapshot.gap_day,
+        side=snapshot.side,
+        event_flag=snapshot.event_flag,
+        plan_bias=snapshot.plan_bias,
+        vix=m.vix,
+        vix_term_ratio=m.vix_term_ratio,
+        spy_vs_sma20_pct=m.spy_vs_sma20_pct,
+        spy_vs_sma50_pct=m.spy_vs_sma50_pct,
+        rsi14=m.rsi14,
+        headline_count=m.headline_count,
+        headline_sentiment_mean=m.headline_sentiment_mean,
+    )
+    with spreads_session() as s:
+        s.add(row)
+        s.flush()
+        return row.id
+
+
+def mark_pick_sent(
+    pick_id: int, *, send_rejected: bool, send_reasons: list[str], filled: bool
+) -> None:
+    with spreads_session() as s:
+        row = s.get(SpreadPickRow, pick_id)
+        if row is None:
+            return
+        row.send_rejected = send_rejected
+        row.send_reasons = list(send_reasons)
+        row.filled = filled
+
+
+def pick_exists(episode_key: str) -> bool:
+    with spreads_session() as s:
+        return s.query(SpreadPickRow.id).filter_by(episode_key=episode_key).first() is not None
+
+
+def pick_calls_today(day: date) -> int:
+    with spreads_session() as s:
+        return s.query(SpreadPickRow).filter(SpreadPickRow.day == day).count()
+
+
+def _pick_record(r: SpreadPickRow) -> SpreadPickRecord:
+    return SpreadPickRecord(
+        pick_id=r.id,
+        created_at=r.created_at.replace(tzinfo=UTC),
+        day=r.day,
+        episode_key=r.episode_key,
+        book_mode=r.book_mode,
+        menu=[SpreadMenuItem.model_validate(m) for m in r.menu],
+        choice=r.choice,
+        reason=r.reason or "",
+        fallback_reason=r.fallback_reason,
+        executed_letter=r.executed_letter,
+        send_rejected=bool(r.send_rejected),
+        send_reasons=list(r.send_reasons or []),
+        filled=bool(r.filled),
+        model=r.model,
+        effort=r.effort,
+        latency_ms=r.latency_ms,
+        cost_usd=r.cost_usd,
+        snapshot=SpreadPickSnapshot.model_validate(r.snapshot),
+        market=SpreadMarketSnapshot.model_validate(r.market),
+        prompt_text=r.prompt_text or "",
+        raw_response=r.raw_response,
+    )
+
+
+def picks(day: date | None = None) -> list[SpreadPickRecord]:
+    with spreads_session() as s:
+        q = s.query(SpreadPickRow)
+        if day is not None:
+            q = q.filter(SpreadPickRow.day == day)
+        return [_pick_record(r) for r in q.order_by(SpreadPickRow.id).all()]
+
+
+def episode_trade(episode_key: str, mode: str) -> SpreadTradeRecord | None:
+    """The spread *mode*'s book opened in trigger episode *episode_key*, if any."""
+    with spreads_session() as s:
+        row = (
+            s.query(SpreadPositionRow)
+            .filter(SpreadPositionRow.episode_key == episode_key, SpreadPositionRow.mode == mode)
+            .order_by(SpreadPositionRow.id)
+            .first()
+        )
+        return _record(row) if row is not None else None
