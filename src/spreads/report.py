@@ -11,8 +11,11 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from statistics import mean
 from typing import Protocol
+
+from src.common.schemas import SpreadPickRecord, SpreadTradeRecord
 
 
 @dataclass(frozen=True)
@@ -123,3 +126,236 @@ def format_extras(trades: Sequence[TaggedTrade]) -> str:
         f"avg hold {hold} · avg MAE {_usd(mean(maes) if maes else None)}"
         f" · worst MAE {_usd(max(maes) if maes else None)}"
     )
+
+
+# --- Claude's book against the baseline (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md §9)
+
+NOISE_N = 5
+SAMPLE_NOTE_N = 50
+
+
+@dataclass(frozen=True)
+class Decision:
+    pick: SpreadPickRecord
+    kind: str  # took_inside | took_baseline | took_outer | skipped | fallback | not_sent
+    main_pnl: float | None  # None = the main book traded nothing on this decision
+    base_pnl: float | None  # None = the baseline traded nothing in this episode
+    settled: bool  # every trade either book opened on it is closed
+
+    @property
+    def diff(self) -> float:
+        return (self.main_pnl or 0.0) - (self.base_pnl or 0.0)
+
+
+def decision_kind(p: SpreadPickRecord) -> str:
+    if p.fallback_reason:
+        return "fallback"
+    if p.choice == "skip":
+        return "skipped"
+    item = next((i for i in p.menu if i.letter == p.executed_letter), None)
+    return "not_sent" if item is None else f"took_{item.position}"
+
+
+def build_decisions(
+    picks: Sequence[SpreadPickRecord],
+    main_log: Sequence[SpreadTradeRecord],
+    base_log: Sequence[SpreadTradeRecord],
+) -> list[Decision]:
+    main_by_pick = {t.pick_id: t for t in main_log if t.pick_id is not None}
+    base_by_episode = {t.episode_key: t for t in base_log if t.episode_key is not None}
+    out: list[Decision] = []
+    for p in picks:
+        m, b = main_by_pick.get(p.pick_id), base_by_episode.get(p.episode_key)
+        settled = all(t is None or t.status == "closed" for t in (m, b))
+        out.append(
+            Decision(
+                p,
+                decision_kind(p),
+                m.pnl_usd if m is not None else None,
+                b.pnl_usd if b is not None else None,
+                settled,
+            )
+        )
+    return out
+
+
+def _band(v: float | None, edges: tuple[float, ...], labels: tuple[str, ...]) -> str:
+    if v is None:
+        return "n/a"
+    for edge, label in zip(edges, labels, strict=False):
+        if v < edge:
+            return label
+    return labels[-1]
+
+
+def _trend(p: SpreadPickRecord) -> str:
+    a, b = p.market.spy_vs_sma20_pct, p.market.spy_vs_sma50_pct
+    if a is None or b is None:
+        return "n/a"
+    return "up" if a > 0 and b > 0 else "down" if a < 0 and b < 0 else "mixed"
+
+
+CONDITIONS: dict[str, Callable[[SpreadPickRecord], str]] = {
+    "regime": lambda p: p.snapshot.regime,
+    "move": lambda p: _band(
+        p.snapshot.move_em,
+        (0.75, 1.0, 1.25),
+        ("<0.75×EM", "0.75–1×EM", "1–1.25×EM", "≥1.25×EM"),
+    ),
+    "gap": lambda p: "gap day" if p.snapshot.gap_day else "normal open",
+    "vix": lambda p: _band(p.market.vix, (15.0, 20.0, 30.0), ("<15", "15–20", "20–30", "≥30")),
+    "trend": _trend,
+    "event": lambda p: "event" if p.snapshot.event_flag else "normal",
+    "side": lambda p: p.snapshot.side or "n/a",
+    "plan": lambda p: p.snapshot.plan_bias or "no plan",
+}
+
+
+@dataclass(frozen=True)
+class CompareRow:
+    n: int
+    main_total: float
+    base_total: float
+    diff_mean: float
+    noise: bool
+
+
+def _compare_row(ds: Sequence[Decision]) -> CompareRow:
+    return CompareRow(
+        n=len(ds),
+        main_total=sum(d.main_pnl or 0.0 for d in ds),
+        base_total=sum(d.base_pnl or 0.0 for d in ds),
+        diff_mean=mean(d.diff for d in ds),
+        noise=len(ds) < NOISE_N,
+    )
+
+
+def compare_by(decisions: Sequence[Decision], key: str) -> dict[str, CompareRow]:
+    """Main − baseline P&L per value of condition *key*, settled decisions only."""
+    by: dict[str, list[Decision]] = defaultdict(list)
+    for d in decisions:
+        if d.settled:
+            by[CONDITIONS[key](d.pick)].append(d)
+    return {k: _compare_row(ds) for k, ds in sorted(by.items())}
+
+
+def _kind_rows(decisions: Sequence[Decision]) -> dict[str, CompareRow]:
+    by: dict[str, list[Decision]] = defaultdict(list)
+    for d in decisions:
+        if d.settled:
+            by[d.kind].append(d)
+    return {k: _compare_row(ds) for k, ds in sorted(by.items())}
+
+
+def _row_text(label: str, r: CompareRow) -> str:
+    tag = "  (noise: n < 5)" if r.noise else ""
+    return (
+        f"  {label}: n={r.n} · Claude {_usd(r.main_total)} · baseline {_usd(r.base_total)} · "
+        f"mean difference {_usd(r.diff_mean)}{tag}"
+    )
+
+
+def format_compare(
+    decisions: Sequence[Decision],
+    main_log: Sequence[SpreadTradeRecord],
+    base_log: Sequence[SpreadTradeRecord],
+    main_mode: str,
+    slippage_per_leg: float,
+) -> list[str]:
+    def closed(log: Sequence[SpreadTradeRecord]) -> list[float]:
+        return [t.pnl_usd for t in log if t.status == "closed"]
+
+    lines = [
+        format_stats(f"Claude ({main_mode}, closed)", compute_stats(closed(main_log))),
+        format_stats("baseline (simulated, closed)", compute_stats(closed(base_log))),
+        f"decisions: {len(decisions)} ({sum(d.settled for d in decisions)} settled)",
+    ]
+    if len(decisions) < SAMPLE_NOTE_N:
+        lines.append(
+            f"  note: fewer than {SAMPLE_NOTE_N} decisions — at 1–2 a day the comparison means "
+            "little before ~2–3 months"
+        )
+    lines.append("by decision:")
+    lines += [_row_text(k, r) for k, r in _kind_rows(decisions).items()]
+    counts: dict[str, int] = defaultdict(int)
+    for d in decisions:
+        counts[d.kind] += 1
+    lines.append(
+        "choice distribution: " + " · ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+    )
+    for key in CONDITIONS:
+        rows = compare_by(decisions, key)
+        if rows:
+            lines.append(f"by {key}:")
+            lines += [_row_text(k, r) for k, r in rows.items()]
+    gaps: list[float] = []
+    by_pick = {t.pick_id: t for t in main_log if t.pick_id is not None}
+    for d in decisions:
+        t = by_pick.get(d.pick.pick_id)
+        item = next((i for i in d.pick.menu if i.letter == d.pick.executed_letter), None)
+        if t is not None and item is not None:
+            gaps.append(t.entry_credit - (item.candidate.credit_mid - 2 * slippage_per_leg))
+    lines.append(
+        "fill bias: "
+        + (
+            "n/a"
+            if not gaps
+            else f"real entry credit − modelled fill averages {mean(gaps):+.3f}/share over {len(gaps)} entries"
+        )
+    )
+    return lines
+
+
+def decision_rows(decisions: Sequence[Decision]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for d in decisions:
+        p = d.pick
+        rows.append(
+            {
+                "pick_id": p.pick_id,
+                "day": p.day.isoformat(),
+                "created_at": p.created_at.isoformat(),
+                "episode_key": p.episode_key,
+                "kind": d.kind,
+                "choice": p.choice,
+                "executed_letter": p.executed_letter,
+                "fallback_reason": p.fallback_reason,
+                "reason": p.reason,
+                "main_pnl_usd": d.main_pnl,
+                "base_pnl_usd": d.base_pnl,
+                "diff_usd": d.diff,
+                "settled": d.settled,
+                **p.snapshot.model_dump(),
+                **p.market.model_dump(exclude={"headlines", "econ_today", "unavailable"}),
+                "menu": "; ".join(
+                    f"{i.letter} {i.position} {i.candidate.short_strike:g}/{i.candidate.long_strike:g} "
+                    f"{i.candidate.credit_mid:.2f}"
+                    for i in p.menu
+                ),
+            }
+        )
+    return rows
+
+
+def format_day(
+    day: date,
+    plan_text: str,
+    picks: Sequence[SpreadPickRecord],
+    main_log: Sequence[SpreadTradeRecord],
+    base_log: Sequence[SpreadTradeRecord],
+) -> list[str]:
+    lines = [f"=== {day} ===", plan_text]
+    for d in build_decisions(picks, main_log, base_log):
+        p = d.pick
+        lines += [
+            f"--- pick {p.pick_id} · {p.created_at:%H:%M} UTC · {d.kind} · choice {p.choice} "
+            f"(sent {p.executed_letter or '-'}) · fallback {p.fallback_reason or '-'}",
+            f"conditions: {p.snapshot.model_dump()}",
+            f"market: {p.market.model_dump(exclude={'headlines', 'econ_today'})}",
+            f"outcome: Claude {_usd(d.main_pnl)} · baseline {_usd(d.base_pnl)} · difference {_usd(d.diff)}",
+            "prompt:",
+            p.prompt_text,
+            "reply:",
+            p.raw_response or "(none)",
+        ]
+    return lines

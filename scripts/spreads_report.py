@@ -2,27 +2,78 @@
 
 python -m scripts.spreads_report --mode shadow
 python -m scripts.spreads_report --mode paper --csv data/spreads_paper_trades.csv
+python -m scripts.spreads_report --mode paper --compare [--csv data/spreads_compare.csv]
+python -m scripts.spreads_report --mode paper --day 2026-10-14
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+from datetime import date
 from pathlib import Path
 
+from src.common.config import get_config
 from src.common.schemas import SpreadTradeRecord
 from src.spreads import store
-from src.spreads.report import compute_stats, format_extras, format_stats, tag_breakdowns
+from src.spreads.report import (
+    build_decisions,
+    compute_stats,
+    decision_rows,
+    format_compare,
+    format_day,
+    format_extras,
+    format_stats,
+    tag_breakdowns,
+)
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Daily credit-spread performance")
-    p.add_argument("--mode", choices=("shadow", "paper"), default="shadow")
+    p.add_argument("--mode", choices=("shadow", "paper", "baseline"), default="shadow")
     p.add_argument(
-        "--csv", type=Path, default=None, help="write every trade, open or closed, with its tags"
+        "--csv",
+        type=Path,
+        default=None,
+        help="write every trade (or, with --compare, every decision)",
+    )
+    p.add_argument(
+        "--compare", action="store_true", help="Claude's book (--mode) against the baseline book"
+    )
+    p.add_argument(
+        "--day",
+        type=date.fromisoformat,
+        default=None,
+        help="one day's plan and picks in full (YYYY-MM-DD)",
     )
     a = p.parse_args()
     store.init_spreads_db()
+    if a.day is not None:
+        plan = store.day_plan(a.day)
+        plan_text = "day plan: none" if plan is None else f"day plan: {plan.model_dump()}"
+        base_log = store.trade_log("baseline")
+        print(
+            "\n".join(
+                format_day(a.day, plan_text, store.picks(a.day), store.trade_log(a.mode), base_log)
+            )
+        )
+        return
+    if a.compare:
+        if a.mode == "baseline":
+            p.error("--compare compares --mode shadow|paper against the baseline book")
+        main_log, base_log = store.trade_log(a.mode), store.trade_log("baseline")
+        decisions = build_decisions(store.picks(), main_log, base_log)
+        slip = get_config().spreads.execution.shadow_slippage_per_leg
+        print("\n".join(format_compare(decisions, main_log, base_log, a.mode, slip)))
+        if a.csv:
+            rows = decision_rows(decisions)
+            a.csv.parent.mkdir(parents=True, exist_ok=True)
+            with a.csv.open("w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(rows[0]) if rows else ["pick_id"])
+                w.writeheader()
+                w.writerows(rows)
+            print(f"wrote {len(rows)} decisions to {a.csv}")
+        return
     log = store.trade_log(a.mode)
     closed = sorted(
         (t for t in log if t.status == "closed"), key=lambda t: t.closed_at or t.opened_at
