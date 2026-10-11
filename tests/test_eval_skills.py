@@ -125,6 +125,8 @@ _ENRICHMENT_ONLY = (
     "NewsSearchProvider",
     # News service (2026-10-09 spec §10.5)
     "src.news",
+    # Claude picks the daily spread (2026-10-12 spec §5.4)
+    "src.spreads_ai",
 )
 
 

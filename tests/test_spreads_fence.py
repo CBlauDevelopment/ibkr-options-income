@@ -29,6 +29,8 @@ FORBIDDEN_FOR_SPREADS = (
     "src.reporting",
     "src.api",
     "src.research",
+    "src.spreads_ai",
+    "src.news",
 )
 # Everything outside the spreads package: no wheel layer, no shared one, no script but the
 # spreads entrypoints may import it (wheel code learns of the book only via src.common.books).
@@ -181,3 +183,57 @@ def test_spreads_store_has_its_own_declarative_base() -> None:
     assert "src.storage.models" not in (ROOT / "src" / "spreads" / "store.py").read_text(
         encoding="utf-8"
     )
+
+
+SPREADS_AI = sorted((ROOT / "src" / "spreads_ai").rglob("*.py"))
+FORBIDDEN_FOR_SPREADS_AI = (
+    "src.spreads",
+    "src.engine",
+    "src.execution",
+    "src.strategies",
+    "src.orchestrator",
+    "src.monitor",
+    "src.notify",
+    "src.ledger",
+    "src.storage",
+    "src.reporting",
+    "src.api",
+    "src.research",
+    "src.news.store.session",
+)
+
+
+def test_spreads_ai_package_exists() -> None:
+    assert len(SPREADS_AI) >= 5, "fence must cover the spreads_ai package"
+
+
+def test_spreads_ai_never_reaches_orders_or_the_wheel() -> None:
+    offenders = [
+        f"{p.relative_to(ROOT)} → {m}"
+        for p in SPREADS_AI
+        for m in FORBIDDEN_FOR_SPREADS_AI
+        if _imports(p, m)
+    ]
+    assert offenders == []
+
+
+def test_spreads_ai_reaches_claude_only_through_the_light_cli() -> None:
+    offenders = [
+        f"{p.relative_to(ROOT)} → {m}"
+        for p in SPREADS_AI
+        for m in imported_modules(p)
+        if (m == "src.claude" or m.startswith("src.claude."))
+        and not (m == "src.claude.cli" or m.startswith("src.claude.cli."))
+    ]
+    assert offenders == []
+
+
+def test_only_the_spreads_entrypoint_imports_spreads_ai() -> None:
+    outside = [
+        p for p in (ROOT / "src").rglob("*.py") if (ROOT / "src" / "spreads_ai") not in p.parents
+    ]
+    scripts = [p for p in (ROOT / "scripts").glob("*.py") if p.stem != "run_spreads"]
+    offenders = [
+        str(p.relative_to(ROOT)) for p in [*outside, *scripts] if _imports(p, "src.spreads_ai")
+    ]
+    assert offenders == []

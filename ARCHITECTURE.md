@@ -982,6 +982,19 @@ CLAUDE.md "The spreads fence". Built from
 
 ---
 
+### `src/spreads_ai/` — Claude picks the daily spread (enrichment)
+
+Spec: `docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md`. Plugged into the spreads service by `scripts/run_spreads.py` when `spreads.ai.enabled`; `src/spreads/` never imports it. It cannot gate, size, send or record anything: it imports nothing from `src.spreads`, the trading path, `src.notify`, `src.ledger` or `src.storage`, and reaches Claude only through `src.claude.cli` (`tests/test_spreads_fence.py`).
+
+| File | What it does |
+|---|---|
+| `context.py` | The enrichment inputs: VIX/VIX3M, rates and SPY 5-day return (`analytics.market_conditions`), SPY vs SMA20/50 and RSI (`analytics.technicals`), and up to `ai.max_headlines` macro/market headlines plus today's scheduled prints (read-only from `news.db`). Each source degrades alone and is listed in `unavailable` |
+| `prompts.py` | The 09:31 brief prompt and the pick prompt: the objective (expected P&L after costs, judged against the baseline), the day plan, tape, gamma map, market, events, fenced headlines, exit rules, book history (realized stats only past 20 closed trades) and the lettered menu with both break-even win rates. Formatting only |
+| `parse.py` | Strict JSON parsing: a single letter (any case) or `skip`; anything else is unparseable |
+| `picker.py` | `ClaudePicker` (`brief`, `pick`): per-call model/effort/timeout from `spreads.ai`, never raises (a failure comes back as a `fallback_reason`) |
+
+---
+
 ### `src/news/` — The News thread (enrichment, its own database)
 
 Built from `docs/superpowers/plans/2026-10-09-news-thread.md` (spec
