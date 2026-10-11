@@ -536,3 +536,13 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 13 Web roll_request | done | (this commit) | full suite 3383 pass; mypy clean | 2026-10-11 | drain mocks evaluate_roll; old generator + fetch_roll_inputs + queue_roll_for_approval + their tests deleted; invariants re-pinned |
 | 14 Backtest arms | done | (this commit) | arms 6 pass; mypy clean | 2026-10-11 | roll arm = same-strike roll; calls include stock P&L; CLI smoke test added |
 | 15 Docs + gate | done | (this commit) | full suite 3389 pass; ruff + mypy clean; web tsc 9 errors = main baseline (test files only) | 2026-10-11 | README/ARCHITECTURE/SETUP/STATUS/commands.md updated; 2026-10-02 STATUS claim marked superseded |
+
+**Final review (2026-10-11):** fresh whole-branch reviewer — 0 Critical, 8 Important, 8 Minor;
+verdict "ready with fixes". Seven Important findings fixed test-first in one pass (commit after
+949169e: engine re-checks roll economics; ex-div trigger ITM-only and ignores a past ex-date; a
+rejected/expired roll is not re-proposed the same ET day; BUY leg booked under
+`roll_from.candidate_id`; fallback leg prices net to the combo fill; chain credit includes an
+outside short's buy-back and ignores partial closes of the open leg; loader warns when `roll:` is
+missing). The eighth (executor mid falling back to `last`) did not reproduce — kept as a regression
+test. Full suite 3400 passed, ruff + mypy clean. Deferred minors are listed in STATUS.md's Built
+entry caveats and the final hand-off.
