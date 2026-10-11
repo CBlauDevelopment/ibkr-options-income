@@ -106,7 +106,7 @@ async def _run_check(
     with (
         patch("src.execution.profit_take.get_config", return_value=cfg),
         patch("src.ibkr.portfolio.get_positions", return_value=[pos]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=entry),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=entry),
         patch(
             "src.execution.profit_take.position_opened_at",
             return_value=datetime.now(UTC) - timedelta(days=2),

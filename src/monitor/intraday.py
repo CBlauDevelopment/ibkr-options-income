@@ -109,7 +109,7 @@ def _load_entry_credit(pos: PositionSnapshot) -> float | None:
     roll for them.
     """
     from src.common.universe import is_leveraged_etf
-    from src.execution.profit_take import net_entry_credit_per_share
+    from src.storage.roll_chains import chain_entry_credit_per_share
 
     underlying = pos.underlying or pos.symbol
     if pos.strike is None or pos.expiry is None or pos.right is None:
@@ -117,7 +117,7 @@ def _load_entry_credit(pos: PositionSnapshot) -> float | None:
     if is_leveraged_etf(underlying):
         return None
     with session_scope() as s:
-        return net_entry_credit_per_share(s, underlying, pos.strike, pos.expiry, pos.right.value)
+        return chain_entry_credit_per_share(s, pos)
 
 
 def _mkt_data_req_id(ib: Any, ticker: Any) -> int | None:

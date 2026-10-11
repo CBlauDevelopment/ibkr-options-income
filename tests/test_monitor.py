@@ -1463,7 +1463,7 @@ def test_entry_credit_is_not_loaded_for_a_leveraged_etf() -> None:
     """Leveraged shorts are still closed by the loss exit — the monitor must not also roll them."""
     from src.monitor.intraday import _load_entry_credit
 
-    with patch("src.execution.profit_take.net_entry_credit_per_share", return_value=1.0) as credit:
+    with patch("src.storage.roll_chains.chain_entry_credit_per_share", return_value=1.0) as credit:
         with patch("src.common.universe.is_leveraged_etf", return_value=True):
             assert _load_entry_credit(_short_put()) is None
         credit.assert_not_called()

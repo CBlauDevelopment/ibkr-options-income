@@ -37,7 +37,7 @@ async def test_loss_exit_does_not_close_a_non_leveraged_short():
             "src.ibkr.portfolio.get_positions",
             return_value=[_short_put(strike=335.0, underlying="GOOGL")],
         ),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.98),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.98),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(6.9, 7.1))),
         patch("src.execution.profit_take.close_short_position", new=AsyncMock()) as close,
     ):
@@ -61,7 +61,7 @@ async def test_loss_exit_fires_at_the_configured_multiple():
     close_result.limit_price = 5.20
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
         patch(
             "src.execution.profit_take.close_short_position",
@@ -88,7 +88,7 @@ async def test_loss_exit_does_not_fire_below_the_multiple():
     ib_scan, ib_exec, bot = MagicMock(), MagicMock(), MagicMock()
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(3.00, 3.20))),
         patch("src.execution.profit_take.close_short_position", new=AsyncMock()) as close,
     ):
@@ -108,7 +108,7 @@ async def test_loss_exit_is_skipped_when_auto_close_is_disabled():
     with (
         patch("src.execution.profit_take.get_config", return_value=cfg),
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(9.0, 9.2))),
         patch("src.execution.profit_take.close_short_position", new=AsyncMock()) as close,
     ):
@@ -128,7 +128,7 @@ async def test_loss_exit_sends_error_notification_on_close_failure():
     close_result.detail = "order placement failed"
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
         patch(
             "src.execution.profit_take.close_short_position",
@@ -155,7 +155,7 @@ async def test_loss_exit_skips_duplicate_close_attempt():
     close_result.detail = "close already working"
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
         patch(
             "src.execution.profit_take.close_short_position",
@@ -180,7 +180,7 @@ async def test_loss_exit_alerts_when_order_does_not_fill():
     close_result.avg_price = 0.0
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
         patch(
             "src.execution.profit_take.close_short_position",
@@ -211,7 +211,7 @@ async def test_loss_exit_result_escapes_float_fill_qty():
     close_result.avg_price = 7.00
     with (
         patch("src.ibkr.portfolio.get_positions", return_value=[_short_put(qty=-2)]),
-        patch("src.execution.profit_take.net_entry_credit_per_share", return_value=2.98),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.98),
         patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(6.9, 7.1))),
         patch(
             "src.execution.profit_take.close_short_position",

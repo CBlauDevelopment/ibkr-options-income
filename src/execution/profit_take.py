@@ -30,6 +30,7 @@ from src.ibkr.market_data import req_fresh_mkt_data
 from src.storage.db import session_scope
 from src.storage.models import CandidateRow, FillRow
 from src.storage.orders import entry_dte, position_opened_at
+from src.storage.roll_chains import chain_entry_credit_per_share
 
 log = logging.getLogger(__name__)
 
@@ -251,14 +252,11 @@ async def check_profit_takes(
     for pos in short_opts:
         # All three are non-None by the short_opts filter above.
         assert pos.expiry is not None and pos.strike is not None and pos.right is not None
-        right_value = pos.right.value
-
-        # Entry credit = qty-weighted average of ALL SELL fills for this contract, net of the
-        # entry commission (SYSTEM_REVIEW F8) — not just the last fill's price.
+        # Entry credit = the whole roll chain's net credit per share (every SELL − every BUY −
+        # commissions; for a never-rolled short that is the qty-weighted SELL credit net of
+        # commission, SYSTEM_REVIEW F8). A rolled leg's gross premium is not secured gain.
         with session_scope() as s:
-            entry_price = net_entry_credit_per_share(
-                s, pos.underlying or pos.symbol, pos.strike, pos.expiry, right_value
-            )
+            entry_price = chain_entry_credit_per_share(s, pos)
 
         if entry_price is None or entry_price <= 0:
             continue
@@ -344,9 +342,7 @@ async def check_loss_exits(
             continue  # rolled, not closed — the monitor's loss_multiple trigger owns it
 
         with session_scope() as s:
-            entry = net_entry_credit_per_share(
-                s, pos.underlying or pos.symbol, pos.strike, pos.expiry, pos.right.value
-            )
+            entry = chain_entry_credit_per_share(s, pos)
         if entry is None or entry <= 0:
             continue
 
