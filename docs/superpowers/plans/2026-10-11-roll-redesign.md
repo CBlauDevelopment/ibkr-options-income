@@ -534,5 +534,5 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 11 Card + close | done | (this commit) | card 5 + notify/fences pass; mypy clean | 2026-10-11 | done before T10 (T10 consumes the card) |
 | 12 Reviewer | done | (this commit) | reviewer/monitor/claude suites 200 pass; mypy clean | 2026-10-11 | decision cards reviewed with the proposal; monitor tests patch review_roll |
 | 13 Web roll_request | done | (this commit) | full suite 3383 pass; mypy clean | 2026-10-11 | drain mocks evaluate_roll; old generator + fetch_roll_inputs + queue_roll_for_approval + their tests deleted; invariants re-pinned |
-| 14 Backtest arms | pending | | | | |
+| 14 Backtest arms | done | (this commit) | arms 6 pass; mypy clean | 2026-10-11 | roll arm = same-strike roll; calls include stock P&L; CLI smoke test added |
 | 15 Docs + gate | pending | | | | |
