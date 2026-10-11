@@ -22,7 +22,9 @@ import logging
 import math
 import signal
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
+from time import monotonic as time_monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -31,15 +33,17 @@ from ib_async import IB
 from src.analytics.fundamentals import get_fundamental_stats
 from src.claude.runner import review_roll
 from src.common.config import Config, get_config
-from src.common.market_hours import is_rth, today_et
+from src.common.market_hours import is_rth, minutes_since_open, today_et
 from src.common.schemas import (
     FundamentalStats,
     OptionQuote,
     OptionRight,
     PositionSnapshot,
     RollAlert,
+    RollDecision,
     RollReview,
 )
+from src.common.universe import is_leveraged_etf
 from src.ibkr.connection import AutoReconnect, connect_with_retry
 from src.ibkr.contracts import build_option, qualify_options_async
 from src.ibkr.market_data import req_fresh_mkt_data
@@ -201,7 +205,8 @@ def _alerted_triggers(position_symbol: str, since: datetime | None) -> set[str]:
     """Triggers already alerted for *position_symbol* at or after *since* (None = ever)."""
     with session_scope() as session:
         q = session.query(RollAlertRow.trigger).filter(
-            RollAlertRow.position_symbol == position_symbol
+            RollAlertRow.position_symbol == position_symbol,
+            RollAlertRow.trigger != _DECISION_TRIGGER,  # roll decisions dedupe separately
         )
         if since is not None:
             q = q.filter(RollAlertRow.created_at >= since)
@@ -251,38 +256,6 @@ def _persist_alert(alert: RollAlert, review: RollReview | None) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _try_queue_roll(
-    ib: IB,
-    pos: PositionSnapshot,
-    chat_id: str,
-    cfg: Config,
-) -> int | None:
-    """Fetch the chain, generate the best roll candidate, and raise a PENDING approval (N20).
-
-    Returns the approval id (so the caller can attach Approve/Reject buttons), or None when no
-    roll qualifies or anything fails — in which case the caller falls back to an alert-only send.
-
-    Since M5 Task 5.1 the chain + stats fetch goes through ``roll_pipeline.fetch_roll_inputs`` —
-    the shared path the command drain's ``roll_request`` handler also uses — so the monitor and
-    the web console cannot drift apart on how a roll is priced.
-    """
-    try:
-        from src.execution.roll_pipeline import fetch_roll_inputs, queue_roll_for_approval
-
-        quotes, iv_stats, tech_stats = await fetch_roll_inputs(ib, pos)
-        if not quotes:
-            return None
-        queued = queue_roll_for_approval(
-            pos, quotes, iv_stats, tech_stats, chat_id=chat_id, ttl_minutes=cfg.approval.ttl_minutes
-        )
-        return queued[0] if queued is not None else None
-    except Exception:
-        log.exception(
-            "roll: chain/candidate generation failed for %s", pos.underlying or pos.symbol
-        )
-        return None
-
-
 async def fire_alerts(
     alerts: list[RollAlert],
     pos: PositionSnapshot,
@@ -297,11 +270,14 @@ async def fire_alerts(
     """De-dup, call Claude, send Telegram, persist. No-op if the alert policy holds all back.
 
     This function is the testable heart of the monitor — the IB event subscription
-    code in IntradayMonitor calls into here. When ``cfg.monitor.roll_execution_enabled`` is set
-    and an ``ib`` is supplied, the alert is sent as an **approvable roll candidate** (N20):
-    tapping Approve queues a ROLL order that ``execute_roll`` executes. Otherwise it is the
-    historical alert-only message.
+    code in IntradayMonitor calls into here. Since the 2026-10-11 roll redesign every alert it
+    sends is **information only** (no buttons): roll / assign / close decisions come from
+    ``handle_roll_trigger`` on a strike breach or ex-dividend risk. Nothing is sent outside
+    RTH or inside the first ``roll.trigger.min_minutes_after_open`` minutes; the policy above
+    re-offers the alert on a later cycle.
     """
+    if not _alert_window_open(cfg):
+        return
     fresh = _select_fresh(
         [a for a in alerts if (a.position_symbol, a.trigger) not in _IN_FLIGHT],
         opened_at=opened_at,
@@ -346,29 +322,7 @@ async def _review_send_persist(
         except Exception:
             log.exception("Claude roll review failed for %s", pos.symbol)
 
-    # Optionally turn the alert into an approvable roll candidate (gated; default OFF).
-    reply_markup = None
-    if getattr(cfg.monitor, "roll_execution_enabled", False) is True and ib is not None:
-        # get_positions carries no greeks, and a defensive roll is judged on how much it
-        # reduces |delta| — with the position's delta unknown, every candidate was rejected
-        # and no roll alert was ever approvable (2026-10-02). Use the live quote's delta.
-        roll_pos = pos
-        if pos.delta is None and quote.delta is not None:
-            roll_pos = pos.model_copy(update={"delta": quote.delta})
-        approval_id = await _try_queue_roll(ib, roll_pos, chat_id, cfg)
-        if approval_id is not None:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-            reply_markup = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "✅ Approve roll", callback_data=f"approve:{approval_id}"
-                        ),
-                        InlineKeyboardButton("❌ Reject", callback_data=f"reject:{approval_id}"),
-                    ]
-                ]
-            )
+    reply_markup = None  # information only — roll decisions come from handle_roll_trigger
 
     from src.notify.formatters import format_assignment_alert, format_roll_alert
 
@@ -381,11 +335,10 @@ async def _review_send_persist(
             chat_id=chat_id, text=text, parse_mode="MarkdownV2", reply_markup=reply_markup
         )
         log.info(
-            "Roll alert sent: %s triggers=%s recommendation=%s approvable=%s",
+            "Roll alert sent (info): %s triggers=%s recommendation=%s",
             pos.symbol,
             [a.trigger for a in fresh],
             review.recommendation if review else "n/a",
-            reply_markup is not None,
         )
     except Exception:
         log.exception("Telegram send failed for roll alert %s", pos.symbol)
@@ -395,6 +348,172 @@ async def _review_send_persist(
             _persist_alert(alert, review)
         except Exception:
             log.exception("Failed to persist roll alert for %s", alert.position_symbol)
+
+
+# ---------------------------------------------------------------------------
+# Roll decisions (2026-10-11 roll redesign)
+# ---------------------------------------------------------------------------
+
+_DECISION_TRIGGER = "roll_decision"
+
+
+def _alert_window_open(cfg: Config, now: datetime | None = None) -> bool:
+    """RTH and at least ``roll.trigger.min_minutes_after_open`` minutes past the open."""
+    minutes = minutes_since_open(now)
+    return minutes is not None and minutes >= cfg.roll.trigger.min_minutes_after_open
+
+
+@dataclass
+class RollEvalState:
+    """Per-monitor bookkeeping for ``handle_roll_trigger`` (in memory; a restart re-evaluates)."""
+
+    last_eval: dict[str, float] = field(default_factory=dict)  # position symbol → monotonic
+    inflight: set[str] = field(default_factory=set)
+    tasks: set[asyncio.Task[Any]] = field(default_factory=set)
+
+
+def _decision_key(decision: RollDecision, approval_id: int | None) -> str:
+    key = f"{decision.action}:{decision.reason}"
+    return f"{key}:{approval_id}" if approval_id is not None else key
+
+
+def _decision_sent_today(position_symbol: str, key: str) -> bool:
+    with session_scope() as session:
+        return (
+            session.query(RollAlertRow.id)
+            .filter(
+                RollAlertRow.position_symbol == position_symbol,
+                RollAlertRow.trigger == _DECISION_TRIGGER,
+                RollAlertRow.detail == key,
+                RollAlertRow.created_at >= _et_day_start_utc().replace(tzinfo=None),
+            )
+            .first()
+            is not None
+        )
+
+
+def _persist_decision(
+    pos: PositionSnapshot, trigger: str, key: str, decision: RollDecision, approval_id: int | None
+) -> None:
+    with session_scope() as session:
+        session.add(
+            RollAlertRow(
+                position_symbol=pos.symbol,
+                underlying=pos.underlying or pos.symbol,
+                trigger=_DECISION_TRIGGER,
+                detail=key,
+                payload={
+                    "trigger": trigger,
+                    "decision": decision.model_dump(mode="json"),
+                    "approval_id": approval_id,
+                },
+            )
+        )
+
+
+def _decision_markup(
+    decision: RollDecision, approval_id: int | None, pos: PositionSnapshot, cfg: Config
+) -> Any:
+    if not getattr(cfg.monitor, "roll_execution_enabled", False):
+        return None
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    if decision.action == "roll" and approval_id is not None:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Approve roll", callback_data=f"approve:{approval_id}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"reject:{approval_id}"),
+                ]
+            ]
+        )
+    if decision.action == "close" and pos.con_id is not None:
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🛑 Close now", callback_data=f"close_short:{pos.con_id}")]]
+        )
+    return None
+
+
+async def handle_roll_trigger(
+    pos: PositionSnapshot,
+    quote: OptionQuote,
+    *,
+    ib: IB | None,
+    bot: Any,
+    chat_id: str,
+    cfg: Config,
+    fund: FundamentalStats | None,
+    state: RollEvalState,
+    now: float | None = None,
+) -> RollDecision | None:
+    """Evaluate a breached (or ex-dividend-exposed) short and send the policy's decision card.
+
+    Runs only inside the alert window, only when ``roll_policy.roll_trigger`` fires, and at most
+    once per ``roll.trigger.reevaluate_minutes`` per position — a breach is re-checked while it
+    holds rather than alerted once. Leveraged ETFs hold without a fetch. ``defer`` decisions
+    send nothing; any other decision is sent once per ET day per action/reason (a newly queued
+    roll approval always gets its own card). Returns the decision, or None when nothing ran.
+    """
+    from src.execution.roll_pipeline import evaluate_roll
+    from src.notify.formatters import format_roll_decision
+    from src.strategies.roll_policy import roll_trigger
+
+    if not _alert_window_open(cfg):
+        return None
+    guard = bool(cfg.risk.get("events", {}).get("ex_dividend_assignment_guard", True))
+    trigger = roll_trigger(pos, quote, fund, cfg.roll, ex_div_guard=guard, today=today_et())
+    if trigger is None:
+        return None
+    key = pos.symbol
+    t = time_monotonic() if now is None else now
+    last = state.last_eval.get(key)
+    if key in state.inflight or (
+        last is not None and t - last < cfg.roll.trigger.reevaluate_minutes * 60
+    ):
+        return None
+    state.last_eval[key] = t
+    state.inflight.add(key)
+    try:
+        # get_positions carries no greeks; the policy compares the live delta.
+        live = pos.model_copy(update={"delta": quote.delta}) if pos.delta is None else pos
+        approval_id: int | None = None
+        if is_leveraged_etf(pos.underlying or pos.symbol):
+            decision = RollDecision(
+                action="hold",
+                reason="leveraged_etf_no_roll",
+                detail="Leveraged ETF: never rolled. The 2× loss-line buyback remains the exit.",
+            )
+        elif ib is None:
+            decision = RollDecision(action="defer", reason="broker_unavailable")
+        else:
+            decision, approval_id = await evaluate_roll(
+                ib, live, chat_id=chat_id, ttl_minutes=cfg.approval.ttl_minutes
+            )
+        if decision.action == "defer":
+            return decision
+        dkey = _decision_key(decision, approval_id)
+        if _decision_sent_today(pos.symbol, dkey):
+            return decision
+        text = format_roll_decision(
+            pos, quote, trigger, decision, max_rolls=cfg.roll.limits.max_rolls_per_chain
+        )
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode="MarkdownV2",
+                reply_markup=_decision_markup(decision, approval_id, pos, cfg),
+            )
+        except Exception:
+            log.exception("Telegram send failed for roll decision %s", pos.symbol)
+            return decision
+        _persist_decision(pos, trigger, dkey, decision, approval_id)
+        return decision
+    except Exception:
+        log.exception("roll: decision failed for %s", pos.symbol)
+        return None
+    finally:
+        state.inflight.discard(key)
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +560,7 @@ class IntradayMonitor:
         # ETF (its loss exit closes instead of rolling) or a position with no fill on record.
         self._entry_credit: dict[str, float | None] = {}
         self._fund_stats: dict[str, FundamentalStats] = {}
+        self._roll_state = RollEvalState()
 
     # ------------------------------------------------------------------
     # Subscription management — async, runs on the ib_async loop thread.
@@ -656,6 +776,23 @@ class IntradayMonitor:
                     ib=self._ib,
                     opened_at=opened_at,
                 )
+            # Roll decisions run as their own task: a targeted fetch takes seconds and must
+            # not stall the tick stream. handle_roll_trigger gates on the window, the trigger,
+            # the re-evaluation cadence and an in-flight set before it does anything.
+            task = asyncio.create_task(
+                handle_roll_trigger(
+                    pos,
+                    quote,
+                    ib=self._ib,
+                    bot=self._bot,
+                    chat_id=self._chat_id,
+                    cfg=self._cfg,
+                    fund=fund_stats,
+                    state=self._roll_state,
+                )
+            )
+            self._roll_state.tasks.add(task)
+            task.add_done_callback(self._roll_state.tasks.discard)
 
     # ------------------------------------------------------------------
     # Lifecycle

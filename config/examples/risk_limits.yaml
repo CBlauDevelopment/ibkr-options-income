@@ -116,7 +116,7 @@ live_execution:
 # --- Event blackouts ---
 events:
   earnings_blackout_days: 14     # no new short premium within N days of earnings
-  ex_dividend_assignment_guard: true   # flag ITM short calls before ex-div
+  ex_dividend_assignment_guard: true   # master switch: roll policy ex-dividend trigger (settings.yaml roll.ex_div)
 
 # --- Portfolio: three constraints, each in its proper unit ---
 # `max_pct_per_ticker` used to answer three unrelated questions at once, which is why any

@@ -26,9 +26,9 @@ _SRC = _ROOT / "src"
 # to the YAML: test_allowlist_entries_exist_in_config asserts every entry below is a real,
 # present leaf key, so a retired key left in this set would be caught rather than silently
 # lying about what's still configurable.
-_KNOWN_UNENFORCED = {
-    "ex_dividend_assignment_guard",  # ex-div guard fires in monitor/triggers without this flag
-}
+# `ex_dividend_assignment_guard` left this set 2026-10-11: it is the master switch for the roll
+# policy's ex-dividend trigger (monitor/intraday.handle_roll_trigger).
+_KNOWN_UNENFORCED: set[str] = set()
 
 
 def _leaf_keys(node: object) -> set[str]:

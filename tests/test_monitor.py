@@ -38,6 +38,15 @@ _EXPIRY_FAR = date.today() + timedelta(days=30)
 _EXPIRY_NEAR = date.today() + timedelta(days=5)
 
 
+@pytest.fixture(autouse=True)
+def _alert_window_always_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise alert content, not timing; the RTH gate has its own tests
+    (tests/test_monitor_roll_eval.py)."""
+    import src.monitor.intraday as intraday
+
+    monkeypatch.setattr(intraday, "_alert_window_open", lambda cfg, now=None: True)
+
+
 def _make_short_call(
     symbol: str = "AAPL  260117C00185000",
     underlying: str = "AAPL",
@@ -1470,30 +1479,35 @@ def test_entry_credit_is_not_loaded_for_a_leveraged_etf() -> None:
 
 
 @pytest.mark.asyncio
-async def test_roll_proposal_gets_the_live_quote_delta() -> None:
-    """get_positions carries no greeks; without a delta every defensive roll was rejected and
-    no roll alert was ever approvable (2026-10-02)."""
-    from src.monitor.intraday import fire_alerts
+async def test_roll_evaluation_gets_the_live_quote_delta(db: object) -> None:
+    """get_positions carries no greeks; the roll policy compares the live delta, so the
+    position handed to evaluate_roll must carry the quote's (2026-10-02, redesign 2026-10-11)."""
+    from src.common.config import get_config
+    from src.common.schemas import RollDecision
+    from src.monitor.intraday import RollEvalState, handle_roll_trigger
 
     pos = _short_put()
     assert pos.delta is None
     quote = _put_quote(und=72.0, delta=-0.55)
-    cfg = MagicMock()
-    cfg.claude.enabled = False
-    cfg.monitor.roll_execution_enabled = True
     captured: dict = {}
 
-    async def _queue(ib, roll_pos, chat_id, cfg_):
+    async def _evaluate(ib, roll_pos, **_kw):  # noqa: ANN001, ANN003
         captured["delta"] = roll_pos.delta
-        return None
+        return RollDecision(action="defer", reason="test"), None
 
     with (
-        patch("src.monitor.intraday._select_fresh", side_effect=lambda a, **_k: a),
-        patch("src.monitor.intraday._persist_alert"),
-        patch("src.monitor.intraday._try_queue_roll", side_effect=_queue),
-        ThreadPoolExecutor(max_workers=1) as ex,
+        patch("src.execution.roll_pipeline.evaluate_roll", side_effect=_evaluate),
+        patch("src.monitor.intraday.is_leveraged_etf", return_value=False),  # TQQQ is one
     ):
-        await fire_alerts(
-            [_alert("loss_multiple")], pos, quote, AsyncMock(), "chat", cfg, ex, ib=MagicMock()
+        await handle_roll_trigger(
+            pos,
+            quote,
+            ib=MagicMock(),
+            bot=AsyncMock(),
+            chat_id="chat",
+            cfg=get_config(),
+            fund=None,
+            state=RollEvalState(),
+            now=0.0,
         )
     assert captured["delta"] == -0.55

@@ -208,6 +208,24 @@ def is_rth(now: datetime | None = None) -> bool:
     return _OPEN <= now.timetz().replace(tzinfo=None) < close
 
 
+def minutes_since_open(now: datetime | None = None) -> float | None:
+    """Minutes since today's 09:30 ET open, or None outside RTH (2026-10-11).
+
+    Lets the monitor hold every alert and roll evaluation out of the opening print, when
+    spreads are widest (all five loss-line alerts of 2026 were stamped 09:30 ET).
+    """
+    if now is None:
+        now = datetime.now(_ET)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=_ET)
+    else:
+        now = now.astimezone(_ET)
+    if not is_rth(now):
+        return None
+    opened = datetime.combine(now.date(), _OPEN, tzinfo=_ET)
+    return (now - opened).total_seconds() / 60.0
+
+
 def seconds_until_time(hh: int, mm: int, now: datetime | None = None) -> float:
     """Seconds (ET wall-clock) until the next occurrence of HH:MM — today if still
     ahead, else tomorrow. Mirrors seconds_until_next_aligned_mark's tz handling."""

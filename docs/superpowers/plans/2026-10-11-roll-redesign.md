@@ -530,7 +530,7 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 7 Rules Engine | done | (this commit) | full suite 3368 pass; mypy clean | 2026-10-11 | roll without roll_from fails closed; test helper attaches origin |
 | 8 Pipeline | done | (this commit) | evaluate 6 pass + roll/fence suites 137 pass; mypy clean | 2026-10-11 | old queue_roll_for_approval wraps queue_roll_candidate until T13; pending roll short-circuits to defer/roll_pending |
 | 9 Executor | done | (this commit) | executor 20 pass; mypy clean | 2026-10-11 | roll leg re-gated as ROLL + roll_delta_increases; walk floor = max(policy floor, collapse floor); old nearest-dated + reprice tests replaced |
-| 10 Monitor | pending | | | | |
+| 10 Monitor | done | (this commit) | full suite 3397 pass (config_keys fixed after); mypy clean | 2026-10-11 | decisions run as per-tick tasks; roll_decision rows excluded from info-alert policy; allowlist emptied here |
 | 11 Card + close | done | (this commit) | card 5 + notify/fences pass; mypy clean | 2026-10-11 | done before T10 (T10 consumes the card) |
 | 12 Reviewer | pending | | | | |
 | 13 Web roll_request | pending | | | | |

@@ -369,6 +369,7 @@ TRIGGER_LABELS: dict[str, str] = {
     "ex_div": "ex-dividend",
     "assignment_risk": "assignment risk",
     "loss_multiple": "loss limit",
+    "roll_decision": "roll decision",
 }
 
 
