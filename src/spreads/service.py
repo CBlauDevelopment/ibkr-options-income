@@ -29,43 +29,58 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from src.common.config import SpreadsCfg, get_config
-from src.common.market_hours import is_trading_day
+from src.common.market_hours import is_trading_day, next_session
 from src.common.schemas import (
     ChainOption,
     ChainSnapshot,
     GexLevels,
     SessionSnapshot,
+    SpreadBookStats,
     SpreadBriefRequest,
     SpreadBriefResult,
     SpreadCandidate,
+    SpreadDayPlan,
     SpreadEntryContext,
+    SpreadExitRules,
+    SpreadLlmCall,
+    SpreadMarketSnapshot,
+    SpreadMenuItem,
+    SpreadMenuPosition,
     SpreadPick,
     SpreadPickRequest,
+    SpreadPickSnapshot,
     SpreadPosition,
     SpreadRiskContext,
     SpreadSide,
+    SpreadTapeStats,
+    SpreadTrigger,
     SpreadVerdict,
 )
 from src.spreads import store
 from src.spreads.executor import UNRESOLVED, FillResult, SpreadExecutor, close_ref
 from src.spreads.gex import build_levels, expected_move, regime_at
 from src.spreads.manager import debit_to_close, evaluate_exit, intrinsic_debit, reconcile
+from src.spreads.menu import build_menu, round_trip_cost
 from src.spreads.notify import (
     SpreadsNotifier,
     fmt_books,
+    fmt_brief,
     fmt_entry,
     fmt_eod,
     fmt_exit,
     fmt_map,
+    fmt_pick,
 )
 from src.spreads.pricing import ET, day_schedule
+from src.spreads.report import compute_stats
 from src.spreads.risk import validate
-from src.spreads.selector import select_candidates
+from src.spreads.selector import refresh_candidate, select_candidates, select_menu
 from src.spreads.tape import SessionTape, trigger
 
 log = logging.getLogger(__name__)
@@ -126,6 +141,24 @@ class Picker(Protocol):
 # unique in spread_positions, and both books may hold the baseline strike at once.
 BASELINE_SUFFIX = "-BL"
 
+# How long past ai.pick_timeout_seconds the service waits before giving up on a pick itself —
+# the picker's own CLI timeout normally answers first; this is the backstop.
+_PICK_GRACE_SECONDS = 30.0
+
+
+@dataclass
+class _PendingPick:
+    """A pick in flight: the menu and the world as the main book's gate saw them."""
+
+    task: asyncio.Task[SpreadPick]
+    started: datetime
+    episode: str
+    menu: list[SpreadMenuItem]
+    levels: GexLevels
+    excess: float | None
+    gex_chain: ChainSnapshot
+    snapshot: SpreadPickSnapshot
+
 
 def _right(side: str) -> Literal["C", "P"]:
     return "P" if side == "put" else "C"
@@ -169,6 +202,9 @@ class SpreadsService:
             self.baseline_executor = baseline_executor or SpreadExecutor(
                 None, broker, cfg.model_copy(update={"mode": "shadow"}), now=now
             )
+        self._pending: _PendingPick | None = None
+        self._brief_task: asyncio.Task[SpreadBriefResult] | None = None
+        self._brief_day: date | None = None
 
     @property
     def books(self) -> list[tuple[str, Executor]]:
@@ -345,6 +381,10 @@ class SpreadsService:
         if s.map_time <= hhmm < s.force_close:
             await self._guard("tape", self._sample(now))
         await self._guard("manage", self._manage(now))
+        if self.picker is not None:
+            await self._guard("brief", self._brief(now))
+            if self._pending is not None:
+                await self._guard("pick", self._resolve_pick(now))
         if s.entry_start <= hhmm < s.entry_end:
             await self._guard("entries", self._entries(now))
         if hhmm >= s.eod_summary and self.eod_sent_for != today:
@@ -475,6 +515,8 @@ class SpreadsService:
         )
 
     async def _entries(self, now: datetime) -> None:
+        if self._pending is not None:
+            return  # one decision at a time: the pick in flight resolves first
         if self.entries_blocked:
             return
         if self.halt_path.exists():
@@ -507,6 +549,9 @@ class SpreadsService:
         )
         excess = await self.broker.excess_liquidity()
         gex_chain = self.gex_chain
+        if self.picker is not None:
+            await self._decide(now, chain, levels, excess, allowed)
+            return
         for cand in select_candidates(chain, levels, self.cfg, now, sides=allowed.sides):
             # Validated on the clock it runs at, so the quote's age (chain.as_of) is real.
             verdict = validate(cand, self._context(self.now(), levels, excess), self.cfg)
@@ -585,6 +630,365 @@ class SpreadsService:
         )
         await self.notifier.send(fmt_entry(pos, mode, tags))
         return pos, None
+
+    def _tape_stats(self, sides: list[SpreadSide], now: datetime) -> SpreadTapeStats:
+        t = self.tape
+        if t is None:
+            return SpreadTapeStats()
+        side = sides[0] if len(sides) == 1 else None
+        at = t.extreme_at(side) if side is not None else None
+        return SpreadTapeStats(
+            prior_close=t.prior_close,
+            open=t.open,
+            high=t.high,
+            low=t.low,
+            last=t.last,
+            high_at=t.high_at,
+            low_at=t.low_at,
+            move_em=t.move_em(side) if side is not None else None,
+            stall_minutes=(now - at).total_seconds() / 60.0 if at is not None else None,
+            gap_pct=t.gap_pct(),
+            day_em=t.day_em,
+        )
+
+    def _book_stats(self, mode: str) -> SpreadBookStats:
+        s = compute_stats([pnl for _, _, pnl in store.closed_results(mode)])
+        return SpreadBookStats(
+            mode=mode,
+            closed_trades=s.n,
+            win_rate=s.win_rate,
+            breakeven_win_rate=s.breakeven_win_rate,
+            expectancy_usd=s.expectancy,
+            total_pnl_usd=s.total_pnl,
+        )
+
+    def _events_today(self, now: datetime) -> list[str]:
+        et = now.astimezone(ET)
+        out = []
+        for ev in self.cfg.risk.events:
+            if ev.day == et.date():
+                when = "all day" if ev.until is None else f"until {ev.until} ET"
+                out.append(f"{ev.label or 'event'} ({when})")
+        return out
+
+    def _ex_div_window(self, today: date) -> bool:
+        exdiv = set(self.cfg.risk.ex_dividend_dates)
+        return today in exdiv or next_session(today) in exdiv
+
+    def _request_fields(
+        self, now: datetime, levels: GexLevels, sides: list[SpreadSide]
+    ) -> dict[str, Any]:
+        today = now.astimezone(ET).date()
+        ex = self.cfg.exits
+        return {
+            "now": now,
+            "levels": levels,
+            "tape": self._tape_stats(sides, now),
+            "events": self._events_today(now),
+            "ex_dividend_window": self._ex_div_window(today),
+            "exits": SpreadExitRules(
+                profit_take_pct=ex.profit_take_pct,
+                stop_debit_multiple=ex.stop_debit_multiple,
+                close_on_short_strike_touch=ex.close_on_short_strike_touch,
+                max_hold_minutes=ex.max_hold_minutes,
+                force_close=day_schedule(self.cfg.schedule, today).force_close,
+            ),
+            "books": [self._book_stats(m) for m, _ in self.books],
+        }
+
+    def _snapshot(
+        self,
+        levels: GexLevels,
+        allowed: SpreadTrigger,
+        now: datetime,
+        plan: SpreadDayPlan | None,
+    ) -> SpreadPickSnapshot:
+        tape = self._tape_stats(allowed.sides, now)
+        gap = tape.gap_pct
+        return SpreadPickSnapshot(
+            regime=levels.regime,
+            flip_distance_pct=(levels.spot - levels.flip) / levels.spot if levels.flip else None,
+            expected_move=levels.expected_move,
+            move_em=allowed.move_em,
+            stall_minutes=tape.stall_minutes,
+            gap_pct=gap,
+            gap_day=gap is not None and abs(gap) >= self.cfg.entry.gap_day_pct,
+            side=",".join(allowed.sides),
+            event_flag=bool(self._events_today(now)),
+            plan_bias=plan.bias if plan is not None else None,
+        )
+
+    def _episode_key(self, allowed: SpreadTrigger, now: datetime) -> str:
+        """One arming of the trigger: (ET day, side, the session extreme that armed it). The
+        extreme comes from IBKR's session stats, so a restart rebuilds the same key. In
+        ``always`` mode every entry check is its own episode."""
+        et = now.astimezone(ET)
+        t = self.tape
+        if allowed.reason != "armed" or t is None or len(allowed.sides) != 1:
+            return f"{et.date()}:{allowed.reason}:{et:%H%M}"
+        side = allowed.sides[0]
+        extreme = t.low if side == "put" else t.high
+        return f"{et.date()}:{side}:{extreme:.2f}"
+
+    async def _brief(self, now: datetime) -> None:
+        """Once a day, after the first map: Claude's day plan, without blocking the tick."""
+        assert self.picker is not None
+        today = now.astimezone(ET).date()
+        if self._brief_task is not None:
+            if not self._brief_task.done():
+                return
+            task, self._brief_task = self._brief_task, None
+            try:
+                result = task.result()
+            except (Exception, asyncio.CancelledError):
+                log.exception("spreads: the morning brief raised")
+                return
+            store.record_day_plan(today, result, now)
+            await self.notifier.send(fmt_brief(result, self.cfg.mode))
+            return
+        if self.levels is None or self.map_at is None:
+            return
+        if self.map_at.astimezone(ET).date() != today or self._brief_day == today:
+            return
+        if store.day_plan_attempted(today):
+            return
+        self._brief_day = today
+        request = SpreadBriefRequest(**self._request_fields(now, self.levels, []))
+        self._brief_task = asyncio.create_task(self.picker.brief(request))
+
+    async def _decide(
+        self,
+        now: datetime,
+        chain: ChainSnapshot,
+        levels: GexLevels,
+        excess: float | None,
+        allowed: SpreadTrigger,
+    ) -> None:
+        """ai.enabled: the baseline book takes the baseline item on its own gate; the main book
+        hands the items ITS gate approved to the picker. At most one spread per episode each."""
+        assert self.picker is not None and self.gex_chain is not None
+        gex_chain = self.gex_chain
+        episode = self._episode_key(allowed, now)
+        main_ctx = self._context(self.now(), levels, excess)
+        approved: list[tuple[SpreadCandidate, SpreadMenuPosition, int]] = []
+        baseline_item: SpreadCandidate | None = None
+        for cand, position in select_menu(chain, levels, self.cfg, now, sides=allowed.sides):
+            verdict = validate(cand, main_ctx, self.cfg)
+            store.record_candidate(cand, verdict, levels.regime, now)
+            if position == "baseline" and baseline_item is None:
+                baseline_item = cand
+            if verdict.approved:
+                approved.append((cand, position, verdict.contracts))
+        if baseline_item is not None and store.episode_trade(episode, "baseline") is None:
+            bl = baseline_item.model_copy(
+                update={"spread_id": baseline_item.spread_id + BASELINE_SUFFIX}
+            )
+            v = validate(bl, self._context(self.now(), levels, excess, "baseline"), self.cfg)
+            if v.approved and self.baseline_executor is not None:
+                await self._open_candidate(
+                    bl,
+                    v.contracts,
+                    levels,
+                    excess,
+                    now,
+                    mode="baseline",
+                    executor=self.baseline_executor,
+                    gex_chain=gex_chain,
+                    episode_key=episode,
+                )
+        if not approved or store.pick_exists(episode):
+            return
+        today = now.astimezone(ET).date()
+        cap = self.cfg.ai.max_pick_calls_per_day
+        if store.pick_calls_today(today) >= cap:
+            await self.alert_once(
+                "pick_cap",
+                f"[SPREADS] {cap} pick calls used today — no more {self.cfg.mode} entries until "
+                "tomorrow (the baseline book continues)",
+            )
+            return
+        menu = build_menu(approved, levels, self.cfg)
+        plan = store.day_plan(today)
+        request = SpreadPickRequest(
+            **self._request_fields(now, levels, allowed.sides),
+            sides=allowed.sides,
+            menu=menu,
+            plan=plan,
+            round_trip_cost_per_share=round_trip_cost(self.cfg),
+        )
+        self._pending = _PendingPick(
+            task=asyncio.create_task(self.picker.pick(request)),
+            started=now,
+            episode=episode,
+            menu=menu,
+            levels=levels,
+            excess=excess,
+            gex_chain=gex_chain,
+            snapshot=self._snapshot(levels, allowed, now, plan),
+        )
+
+    async def _fresh_candidate(self, c: SpreadCandidate) -> SpreadCandidate | None:
+        """*c* repriced on fresh leg quotes and spot — the pick is up to 75 s old by now."""
+        right = _right(c.side)
+        spot = await self.broker.spot()
+        quotes = await self.broker.requote(
+            [
+                ChainOption(
+                    strike=c.short_strike, right=right, expiry=c.expiry, con_id=c.short_con_id
+                ),
+                ChainOption(
+                    strike=c.long_strike, right=right, expiry=c.expiry, con_id=c.long_con_id
+                ),
+            ]
+        )
+        book = {(round(q.strike, 2), q.right): q for q in quotes}
+        short_q = book.get((round(c.short_strike, 2), right))
+        long_q = book.get((round(c.long_strike, 2), right))
+        if short_q is None or long_q is None:
+            return None
+        return refresh_candidate(c, short_q, long_q, self.now(), spot)
+
+    async def _resolve_pick(self, now: datetime) -> None:
+        p = self._pending
+        if p is None:
+            return
+        pick: SpreadPick | None = None
+        fallback: str | None = None
+        if not p.task.done():
+            waited = (now - p.started).total_seconds()
+            if waited <= self.cfg.ai.pick_timeout_seconds + _PICK_GRACE_SECONDS:
+                return
+            p.task.cancel()
+            fallback = "timeout"
+        else:
+            try:
+                pick = p.task.result()
+                fallback = pick.fallback_reason
+            except (Exception, asyncio.CancelledError):
+                log.exception("spreads: the picker raised")
+                fallback = "picker_error"
+        self._pending = None
+        if pick is None:
+            ai = self.cfg.ai
+            pick = SpreadPick(
+                choice="skip",
+                fallback_reason=fallback,
+                market=SpreadMarketSnapshot(),
+                call=SpreadLlmCall(model=ai.pick_model, effort=ai.pick_effort, error=fallback),
+            )
+        by_letter = {i.letter: i for i in p.menu}
+        baseline = next((i for i in p.menu if i.position == "baseline"), None)
+        if fallback is None and pick.choice != "skip" and pick.choice not in by_letter:
+            fallback = "off_menu"
+        chosen: SpreadMenuItem | None
+        if fallback is not None:
+            chosen = baseline
+        elif pick.choice == "skip":
+            chosen = None
+        else:
+            chosen = by_letter[pick.choice]
+        pick_id = store.record_pick(
+            now=now,
+            episode_key=p.episode,
+            book_mode=self.cfg.mode,
+            menu=p.menu,
+            pick=pick,
+            fallback_reason=fallback,
+            executed_letter=chosen.letter if chosen is not None else None,
+            snapshot=p.snapshot,
+        )
+        await self.notifier.send(
+            fmt_pick(
+                p.menu,
+                pick,
+                fallback,
+                chosen,
+                store.episode_trade(p.episode, "baseline"),
+                self.cfg.mode,
+            )
+        )
+        if fallback is not None:
+            await self.alert_once(
+                f"pick_fallback:{fallback}",
+                f"[SPREADS] the picker failed ({fallback}) — "
+                + (
+                    "trading the baseline item"
+                    if chosen
+                    else "no baseline item on the menu, no trade"
+                ),
+            )
+        if chosen is None:
+            if fallback is not None:
+                store.mark_pick_sent(
+                    pick_id, send_rejected=True, send_reasons=["no_baseline_item"], filled=False
+                )
+            return
+        try:
+            await self._send_pick(p, pick_id, chosen, now)
+        except Exception:
+            # An exception past this point must not leave the row looking unattempted.
+            store.mark_pick_sent(
+                pick_id, send_rejected=True, send_reasons=["send_error"], filled=False
+            )
+            raise
+
+    async def _send_pick(
+        self, p: _PendingPick, pick_id: int, chosen: SpreadMenuItem, now: datetime
+    ) -> None:
+        """Re-quote, re-gate and send the chosen item; the pick row records what happened."""
+        blocked = [
+            reason
+            for reason, on in (
+                ("entries_blocked", bool(self.entries_blocked)),
+                ("halted", self.halt_path.exists()),
+            )
+            if on
+        ]
+        if blocked:
+            store.mark_pick_sent(pick_id, send_rejected=True, send_reasons=blocked, filled=False)
+            return
+        fresh = await self._fresh_candidate(chosen.candidate)
+        if fresh is None:
+            store.mark_pick_sent(
+                pick_id, send_rejected=True, send_reasons=["no_fresh_quote"], filled=False
+            )
+            return
+        at = self.now()
+        moved = p.levels.model_copy(
+            update={
+                "as_of": at,
+                "spot": fresh.spot,
+                "regime": regime_at(p.gex_chain, fresh.spot, p.levels.scale, at),
+            }
+        )
+        verdict = validate(fresh, self._context(at, moved, p.excess), self.cfg)
+        if not verdict.approved:
+            store.mark_pick_sent(
+                pick_id, send_rejected=True, send_reasons=list(verdict.reasons), filled=False
+            )
+            await self.notifier.send(
+                f"[{self.cfg.mode.upper()}] pick {chosen.letter} not sent — the re-gate refused "
+                f"it: {', '.join(verdict.reasons)}"
+            )
+            return
+        pos, why = await self._open_candidate(
+            fresh,
+            verdict.contracts,
+            moved,
+            p.excess,
+            now,
+            mode=self.cfg.mode,
+            executor=self.executor,
+            gex_chain=p.gex_chain,
+            pick_id=pick_id,
+            episode_key=p.episode,
+        )
+        store.mark_pick_sent(
+            pick_id,
+            send_rejected=pos is None,
+            send_reasons=[] if pos is not None else [why or "not_filled"],
+            filled=pos is not None,
+        )
 
     async def _manage(self, now: datetime) -> None:
         for mode, executor in self.books:

@@ -11,7 +11,15 @@ from datetime import date
 from telegram import Bot
 
 from src.common.config import Config
-from src.common.schemas import GexLevels, SpreadEntryContext, SpreadPosition
+from src.common.schemas import (
+    GexLevels,
+    SpreadBriefResult,
+    SpreadEntryContext,
+    SpreadMenuItem,
+    SpreadPick,
+    SpreadPosition,
+    SpreadTradeRecord,
+)
 from src.spreads.pricing import ET
 
 log = logging.getLogger(__name__)
@@ -76,6 +84,63 @@ def fmt_books(
     return (
         f"{_tag(mode)} Claude {_money(main_today)} vs baseline {_money(base_today)} today"
         f" · since start {_money(main_total)} vs {_money(base_total)}"
+    )
+
+
+def fmt_brief(result: SpreadBriefResult, mode: str) -> str:
+    p = result.plan
+    if p is None:
+        return (
+            f"{_tag(mode)} DAY PLAN unavailable ({result.call.error or 'no plan'}) — "
+            "picks run without one"
+        )
+    return "\n".join(
+        [
+            f"{_tag(mode)} DAY PLAN · bias {p.bias}",
+            f"flags: {'; '.join(p.risk_flags) or 'none'}",
+            f"skip if: {'; '.join(p.skip_conditions) or 'none'}",
+            f"distance: {p.preferred_distance or 'n/a'}",
+            p.summary,
+        ]
+    )
+
+
+def _menu_item(i: SpreadMenuItem) -> str:
+    c = i.candidate
+    return f"{i.letter} {i.position} {c.short_strike:g}/{c.long_strike:g} {c.credit_mid:.2f}"
+
+
+def fmt_pick(
+    menu: list[SpreadMenuItem],
+    pick: SpreadPick,
+    fallback: str | None,
+    chosen: SpreadMenuItem | None,
+    baseline: SpreadTradeRecord | None,
+    mode: str,
+) -> str:
+    if fallback is not None:
+        what = (
+            f"picker failed ({fallback}) → baseline item {chosen.letter} "
+            f"{chosen.candidate.short_strike:g}/{chosen.candidate.long_strike:g}"
+            if chosen is not None
+            else f"picker failed ({fallback}) → no baseline item, no trade"
+        )
+    elif chosen is None:
+        what = f"Claude SKIPPED — {pick.reason}"
+    else:
+        c = chosen.candidate
+        what = (
+            f"Claude chose {chosen.letter} ({chosen.position}) {c.side} "
+            f"{c.short_strike:g}/{c.long_strike:g} ×{chosen.contracts} — {pick.reason}"
+        )
+    base = (
+        "baseline: no trade this episode"
+        if baseline is None
+        else f"baseline: sold {baseline.short_strike:g}/{baseline.long_strike:g} "
+        f"×{baseline.contracts} at {baseline.entry_credit:.2f} (simulated)"
+    )
+    return "\n".join(
+        [f"{_tag(mode)} PICK · {what}", "menu: " + " · ".join(_menu_item(i) for i in menu), base]
     )
 
 
