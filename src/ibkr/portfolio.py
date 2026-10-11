@@ -147,6 +147,7 @@ def get_positions(ib: IB, *, include_spreads: bool = False) -> list[PositionSnap
                 strike=strike,
                 expiry=expiry,
                 underlying=underlying,
+                con_id=int(c.conId) if getattr(c, "conId", 0) else None,
             )
         )
     log.info("Fetched %d portfolio positions (%d spreads-book skipped)", len(out), skipped)

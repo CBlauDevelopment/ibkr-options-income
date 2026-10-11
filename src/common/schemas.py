@@ -100,6 +100,9 @@ class PositionSnapshot(BaseModel):
     expiry: date | None = None
     delta: float | None = None
     underlying: str | None = None
+    # IBKR contract id (2026-10-11): identifies the exact contract a roll buys back, so two
+    # shorts on one underlying and right (GOOGL 330P + 335P) can never be confused.
+    con_id: int | None = None
 
 
 class AccountSnapshot(BaseModel):
@@ -278,6 +281,9 @@ class FundamentalStats(BaseModel):
     dividend_yield: float | None = None  # annual yield as a fraction (0.006 = 0.6%)
     dividend_safe: bool | None = None
     ex_dividend_date: date | None = None
+    # Next cash dividend $/share (yfinance lastDividendValue, else dividendRate/4). Feeds the
+    # roll ex-dividend test: a short call is at risk when its extrinsic is below this.
+    dividend_per_share: float | None = None
     quality_flag: bool | None = None  # passes the basic quality screen
     # Valuation anchors (yfinance `info`, same dict the fields above are read from — no extra
     # network cost). Used by analytics/fair_value.py to place a share-acquisition level; never
@@ -392,6 +398,27 @@ class IdealZone(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
 
 
+class RollOrigin(BaseModel):
+    """The short a ROLL candidate buys back, and where it sits in its roll chain (2026-10-11).
+
+    Stored inside the frozen candidate snapshot, so the executor closes exactly this contract
+    and the Rules Engine can enforce the chain's roll and extension limits.
+    """
+
+    con_id: int | None = None  # IBKR conId of the short being closed
+    candidate_id: str | None = None  # the system candidate that sold it (None: opened outside)
+    strike: float
+    expiry: date
+    right: OptionRight
+    contracts: int
+    chain_id: str  # the chain's root candidate id (or a synthetic id)
+    seq: int  # this roll's number in the chain: 1 = first roll
+    original_expiry: date  # expiry of the chain's first leg — the extension cap's anchor
+    old_mid: float  # $/sh to buy back the old leg when proposed
+    new_mid: float  # $/sh the new leg sold for when proposed
+    allow_debit: bool = False  # a keep-shares covered-call roll may pay up to roll.cc.max_debit
+
+
 class TradeCandidate(BaseModel):
     """A concrete proposed option sale, fully specified and scored."""
 
@@ -447,6 +474,9 @@ class TradeCandidate(BaseModel):
     quote_ask: float | None = None
     open_interest: int | None = None
     option_volume: int | None = None
+    # ROLL only (2026-10-11): the short this roll closes and its chain position. None on
+    # CC/CSP candidates and on roll snapshots frozen before the redesign.
+    roll_from: RollOrigin | None = None
 
 
 class RiskVerdict(BaseModel):
@@ -622,6 +652,25 @@ class CloseReason(StrEnum):
     LOSS_EXIT = "loss_exit"  # check_loss_exits hit max_loss_multiple (leveraged ETFs)
     ROLL = "roll"  # the buy-back leg of an executed roll
     MANUAL = "manual"  # closed outside the system; recorded by external-close reconciliation
+    DEFENSIVE = "defensive"  # operator tapped Close on a roll-policy `close` decision
+
+
+RollAction = Literal["roll", "assign", "let_called_away", "close", "hold", "defer"]
+
+
+class RollDecision(BaseModel):
+    """What the deterministic roll policy decided for one breached short (2026-10-11).
+
+    ``reason`` is a stable code (``credit_roll``, ``not_would_own``, ``net_below_floor``…);
+    ``rejections`` counts every construction rejection by code, so a decision that proposes
+    nothing still says why. ``candidate`` is set only for ``roll``.
+    """
+
+    action: RollAction
+    reason: str
+    candidate: TradeCandidate | None = None
+    rejections: dict[str, int] = Field(default_factory=dict)
+    detail: str = ""
 
 
 class BaselineDecision(BaseModel):

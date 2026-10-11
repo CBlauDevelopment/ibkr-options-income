@@ -1778,7 +1778,7 @@ export interface components {
          *     so profit-takes can be analysed apart from loss exits, rolls and hand-placed closes.
          * @enum {string}
          */
-        CloseReason: "profit_take" | "loss_exit" | "roll" | "manual";
+        CloseReason: "profit_take" | "loss_exit" | "roll" | "manual" | "defensive";
         /** ClusterOut */
         ClusterOut: {
             /** Id */

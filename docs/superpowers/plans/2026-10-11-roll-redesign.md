@@ -522,7 +522,7 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | Task | Status | Commits | Gate | Date | Rulings |
 |---|---|---|---|---|---|
 | 1 Roll config | done | (this commit) | pytest roll/monitor/config 121 pass; mypy clean | 2026-10-11 | Field `construct` renamed `new_leg` (shadowed BaseModel.construct); cfg path is roll.new_leg.* |
-| 2 Schemas | pending | | | | |
+| 2 Schemas | done | (this commit) | full suite 3319 pass; mypy clean | 2026-10-11 | - |
 | 3 Chain state | pending | | | | |
 | 4 Targeted fetch | pending | | | | |
 | 5 Construction | pending | | | | |

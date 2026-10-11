@@ -71,6 +71,13 @@ def get_fundamental_stats(symbol: str) -> FundamentalStats:
         raw_dividend_yield = _safe_float(info.get("dividendYield"))
         dividend_yield = raw_dividend_yield / 100.0 if raw_dividend_yield is not None else None
         ex_div_date = _ex_dividend_date(info)
+        last_div = _safe_float(info.get("lastDividendValue"))
+        div_rate = _safe_float(info.get("dividendRate"))
+        dividend_per_share = (
+            last_div
+            if last_div is not None and last_div > 0
+            else (div_rate / 4 if div_rate is not None and div_rate > 0 else None)
+        )
         dividend_safe = _dividend_safety(info, free_cash_flow)
         quality_flag = _quality_screen(pe_ratio, debt_to_equity, free_cash_flow)
 
@@ -82,6 +89,7 @@ def get_fundamental_stats(symbol: str) -> FundamentalStats:
             debt_to_equity=debt_to_equity,
             dividend_yield=dividend_yield,
             ex_dividend_date=ex_div_date,
+            dividend_per_share=dividend_per_share,
             dividend_safe=dividend_safe,
             quality_flag=quality_flag,
             target_mean_price=_safe_float(info.get("targetMeanPrice")),
