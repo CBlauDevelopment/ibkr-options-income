@@ -3,13 +3,15 @@
 src/spreads_ai/ (the spreads picker) uses this rather than src/claude/runner.py, which imports
 the strategist/roll/EOD prompts and the Ollama runner at module load. It imports nothing from
 src/: the caller passes every setting. The prompt goes in on stdin; the command runs in *cwd*
-(an empty directory, so no project CLAUDE.md is loaded), for one turn, with no MCP servers and
+(the caller picks a directory with no CLAUDE.md in any ancestor: claude walks up from its cwd),
+for one turn, with no MCP servers and
 every tool in *disallowed_tools* refused. Never raises for a CLI failure: the result says why.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -70,12 +72,15 @@ async def run_claude(
     try:
         out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout_seconds)
     except TimeoutError:
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):  # the child may have just exited
+            proc.kill()
         await proc.wait()
         log.warning("claude cli: timed out after %.0fs", timeout_seconds)
         return CliResult(None, "timeout", elapsed())
     except asyncio.CancelledError:
-        proc.kill()  # the caller gave up: never leave the subprocess running
+        with contextlib.suppress(ProcessLookupError):  # a race here must not replace the cancel
+            proc.kill()  # the caller gave up: never leave the subprocess running
+        await proc.wait()  # SIGKILL: reaps at once, and closes the transport
         raise
     raw = out.decode("utf-8", errors="replace")
     if proc.returncode != 0 and not raw.strip():

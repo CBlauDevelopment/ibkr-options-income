@@ -50,6 +50,7 @@ ITEM = SpreadMenuItem(
     dist_spot_pts=7.05,
     dist_em_multiple=1.05,
     beyond_wall_pts=None,
+    dist_flip_pts=None,
     be_full_loss=0.94,
     be_nominal_exits=0.83,
 )

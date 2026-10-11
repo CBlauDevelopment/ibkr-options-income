@@ -73,7 +73,8 @@ def _market(m: SpreadMarketSnapshot) -> str:
         f"VIX {_f(m.vix, '{:.1f}')} · VIX/VIX3M {_f(m.vix_term_ratio)} · 10y {_f(m.ten_year_yield)}%"
         f" ({_f(m.ten_year_change_5d_bp, '{:+.0f}')} bp over 5d) · SPY 5d {_f(m.spy_ret_5d_pct, '{:+.2f}')}%",
         f"SPY daily: vs SMA20 {_f(m.spy_vs_sma20_pct, '{:+.2f}')}% · vs SMA50 "
-        f"{_f(m.spy_vs_sma50_pct, '{:+.2f}')}% · RSI14 {_f(m.rsi14, '{:.0f}')}",
+        f"{_f(m.spy_vs_sma50_pct, '{:+.2f}')}% · RSI14 {_f(m.rsi14, '{:.0f}')} · "
+        f"HV30 {_f(m.hv30, '{:.1f}')}% (annualised realised vol)",
     ]
     if m.unavailable:
         lines.append("unavailable today: " + ", ".join(m.unavailable))
@@ -177,6 +178,11 @@ def _menu(req: SpreadPickRequest) -> str:
             if i.beyond_wall_pts is None
             else f"{i.beyond_wall_pts:+.2f} beyond the {c.side} wall"
         )
+        flip = (
+            "gamma flip n/a"
+            if i.dist_flip_pts is None
+            else f"{i.dist_flip_pts:+.2f} beyond the gamma flip"
+        )
         lines += [
             f"{i.letter} [{i.position}] {c.side} {c.short_strike:g}/{c.long_strike:g} · "
             f"short delta {_f(delta)} · {i.contracts} contract(s)",
@@ -184,7 +190,7 @@ def _menu(req: SpreadPickRequest) -> str:
             f"(costs {_pct(i.cost_pct_of_credit)} of the credit) · max loss "
             f"${i.max_loss_per_contract_usd:,.0f}/contract",
             f"   short strike {i.dist_spot_pts:.2f} from spot = {_f(i.dist_em_multiple)}× the "
-            f"expected move · {wall}",
+            f"expected move · {wall} · {flip}",
             f"   break-even win rate: {_pct(i.be_full_loss)} if every loss is a full max loss · "
             f"{_pct(i.be_nominal_exits)} under the exit rules",
         ]

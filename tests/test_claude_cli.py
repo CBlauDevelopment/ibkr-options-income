@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 from src.claude.cli import run_claude
 
@@ -75,6 +79,57 @@ async def test_a_failing_exit_with_no_output_is_a_cli_error(tmp_path) -> None:
 async def test_a_slow_cli_times_out_and_is_killed(tmp_path) -> None:
     res = await _run(fake_cli(tmp_path, "time.sleep(10)"), tmp_path, timeout=0.5)
     assert res.error == "timeout" and res.latency_ms < 5000
+
+
+async def test_cancelling_the_run_kills_the_child(tmp_path) -> None:
+    pidfile = tmp_path / "pid"
+    cli = fake_cli(tmp_path, f'open({str(pidfile)!r}, "w").write(str(os.getpid()))\ntime.sleep(30)')
+    task = asyncio.create_task(_run(cli, tmp_path, timeout=30))
+    for _ in range(100):  # wait until the child is up and has written its pid
+        if pidfile.exists() and pidfile.read_text():
+            break
+        await asyncio.sleep(0.05)
+    pid = int(pidfile.read_text())
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    for _ in range(100):  # the kill is delivered synchronously; give the OS a moment to reap
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.05)
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+async def test_a_kill_race_with_an_exited_child_does_not_replace_the_outcome(
+    tmp_path, monkeypatch
+) -> None:
+    class Gone:
+        returncode = None
+
+        async def communicate(self, _: bytes) -> tuple[bytes, bytes]:
+            await asyncio.sleep(30)
+            return b"", b""
+
+        def kill(self) -> None:
+            raise ProcessLookupError
+
+        async def wait(self) -> int:
+            return 0
+
+    async def spawn(*_a, **_k):
+        return Gone()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    res = await _run("x", tmp_path, timeout=0.2)
+    assert res.error == "timeout"
+    task = asyncio.create_task(_run("x", tmp_path, timeout=30))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 async def test_a_missing_binary_is_cli_missing(tmp_path) -> None:

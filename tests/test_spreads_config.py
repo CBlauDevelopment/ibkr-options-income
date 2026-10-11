@@ -159,7 +159,11 @@ def test_shipped_ai_block_is_off_with_opus_high() -> None:
         "high",
     )
     assert (ai.brief_timeout_seconds, ai.pick_timeout_seconds) == (120.0, 45.0)
-    assert (ai.max_pick_calls_per_day, ai.max_headlines, ai.workdir) == (4, 20, "data/spreads_ai")
+    assert (ai.max_pick_calls_per_day, ai.max_headlines, ai.workdir) == (
+        4,
+        20,
+        "~/.cache/ibkr-spreads-ai",
+    )
     assert sc.selection.menu_size == 4
 
 
@@ -189,9 +193,26 @@ def test_menu_size_cap_and_timeouts_are_positive() -> None:
         SpreadsAiCfg(pick_effort="extreme")
 
 
-def test_ai_workdir_resolves_under_the_root_and_is_gitignored() -> None:
+def test_ai_workdir_defaults_outside_the_repo() -> None:
     p = get_config().spreads_ai_workdir()
-    assert p.is_absolute() and p.parts[-2:] == ("data", "spreads_ai")
+    assert p.is_absolute() and p != ROOT and ROOT not in p.parents
+    assert p == Path.home() / ".cache" / "ibkr-spreads-ai"
+
+
+def test_ai_workdir_expands_home_passes_absolute_and_roots_relative() -> None:
+    cfg = get_config()
+
+    def resolved(workdir: str) -> Path:
+        c = cfg.model_copy(deep=True)
+        c.spreads.ai.workdir = workdir
+        return c.spreads_ai_workdir()
+
+    assert resolved("~/x") == Path.home() / "x"
+    assert resolved("/abs/x") == Path("/abs/x")
+    assert resolved("data/spreads_ai") == ROOT / "data" / "spreads_ai"  # legacy, not recommended
+
+
+def test_a_relative_ai_workdir_stays_gitignored() -> None:
     ignored = subprocess.run(
         ["git", "check-ignore", "-q", "data/spreads_ai/scratch.txt"], cwd=ROOT, check=False
     )

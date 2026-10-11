@@ -8,10 +8,12 @@ commission (SPY settles in shares, so every spread is closed, never left to expi
 
 from __future__ import annotations
 
+import string
+
 from src.common.config import SpreadsCfg
 from src.common.schemas import GexLevels, SpreadCandidate, SpreadMenuItem, SpreadMenuPosition
 
-LETTERS = "ABCDEFGH"
+LETTERS = string.ascii_uppercase  # 2 sides x menu_size stays well under 26
 
 
 def round_trip_cost(cfg: SpreadsCfg) -> float:
@@ -52,6 +54,12 @@ def build_menu(
             if wall is None
             else (wall - c.short_strike if c.side == "put" else c.short_strike - wall)
         )
+        flip = levels.flip
+        past_flip = (
+            None
+            if flip is None
+            else (flip - c.short_strike if c.side == "put" else c.short_strike - flip)
+        )
         full_loss = c.width - credit
         nominal_loss = min(full_loss, (ex.stop_debit_multiple - 1.0) * credit)
         out.append(
@@ -68,6 +76,7 @@ def build_menu(
                     round(dist / levels.expected_move, 2) if levels.expected_move else None
                 ),
                 beyond_wall_pts=None if beyond is None else round(beyond, 2),
+                dist_flip_pts=None if past_flip is None else round(past_flip, 2),
                 be_full_loss=breakeven(credit - cost, full_loss + cost),
                 be_nominal_exits=breakeven(
                     ex.profit_take_pct / 100.0 * credit - cost, nominal_loss + cost

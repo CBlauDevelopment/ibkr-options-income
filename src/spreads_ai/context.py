@@ -13,6 +13,7 @@ from statistics import mean
 from zoneinfo import ZoneInfo
 
 from src.analytics.market_conditions import get_market_conditions
+from src.analytics.realized_vol import compute_realized_vol
 from src.analytics.technicals import get_technical_stats
 from src.common.schemas import SpreadMarketSnapshot
 from src.news.store.queries import clusters_since, econ_events_between
@@ -96,6 +97,14 @@ def market_snapshot(now: datetime, *, symbol: str, max_headlines: int) -> Spread
     except Exception as exc:  # noqa: BLE001
         log.warning("spreads_ai: technicals failed: %s", exc)
         unavailable.append("technicals")
+    try:
+        hv30 = compute_realized_vol(symbol, 30)  # annualised, in percent; None = no history
+        if hv30 is None:
+            unavailable.append("realized_vol")
+        fields["hv30"] = hv30
+    except Exception as exc:  # noqa: BLE001
+        log.warning("spreads_ai: realized vol failed: %s", exc)
+        unavailable.append("realized_vol")
     headlines, tone, econ, ok = _news(now, max_headlines)
     if not ok:
         unavailable.append("news")

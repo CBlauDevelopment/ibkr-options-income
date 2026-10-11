@@ -252,6 +252,7 @@ def _item(letter: str = "B", position: str = "baseline") -> SpreadMenuItem:
         dist_spot_pts=11.0,
         dist_em_multiple=1.9,
         beyond_wall_pts=0.69,
+        dist_flip_pts=3.1,
         be_full_loss=0.9,
         be_nominal_exits=0.8,
     )

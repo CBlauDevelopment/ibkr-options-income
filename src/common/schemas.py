@@ -1415,6 +1415,7 @@ class SpreadMenuItem(BaseModel):
     dist_spot_pts: float  # short strike's distance from spot, SPY points (positive = OTM)
     dist_em_multiple: float | None  # the same in units of the expected move
     beyond_wall_pts: float | None  # + = short strike beyond its wall (put below, call above)
+    dist_flip_pts: float | None = None  # + = short strike beyond the gamma flip, on the OTM side
     be_full_loss: float | None  # break-even win rate if every loss is a full max loss
     be_nominal_exits: float | None  # break-even win rate under the configured profit take / stop
 
@@ -1469,6 +1470,7 @@ class SpreadMarketSnapshot(BaseModel):
     spy_vs_sma20_pct: float | None = None
     spy_vs_sma50_pct: float | None = None
     rsi14: float | None = None
+    hv30: float | None = None  # 30-day annualised realised vol, percent (18.5 = 18.5%)
     headline_count: int = 0
     headline_sentiment_mean: float | None = None
     headlines: list[str] = Field(default_factory=list)

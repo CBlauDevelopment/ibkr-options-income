@@ -932,7 +932,8 @@ class SpreadsAiCfg(BaseModel):
     pick_timeout_seconds: float = 45.0
     max_pick_calls_per_day: int = 4
     max_headlines: int = 20
-    workdir: str = "data/spreads_ai"  # empty cwd for claude -p: no project CLAUDE.md is loaded
+    # Outside the repo: claude -p walks up from its cwd and would load the project CLAUDE.md.
+    workdir: str = "~/.cache/ibkr-spreads-ai"
 
     @model_validator(mode="after")
     def _bounds(self) -> SpreadsAiCfg:
@@ -1301,7 +1302,10 @@ class Config(BaseModel):
         return ROOT / self.spreads.halt_file
 
     def spreads_ai_workdir(self) -> Path:
-        return ROOT / self.spreads.ai.workdir
+        """``~`` is expanded and an absolute path used as-is; a relative path still resolves under
+        ROOT (keeps old configs working, but it puts the repo's CLAUDE.md in the picker's context)."""
+        p = Path(self.spreads.ai.workdir).expanduser()
+        return p if p.is_absolute() else ROOT / p
 
     @model_validator(mode="after")
     def _spreads_isolated(self) -> Config:
