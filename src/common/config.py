@@ -522,16 +522,24 @@ class ExecutionCfg(BaseModel):
 class RollTriggerCfg(BaseModel):
     """When a breached short is acted on (roll redesign 2026-10-11)."""
 
-    breach_delta: float = Field(default=0.50, gt=0, lt=1)  # |delta| at/above which a short is breached
-    evaluate_within_dte: int = Field(default=10, ge=0)  # a breach is acted on only at/inside this DTE…
+    breach_delta: float = Field(
+        default=0.50, gt=0, lt=1
+    )  # |delta| at/above which a short is breached
+    evaluate_within_dte: int = Field(
+        default=10, ge=0
+    )  # a breach is acted on only at/inside this DTE…
     min_extrinsic: float = Field(default=0.10, ge=0)  # …or once its extrinsic ($/sh) is this thin
-    min_minutes_after_open: int = Field(default=15, ge=0)  # no alerts/evaluations in the opening print
+    min_minutes_after_open: int = Field(
+        default=15, ge=0
+    )  # no alerts/evaluations in the opening print
     reevaluate_minutes: int = Field(default=30, ge=1)  # re-check a breached short this often
 
 
 class RollExDivCfg(BaseModel):
     days_ahead: int = Field(default=5, ge=0)
-    buffer: float = Field(default=0.05, ge=0)  # a short call's extrinsic must exceed dividend + buffer
+    buffer: float = Field(
+        default=0.05, ge=0
+    )  # a short call's extrinsic must exceed dividend + buffer
 
 
 class RollCspCfg(BaseModel):
@@ -547,10 +555,18 @@ class RollCcCfg(BaseModel):
 
 class RollNewLegCfg(BaseModel):
     max_expiries: int = Field(default=3, ge=1)  # later expirations fetched for a roll
-    target_dte_max: int = Field(default=35, ge=1)  # furthest new expiry, independent of the entry window
-    strikes_outward: int = Field(default=5, ge=0)  # listed strikes beyond the current one, away from spot
-    max_quote_lines: int = Field(default=10, ge=2, le=40)  # roll fetch batch — inside the monitor's lines
-    min_net_credit: float = Field(default=0.05, ge=0)  # $/sh floor for a credit roll (two legs' costs)
+    target_dte_max: int = Field(
+        default=35, ge=1
+    )  # furthest new expiry, independent of the entry window
+    strikes_outward: int = Field(
+        default=5, ge=0
+    )  # listed strikes beyond the current one, away from spot
+    max_quote_lines: int = Field(
+        default=10, ge=2, le=40
+    )  # roll fetch batch — inside the monitor's lines
+    min_net_credit: float = Field(
+        default=0.05, ge=0
+    )  # $/sh floor for a credit roll (two legs' costs)
 
 
 class RollLimitsCfg(BaseModel):
@@ -559,7 +575,9 @@ class RollLimitsCfg(BaseModel):
 
 
 class RollExecCfg(BaseModel):
-    reprice_steps: int = Field(default=3, ge=0)  # combo walks mid → natural in this many steps; 0 = off
+    reprice_steps: int = Field(
+        default=3, ge=0
+    )  # combo walks mid → natural in this many steps; 0 = off
 
 
 class RollCfg(BaseModel):

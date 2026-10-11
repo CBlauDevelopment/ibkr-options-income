@@ -133,7 +133,7 @@ is issued, steps 2-4 do not happen, and the drain applies normally.
   a match that still clears the gate does it call
   `src.execution.promote_pipeline.queue_promoted_for_approval`, which persists the fresh
   `TradeCandidate` as a `CandidateRow` and raises a **PENDING** `ApprovalRow` (frozen snapshot,
-  N2a) — mirroring `roll_pipeline.queue_roll_for_approval`'s `has_active_order` guard, so a
+  N2a) — mirroring `roll_pipeline.queue_roll_candidate`'s `has_active_order` guard, so a
   replayed drain against a candidate that already has an active order is `applied` (not
   failed) with `result = {"approval_id": null, "note": "order_already_active"}` rather than a
   second order. `has_active_order` checks for an `OrderRow`, not an `ApprovalRow`, so this
@@ -213,63 +213,44 @@ through the read-only trading-database engine, never the write-scoped command en
   so before this fix a second `roll_request` for a symbol months later, on an entirely different
   position, deduped to the first, already-`applied` command and silently no-op'd instead of
   proposing a fresh roll.
-- **Applied by:** M5 Task 5.1. The drain handler (`src/notify/command_drain.py`'s `_roll_request`)
-  resolves the position from a live portfolio read, fetches a fresh chain + IV/technical stats
-  through the same shared helper the intraday monitor uses
-  (`src.execution.roll_pipeline.fetch_roll_inputs` — the one chain-fetch path for rolls, so the
-  web console and the monitor cannot drift apart on how a roll is priced), and calls
-  `queue_roll_for_approval` **unchanged**. The pipeline already runs
-  `generate_roll_candidates(..., defensive=True)`, picks the best by ROC, and raises a **PENDING**
-  `ApprovalRow` with the frozen snapshot. Two steps, never one: this proposes; the operator
-  approves the proposal through the same path as every other approval (§6.1). No order is placed
-  by a roll request. **Under `defensive=True` every candidate's `roc_pct` is 0** (D4: a defensive
-  roll is judged on risk reduction, not yield) — `generate_roll_candidates`'s ROC-desc sort is
-  therefore a no-op tie, and "picks the best" really means "picks whichever qualifying quote the
-  chain listed first." Two fetches taken minutes apart can list qualifying strikes in a different
-  order even when neither stops qualifying — see the in-flight check below, which accounts for
-  this rather than assuming a stable "best."
+- **Applied by:** M5 Task 5.1; decision path replaced by the 2026-10-11 roll redesign
+  (docs/superpowers/plans/2026-10-11-roll-redesign.md). The drain handler
+  (`src/notify/command_drain.py`'s `_roll_request`) resolves the position from a live portfolio
+  read and calls `src.execution.roll_pipeline.evaluate_roll(..., manual=True)` — **the same call
+  the intraday monitor makes** on a strike breach. `evaluate_roll` runs the targeted roll fetch
+  (the short itself + a few same-or-better later strikes), the roll policy
+  (`strategies/roll_policy.decide`: roll / assign / let called away / close / hold), a
+  decision-time Rules Engine pass, and — only for a `roll` — raises a **PENDING** `ApprovalRow`
+  with the frozen snapshot. Two steps, never one: this proposes; the operator approves the
+  proposal through the same path as every other approval (§6.1). No order is placed by a roll
+  request. The operator asked, so no trigger gate applies (a web request can ask about a short
+  that is not breached); the policy and its limits apply unchanged.
 - **Result on success:** `{"approval_id": int, "candidate_id": str}` — link the receipt to
   `/options/{approval_id}`.
-- **The web roll is the monitor's roll.** `defensive=True` in both paths; the roll's own net-debit
-  cap and delta-reduction floor (in `rolling.py`) are the roll's economic control, and the handler
-  adds no bounds of its own and relaxes none. `tests/test_write_path_invariants.py` pins that no
-  economic token leaks into the drain and that the defensive policy is shared.
+- **The web roll is the monitor's roll.** Both paths call `evaluate_roll`; the roll's economics
+  live in `config/settings.yaml → roll:` (`RollCfg`) and the roll policy, and the handler adds no
+  bounds of its own and relaxes none. `tests/test_write_path_invariants.py` pins that no economic
+  token leaks into the drain and that both paths share the one decision function.
 - **Live mode:** `needs_confirmation = true`.
 - **Failure modes:** the table below — five distinguishable outcomes, each rendered honestly.
-  `position_not_found` (the OCC symbol is not in the live portfolio) is a sixth, listed in the
-  table's note.
-- **Milestone:** M5 (Task 5.1 backend, Task 5.2 frontend).
+  `position_not_found` (the OCC symbol is not in the live portfolio) is a sixth.
+- **Milestone:** M5 (Task 5.1 backend, Task 5.2 frontend); roll redesign 2026-10-11.
 
-**The roll_request reason table (Task 5.1).** If `ib is None` the command fails immediately with
-`broker_unavailable` — a roll needs a fresh chain and cannot be honestly served without one.
-Otherwise, when the handler cannot end in a new PENDING approval, the command fails with the most
-specific reason available:
+**The roll_request reason table.** If `ib is None` the command fails immediately with
+`broker_unavailable`. Otherwise, when the policy does not end in a new PENDING roll approval, the
+command fails with the most specific reason available:
 
 | Situation | `reason` | `detail` |
 |---|---|---|
 | `ib is None` | `broker_unavailable` | none |
 | The position is not an open short option (a long, or a stock) | `not_an_open_short` | none |
-| The chain fetch failed | `chain_unavailable` | the provider's message |
-| `generate_roll_candidates` returned nothing | `no_qualifying_roll` | none |
-| An order is already active **or** a PENDING approval already exists for the same roll candidate | `roll_already_working` | `{"approval_id": int \| null}` — link the receipt to the in-flight proposal |
+| The roll fetch returned nothing, or no quote for the short itself | `chain_unavailable` | `{"detail": str}` |
+| The policy decided anything other than a roll (assign / let called away / close / hold), or the Rules Engine refused the constructed roll | `no_qualifying_roll` | `{"decision": action, "reason": code}` — e.g. `{"decision": "assign", "reason": "net_below_floor"}` |
+| A PENDING roll approval or a working roll order already exists for this short (matched by conId, else contract) | `roll_already_working` | `{"approval_id": int}` — the in-flight proposal (`-1` for a working order with no approval row) |
 
-`roll_already_working` covers both an active order (the monitor's proposal was approved and is
-working) and an existing PENDING approval (the monitor's proposal is awaiting the operator's
-decision). The latter is the case `has_active_order` alone would miss — it only sees `OrderRow`s —
-so the handler also checks for a PENDING approval on the same deterministic candidate id. This
-check runs against **every candidate `generate_roll_candidates` returns for this position, not
-just the top-ranked one** — since ranking is a no-op tie under `defensive=True` (see above), the
-monitor's earlier proposal can still be sitting in this fetch's candidate list without being
-first. Checking only the top-ranked candidate would let a web request race the monitor into a
-second approval whenever the chain lists strikes in a different order between the two fetches
-(`tests/test_drain_roll.py::test_an_in_flight_roll_is_caught_even_when_no_longer_top_ranked`
-pins this). A sixth reason, `position_not_found`, fires when the OCC symbol is not in the live
-portfolio at all.
-
-A `no_qualifying_roll` outcome is a correct answer rendered as one, not an error: no roll on the
-current chain clears the roll's own bounds. The frontend renders it as a plain sentence, not red
-failed chrome. `roll_already_working` links to the existing approval. On success the receipt links
-to the new approval.
+`roll_already_working` is checked by `roll_pipeline.pending_roll_approval_for` before any fetch,
+against the short being rolled rather than a candidate id — so it holds however the new leg's
+strike or expiry would rank on a fresh chain.
 
 ### `halt` — halt the system
 

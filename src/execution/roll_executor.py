@@ -5,7 +5,7 @@ later expiry/strike (the *open* leg) in ONE combo order, so both legs fill
 together-or-not-at-all — there is no legging risk where the buy-back fills but the
 re-sell does not (leaving the account flat and un-hedged), or vice-versa.
 
-This is the executable counterpart to ``strategies/rolling.generate_roll_candidates``
+This is the executable counterpart to ``strategies/rolling.construct_roll``
 (which only *proposes* rolls) and replaces the old alert-only behaviour where
 ``executor.execute_candidate`` rejected every ``Strategy.ROLL`` outright.
 

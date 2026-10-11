@@ -9,7 +9,7 @@ only when the requested contract still clears every one of those, hands the resu
 `TradeCandidate` here.
 
 This module is strictly the "persist + raise approval" half of
-`roll_pipeline.queue_roll_for_approval` — it takes the candidate directly rather than
+`roll_pipeline.queue_roll_candidate` — it takes the candidate directly rather than
 generating one (the handler has already produced the exact contract to promote via its own
 fresh scan), so it never calls a strategy generator itself. Deterministic, synchronous DB
 work only — no chain fetch, no gate, no LLM; the caller has already done all of that.
@@ -40,11 +40,11 @@ def queue_promoted_for_approval(
     Returns the approval id, or None when an order is already active for this candidate
     (idempotent against a replayed drain). Never raises.
 
-    Deliberately mirrors roll_pipeline.queue_roll_for_approval: same has_active_order guard,
+    Deliberately mirrors roll_pipeline.queue_roll_candidate: same has_active_order guard,
     same CandidateRow upsert, same N2a snapshot freeze onto the ApprovalRow. One difference:
     this takes a single TradeCandidate directly rather than raw position+quotes+analytics, so
     it does not call any strategy generator itself — it is strictly the "persist + raise
-    approval" half of queue_roll_for_approval, not the "generate" half.
+    approval" half the roll path also uses (queue_roll_candidate).
     """
     try:
         with session_scope() as s:

@@ -32,11 +32,9 @@ from typing import Any
 
 from ib_async import IB
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from src.common.books import is_spreads_underlying
 from src.common.config import get_config
-from src.common.schemas import ApprovalStatus
 from src.ibkr.portfolio import get_account_snapshot_async, get_positions
 from src.storage.app_commands import (
     expire_stale_commands,
@@ -45,8 +43,7 @@ from src.storage.app_commands import (
     pending_commands,
 )
 from src.storage.db import session_scope
-from src.storage.models import ApprovalRow, RiskVerdictRow
-from src.storage.orders import active_order_for
+from src.storage.models import RiskVerdictRow
 from src.storage.portfolio_snapshots import save_portfolio_snapshot
 from src.storage.system_settings import COMMAND_DRAIN_IBKR_CONNECTED_KEY, set_setting
 
@@ -355,60 +352,28 @@ async def _promote(*, command: Any, ib: Any, bot: Any, chat_id: str, **_: Any) -
 
 
 # ---------------------------------------------------------------------------
-# M5 Task 5.1 — roll_request.
+# M5 Task 5.1 — roll_request (decision path replaced by the 2026-10-11 roll redesign).
 #
 # The console asks the system to PROPOSE a roll; the operator then approves that proposal
-# through M3's path. There is no button that rolls a position. `queue_roll_for_approval` already
-# does the entire job (run the generator with the defensive policy, pick the best by ROC, upsert
-# the CandidateRow, raise a PENDING ApprovalRow with the frozen snapshot); this handler resolves
-# the position, fetches the inputs through the same shared helper the monitor uses
-# (`roll_pipeline.fetch_roll_inputs`), and disambiguates the pipeline's `None` into the five
-# operator-meaningful reasons in `docs/web/commands.md`'s roll_request table.
+# through M3's path. There is no button that rolls a position. `roll_pipeline.evaluate_roll`
+# does the entire job — the same call the intraday monitor makes — and this handler resolves
+# the position and maps the policy's decision onto the five operator-meaningful reasons in
+# `docs/web/commands.md`'s roll_request table.
 #
-# The roll's economic bounds are `rolling.py`'s alone. The handler adds none and relaxes none —
-# it calls the same generator, with the same defensive flag, and reports what comes back. The
-# degradation tests in `tests/test_write_path_invariants.py` pin that no economic token leaks
-# into this file and that the defensive policy is shared with the monitor.
+# The roll's economic bounds are the roll policy's alone (RollCfg). The handler adds none and
+# relaxes none. `tests/test_write_path_invariants.py` pins that no economic token leaks into
+# this file and that the web and the monitor share one decision path.
 # ---------------------------------------------------------------------------
-
-
-def _existing_roll_in_flight(s: Session, candidate_id: str) -> dict | None:
-    """Return ``{"approval_id": int | None}`` if a roll is already in flight for *candidate_id*,
-    else None.
-
-    "In flight" covers both an active order (the monitor's proposal was approved and is working)
-    and an existing PENDING approval (the monitor's proposal is awaiting the operator's decision).
-    ``has_active_order`` only sees OrderRows, so the pending-approval check is what closes the
-    monitor-vs-web race the milestone's headline acceptance criterion demands — a web request
-    that arrives while the monitor's approval is still PENDING must not raise a second one. Both
-    cases map to ``roll_already_working``; the approval id (the working order's, or the pending
-    proposal's) is returned so the receipt can link to it.
-    """
-    order = active_order_for(s, candidate_id)
-    if order is not None:
-        return {"approval_id": order.approval_id}
-    pending = s.execute(
-        select(ApprovalRow)
-        .where(
-            ApprovalRow.candidate_id == candidate_id,
-            ApprovalRow.status == ApprovalStatus.PENDING.value,
-        )
-        .order_by(ApprovalRow.created_at.desc(), ApprovalRow.id.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if pending is not None:
-        return {"approval_id": pending.id}
-    return None
 
 
 @register("roll_request")
 async def _roll_request(*, command: Any, ib: Any, bot: Any, chat_id: str, **_: Any) -> dict:
     """Ask the system to propose a roll for one open short.
 
-    Fetches the chain for the underlying (through the same shared helper the intraday monitor
-    uses), then calls ``queue_roll_for_approval`` unchanged. Returns
-    ``{"approval_id": int, "candidate_id": str}`` on success. Raises ``CommandFailed`` with one
-    of the five reasons in ``docs/web/commands.md``'s roll_request table otherwise.
+    Runs ``roll_pipeline.evaluate_roll`` (``manual=True``) — the monitor's own decision path.
+    Returns ``{"approval_id": int, "candidate_id": str}`` when the policy proposes a roll.
+    Raises ``CommandFailed`` with one of the five reasons in ``docs/web/commands.md``'s
+    roll_request table otherwise; ``no_qualifying_roll`` carries the policy's decision.
     """
     if ib is None:
         raise CommandFailed("broker_unavailable")
@@ -425,58 +390,31 @@ async def _roll_request(*, command: Any, ib: Any, bot: Any, chat_id: str, **_: A
     if position.sec_type != "OPT" or position.position >= 0:
         raise CommandFailed("not_an_open_short")
 
-    from src.execution.roll_pipeline import fetch_roll_inputs, queue_roll_for_approval
+    from src.execution.roll_pipeline import evaluate_roll
 
-    try:
-        quotes, iv_stats, tech_stats = await fetch_roll_inputs(ib, position)
-    except Exception as exc:
-        raise CommandFailed("chain_unavailable", {"detail": str(exc)}) from exc
-    if not quotes:
-        raise CommandFailed("chain_unavailable", {"detail": "the chain returned no quotes"})
-
-    # Disambiguate the pipeline's None BEFORE calling it (Task 5.1 design point): derive the same
-    # candidates the pipeline will choose from — same function, same inputs, same deterministic
-    # ids — and check what is already in flight for any of them, not just the current best.
-    # Two fetches taken minutes apart see different chain snapshots, so the top-ranked candidate
-    # at fetch time is not guaranteed to be the same contract the monitor's earlier PENDING
-    # approval named — but that earlier contract is still in this list as long as it still
-    # qualifies, just possibly no longer first. Checking every candidate (bounded — a handful of
-    # strikes/expiries from one chain) is what actually closes the monitor-vs-web race; checking
-    # only the best would miss it whenever ranking shifts between the two fetches. The roll's
-    # economics stay in rolling.py; this call only asks "would anything qualify, and what would
-    # each one's id be".
-    from src.strategies.rolling import generate_roll_candidates
-
-    candidates = generate_roll_candidates(position, quotes, iv_stats, tech_stats, defensive=True)
-    if not candidates:
-        raise CommandFailed("no_qualifying_roll")
-
-    with session_scope() as s:
-        for cand in candidates:
-            in_flight = _existing_roll_in_flight(s, cand.candidate_id)
-            if in_flight is not None:
-                raise CommandFailed("roll_already_working", in_flight)
-
-    ttl_minutes = get_config().approval.ttl_minutes
-    queued = queue_roll_for_approval(
-        position, quotes, iv_stats, tech_stats, chat_id=chat_id, ttl_minutes=ttl_minutes
+    # The same decision path the monitor runs (2026-10-11 roll redesign): targeted fetch →
+    # roll policy → decision-time Rules Engine pass → PENDING approval. The operator asked, so
+    # no trigger gate applies; the policy and its limits do, unchanged.
+    decision, approval_id = await evaluate_roll(
+        ib,
+        position,
+        chat_id=chat_id,
+        ttl_minutes=get_config().approval.ttl_minutes,
+        manual=True,
     )
-    if queued is None:
-        # The pre-checks passed an instant ago, so the pipeline's own guard is what said no —
-        # the narrow race window where an order or approval appeared between the check and the
-        # call. Re-derive for the receipt link; if genuinely nothing is in flight (an internal
-        # pipeline error — it never raises) surface it as a handler error rather than inventing
-        # a sixth reason.
-        with session_scope() as s:
-            for cand in candidates:
-                in_flight = _existing_roll_in_flight(s, cand.candidate_id)
-                if in_flight is not None:
-                    raise CommandFailed("roll_already_working", in_flight)
-        raise RuntimeError(
-            "queue_roll_for_approval returned None with no order or pending approval in flight"
-        )
-    approval_id, cand = queued
-    return {"approval_id": approval_id, "candidate_id": cand.candidate_id}
+    if decision.action == "roll" and decision.candidate is not None:
+        if approval_id is None:
+            # Constructed and gate-passed, but the approval could not be written — an internal
+            # pipeline error, not a sixth operator reason.
+            raise RuntimeError("evaluate_roll proposed a roll but raised no approval")
+        return {"approval_id": approval_id, "candidate_id": decision.candidate.candidate_id}
+    if decision.action == "defer":
+        if decision.reason == "roll_pending":
+            raise CommandFailed("roll_already_working", {"approval_id": approval_id})
+        raise CommandFailed("chain_unavailable", {"detail": decision.detail or decision.reason})
+    raise CommandFailed(
+        "no_qualifying_roll", {"decision": decision.action, "reason": decision.reason}
+    )
 
 
 # ---------------------------------------------------------------------------

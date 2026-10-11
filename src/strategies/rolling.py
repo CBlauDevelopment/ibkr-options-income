@@ -4,8 +4,8 @@
 first, then the most favourable strike (lowest put / highest call) that clears the net-credit
 floor without raising |delta|, with every rejection counted by reason code. Its inputs and
 limits come from ``config/settings.yaml → roll:`` (``RollCfg``), the same object the Rules
-Engine and the roll executor read. ``generate_roll_candidates`` is the pre-redesign generator,
-kept only until its last callers move to ``roll_pipeline.evaluate_roll``.
+Engine and the roll executor read. It replaced the pre-redesign ``generate_roll_candidates``,
+which required a 0.10 delta cut inside the entry band and so never produced a roll.
 """
 
 from __future__ import annotations
@@ -15,12 +15,10 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from src.analytics.fair_value import compute_ideal_zone, zone_for_contract
-from src.analytics.liquidity import liquidity_failures, passes_liquidity_gates, score_liquidity
+from src.analytics.liquidity import liquidity_failures, score_liquidity
 from src.common.config import RollCfg, get_config
-from src.common.market_hours import today_et
 from src.common.schemas import (
     FundamentalStats,
-    IdealZone,
     IVStats,
     OptionQuote,
     OptionRight,
@@ -33,243 +31,6 @@ from src.common.schemas import (
 )
 from src.storage.roll_chains import RollChainState
 from src.strategies._scoring import make_candidate_id, technical_score
-
-
-def generate_roll_candidates(
-    position: PositionSnapshot,
-    quotes: list[OptionQuote],
-    iv_stats: IVStats,
-    tech_stats: TechnicalStats,
-    *,
-    defensive: bool = False,
-) -> list[TradeCandidate]:
-    """Return ranked roll candidates for the given short option *position*.
-
-    Rolls are only generated when DTE <= 21 (nearing expiry) or |delta| > 0.40
-    (delta drift). The intraday monitor (Phase 8) handles real-time triggering;
-    this function just produces the candidates when asked.
-
-    Two economics, deliberately separated (D4). An **income** roll rolls an unchallenged
-    position forward for a credit and must clear the ROC/yield gates. A **defensive** roll
-    rescues a challenged short and is judged on risk reduction instead: it may cost a bounded
-    debit and must materially reduce |delta|. Requiring 1% ROC from a defensive roll meant the
-    candidate list was empty exactly when the monitor fired, because a 0.60-delta short cannot
-    be rolled to a 0.30-delta strike for a credit.
-    """
-    if position.position >= 0:
-        return []
-    if position.right is None or position.expiry is None or position.strike is None:
-        return []
-
-    pos_dte = (position.expiry - today_et()).days
-    # get_positions carries no greeks, so fall back to the existing short's own chain quote —
-    # with |delta| unknown, the defensive branch below rejected every candidate (2026-10-02).
-    pos_delta = (
-        position.delta if position.delta is not None else _infer_current_delta(position, quotes)
-    )
-    pos_delta_abs = abs(pos_delta) if pos_delta is not None else None
-
-    should_roll = (pos_dte <= 21) or (pos_delta_abs is not None and pos_delta_abs > 0.40)
-    if not should_roll:
-        return []
-
-    risk = get_config().risk
-    leg_cfg = (
-        risk["covered_call"] if position.right == OptionRight.CALL else risk["cash_secured_put"]
-    )
-    income_cfg = risk["income"]
-    roll_cfg: dict[str, float | bool] = {}  # replaced by RollCfg in the Task 5 rewrite
-    # Task 9 fix round 1 (R7): same treatment as the CSP/CC generators — a missing IV rank
-    # already passes the IV gate as "data unavailable"; scoring it 0 under IV's weight
-    # silently misrepresents the card. Neutral value from config (default 50), tagged so the
-    # gap stays visible. Display-only here (rolls sort by roc_pct, never pass through
-    # score_candidates or the score floor) but the ScoreCard line still misled the operator.
-    missing_iv_rank_score: float = get_config().weights.get("missing_iv_rank_score", 50.0)
-
-    delta_min: float = leg_cfg["delta_min"]
-    delta_max: float = leg_cfg["delta_max"]
-    dte_min: int = leg_cfg["dte_min"]
-    dte_max: int = leg_cfg["dte_max"]
-
-    contracts = abs(int(position.position))
-    if contracts < 1:
-        return []
-
-    current_mid = _infer_current_mid(position, quotes)
-    underlying = position.underlying or position.symbol
-
-    candidates: list[TradeCandidate] = []
-    # The ideal zone depends on (symbol, right, DTE) — not on the strike — so memoize per
-    # expiry rather than recomputing it for every quote, matching the CSP/CC generators.
-    zones: dict[int, IdealZone] = {}
-
-    for quote in quotes:
-        if quote.right != position.right:
-            continue
-        if quote.expiry <= position.expiry:
-            continue
-        if quote.delta is None:
-            continue
-        delta_abs = abs(quote.delta)
-        if not (delta_min <= delta_abs <= delta_max):
-            continue
-        new_dte = quote.dte
-        if not (dte_min <= new_dte <= dte_max):
-            continue
-        new_mid = quote.mid
-        if new_mid is None or new_mid <= 0:
-            continue
-        if not passes_liquidity_gates(quote):
-            continue
-
-        if current_mid is None:
-            continue
-        roll_credit = new_mid - current_mid
-
-        if defensive:
-            max_debit = float(roll_cfg.get("max_debit", 0.50))
-            min_reduction = float(roll_cfg.get("min_delta_reduction", 0.10))
-            require_be = bool(roll_cfg.get("require_breakeven_improvement", True))
-            if roll_credit < -max_debit:
-                continue
-            if pos_delta_abs is None or (pos_delta_abs - delta_abs) < min_reduction:
-                continue
-            if require_be and position.strike is not None:
-                improves = (
-                    quote.strike < position.strike
-                    if position.right == OptionRight.PUT
-                    else quote.strike > position.strike
-                )
-                if not improves and roll_credit <= 0:
-                    continue
-            roc_pct = 0.0
-            annualized_yield_pct = 0.0
-        else:
-            if roll_credit <= 0:
-                continue
-            roc_basis = quote.strike
-            roc_pct = (roll_credit / roc_basis) * 100 if roc_basis > 0 else 0.0
-            annualized_yield_pct = roc_pct * (365 / new_dte) if new_dte > 0 else 0.0
-            if roc_pct < income_cfg["min_roc_pct"]:
-                continue
-            if annualized_yield_pct < income_cfg["min_annualized_yield_pct"]:
-                continue
-
-        # Collateral = strike price × 100 × contracts (the cash actually at risk, not the
-        # entry premium received which is ~100× smaller and produces fictitious 60%+ ROC
-        # figures). Uses strike as the basis for both PUT and CALL rolls — for a covered-call
-        # roll the underlying's actual cost basis is not available in this function.
-        collateral = quote.strike * contracts * 100
-
-        # D2 follow-up: populate `ideal` so a roll card shows the same fair-value context every
-        # other candidate carries. It is DISPLAY/AUDIT for a roll — the risk engine's
-        # variance-risk-premium gate is scoped to the income strategies, because a defensive
-        # roll pays a debit to move a challenged short and is priced under the new strike's
-        # fair value by design; leaving it inside that gate rejected every defensive roll at
-        # the approval-queue re-gate. The defensive bounds above (max_debit /
-        # min_delta_reduction / require_breakeven_improvement) are a roll's real economics.
-        # No fundamentals are available in this function (no `FundamentalStats` input), so a
-        # minimal symbol-only instance is used — `zone_for_contract`'s min_credit depends only
-        # on `zone.spot`/`zone.dte`/`zone.right` (set from this call's own args, never touched
-        # by `fund`) and the strike passed in below, never on fundamentals.
-        zone = zones.get(new_dte)
-        if zone is None:
-            zone = compute_ideal_zone(
-                symbol=underlying,
-                right=position.right,
-                dte=new_dte,
-                spot=tech_stats.price,
-                tech=tech_stats,
-                iv=iv_stats,
-                fund=FundamentalStats(symbol=underlying),
-            )
-            zones[new_dte] = zone
-        # No cost_basis: this function has no access to the underlying's stock cost basis for
-        # a covered-call roll (same limitation as `roc_basis` above), so `min_credit_for` falls
-        # back to strike for both PUT and CALL rolls, consistent with the ROC treatment above.
-        contract_zone = zone_for_contract(zone, quote.strike, iv_stats)
-
-        breakeven = (
-            quote.strike - roll_credit
-            if position.right == OptionRight.PUT
-            else quote.strike + roll_credit
-        )
-
-        scores = ScoreCard(
-            symbol=underlying,
-            iv_score=iv_stats.iv_rank if iv_stats.iv_rank is not None else missing_iv_rank_score,
-            technical_score=technical_score(quote, tech_stats),
-            fundamental_score=0.0,
-            liquidity_score=score_liquidity(quote),
-            assignment_safety_score=(1 - delta_abs) * 100,
-        )
-
-        candidates.append(
-            TradeCandidate(
-                candidate_id=make_candidate_id(
-                    Strategy.ROLL, underlying, quote.right, quote.strike, quote.expiry
-                ),
-                strategy=Strategy.ROLL,
-                underlying=underlying,
-                right=quote.right,
-                strike=quote.strike,
-                expiry=quote.expiry,
-                contracts=contracts,
-                premium=round(roll_credit, 4),
-                collateral=collateral,
-                roc_pct=round(roc_pct, 4),
-                annualized_yield_pct=round(annualized_yield_pct, 4),
-                breakeven=round(breakeven, 4),
-                prob_otm=round(1 - delta_abs, 4),
-                delta=quote.delta,
-                iv_rank=iv_stats.iv_rank,
-                dte=new_dte,
-                ideal=contract_zone,
-                scores=scores,
-                price_source=tech_stats.price_source,
-                greeks_source=quote.greeks_source,
-                # Merged into whatever tags this candidate already carries (currently none of
-                # its own), matching the merge-not-replace contract `decision_engine.py`
-                # applies downstream — never a bare replace.
-                rationale_tags=["iv_rank_unavailable"] if iv_stats.iv_rank is None else [],
-            )
-        )
-
-    candidates.sort(key=lambda c: c.roc_pct, reverse=True)
-    return candidates
-
-
-def _infer_current_mid(position: PositionSnapshot, quotes: list[OptionQuote]) -> float | None:
-    """Find the current mid of the existing short by matching its contract in the chain.
-
-    Returns None when no live quote is found — the caller must skip the candidate
-    rather than use the stale entry cost, which would produce a misleadingly high
-    roll credit on a challenged position.
-    """
-    for q in quotes:
-        if (
-            q.right == position.right
-            and q.strike == position.strike
-            and q.expiry == position.expiry
-        ):
-            m = q.mid
-            if m is not None:
-                return m
-    return None
-
-
-def _infer_current_delta(position: PositionSnapshot, quotes: list[OptionQuote]) -> float | None:
-    """The existing short's delta from its own contract in the chain, or None."""
-    for q in quotes:
-        if (
-            q.right == position.right
-            and q.strike == position.strike
-            and q.expiry == position.expiry
-            and q.delta is not None
-        ):
-            return q.delta
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Policy-driven construction (2026-10-11 roll redesign)
