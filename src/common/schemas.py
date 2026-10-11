@@ -1301,9 +1301,14 @@ class SpreadVerdict(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+# "baseline" is the simulated book that always takes the deterministic pick when Claude picks
+# for the main book (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md §3).
+SpreadBookMode = Literal["shadow", "paper", "baseline"]
+
+
 class SpreadPosition(BaseModel):
     spread_id: str
-    mode: Literal["shadow", "paper"]
+    mode: SpreadBookMode
     side: SpreadSide
     expiry: date
     short_strike: float
@@ -1314,6 +1319,8 @@ class SpreadPosition(BaseModel):
     opened_at: datetime
     short_con_id: int | None = None
     long_con_id: int | None = None
+    pick_id: int | None = None  # the spread_picks row that opened it (main book, ai.enabled)
+    episode_key: str | None = None  # the trigger episode it was opened in (both books, ai.enabled)
 
 
 class SpreadExit(BaseModel):
@@ -1363,7 +1370,7 @@ class SpreadTradeRecord(BaseModel):
     """One spread in the trade log (open or closed), with its entry tags and its outcome so far."""
 
     spread_id: str
-    mode: Literal["shadow", "paper"]
+    mode: SpreadBookMode
     side: SpreadSide
     status: str  # open | expiring | closed
     opened_at: datetime
@@ -1384,3 +1391,172 @@ class SpreadTradeRecord(BaseModel):
     minutes_after_open: int | None = None
     hold_minutes: float | None = None
     mae_usd: float | None = None  # worst mark against the position while open, >= 0
+    pick_id: int | None = None  # the spread_picks row that opened it (main book, ai.enabled)
+    episode_key: str | None = None  # the trigger episode it was opened in (both books, ai.enabled)
+
+
+# --- Claude picks the spread (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md)
+
+SpreadMenuPosition = Literal["inside", "baseline", "outer"]
+PlanBias = Literal["bullish", "neutral", "bearish"]
+
+
+class SpreadMenuItem(BaseModel):
+    """One gate-approved spread on the pick menu. Every number is computed by
+    ``src/spreads/menu.py``; the prompt only formats them."""
+
+    letter: str
+    position: SpreadMenuPosition
+    candidate: SpreadCandidate
+    contracts: int  # set by risk.validate — never by Claude
+    credit_after_costs: float  # per share, mid credit less round-trip slippage + commission
+    cost_pct_of_credit: float | None
+    max_loss_per_contract_usd: float
+    dist_spot_pts: float  # short strike's distance from spot, SPY points (positive = OTM)
+    dist_em_multiple: float | None  # the same in units of the expected move
+    beyond_wall_pts: float | None  # + = short strike beyond its wall (put below, call above)
+    be_full_loss: float | None  # break-even win rate if every loss is a full max loss
+    be_nominal_exits: float | None  # break-even win rate under the configured profit take / stop
+
+
+class SpreadTapeStats(BaseModel):
+    prior_close: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    last: float | None = None
+    high_at: datetime | None = None
+    low_at: datetime | None = None
+    move_em: float | None = None  # the move the triggered side sells against, in expected moves
+    stall_minutes: float | None = None
+    gap_pct: float | None = None
+    day_em: float | None = None
+
+
+class SpreadBookStats(BaseModel):
+    mode: str
+    closed_trades: int
+    win_rate: float | None = None
+    breakeven_win_rate: float | None = None
+    expectancy_usd: float | None = None
+    total_pnl_usd: float = 0.0
+
+
+class SpreadExitRules(BaseModel):
+    profit_take_pct: float
+    stop_debit_multiple: float
+    close_on_short_strike_touch: bool
+    max_hold_minutes: int | None
+    force_close: str  # HH:MM ET
+
+
+class SpreadDayPlan(BaseModel):
+    bias: PlanBias
+    risk_flags: list[str] = Field(default_factory=list)
+    skip_conditions: list[str] = Field(default_factory=list)
+    preferred_distance: str = ""
+    summary: str = ""
+
+
+class SpreadMarketSnapshot(BaseModel):
+    """The enrichment inputs src/spreads_ai gathers itself. Every field degrades to None."""
+
+    vix: float | None = None
+    vix_term_ratio: float | None = None
+    ten_year_yield: float | None = None
+    ten_year_change_5d_bp: float | None = None
+    spy_ret_5d_pct: float | None = None
+    spy_vs_sma20_pct: float | None = None
+    spy_vs_sma50_pct: float | None = None
+    rsi14: float | None = None
+    headline_count: int = 0
+    headline_sentiment_mean: float | None = None
+    headlines: list[str] = Field(default_factory=list)
+    econ_today: list[str] = Field(default_factory=list)
+    unavailable: list[str] = Field(default_factory=list)  # sources that failed this call
+
+
+class SpreadLlmCall(BaseModel):
+    model: str
+    effort: str
+    latency_ms: int | None = None
+    cost_usd: float | None = None  # notional, from the CLI envelope
+    prompt_text: str = ""
+    raw_response: str | None = None
+    error: str | None = None
+
+
+class SpreadBriefRequest(BaseModel):
+    """Deterministic inputs the spreads service hands the picker (it owns all of them)."""
+
+    now: datetime
+    levels: GexLevels
+    tape: SpreadTapeStats
+    events: list[str] = Field(default_factory=list)
+    ex_dividend_window: bool = False
+    exits: SpreadExitRules
+    books: list[SpreadBookStats] = Field(default_factory=list)
+
+
+class SpreadPickRequest(SpreadBriefRequest):
+    sides: list[SpreadSide]
+    menu: list[SpreadMenuItem]
+    plan: SpreadDayPlan | None = None
+    round_trip_cost_per_share: float
+
+
+class SpreadBriefResult(BaseModel):
+    plan: SpreadDayPlan | None  # None = the brief failed (call.error says why)
+    market: SpreadMarketSnapshot
+    call: SpreadLlmCall
+
+
+class SpreadPick(BaseModel):
+    """The picker's answer. ``choice`` is validated against the menu by the service, never here."""
+
+    choice: str  # a menu letter or "skip"
+    reason: str = ""
+    fallback_reason: str | None = (
+        None  # timeout | cli_missing | cli_error | bad_envelope | unparseable | picker_error
+    )
+    market: SpreadMarketSnapshot
+    call: SpreadLlmCall
+
+
+class SpreadPickSnapshot(BaseModel):
+    """The deterministic conditions stored with every pick, for the comparison report."""
+
+    regime: str
+    flip_distance_pct: float | None = None  # (spot - flip) / spot
+    expected_move: float | None = None
+    move_em: float | None = None
+    stall_minutes: float | None = None
+    gap_pct: float | None = None
+    gap_day: bool = False
+    side: str = ""
+    event_flag: bool = False
+    plan_bias: str | None = None
+
+
+class SpreadPickRecord(BaseModel):
+    pick_id: int
+    created_at: datetime
+    day: date
+    episode_key: str
+    book_mode: str
+    menu: list[SpreadMenuItem]
+    choice: str
+    reason: str
+    fallback_reason: str | None
+    executed_letter: str | None
+    send_rejected: bool
+    send_reasons: list[str]
+    filled: bool
+    model: str
+    effort: str
+    latency_ms: int | None
+    cost_usd: float | None
+    snapshot: SpreadPickSnapshot
+    market: SpreadMarketSnapshot
+    prompt_text: str
+    raw_response: str | None

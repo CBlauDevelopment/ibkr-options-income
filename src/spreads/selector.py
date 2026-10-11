@@ -10,10 +10,19 @@ the first strike whose credit is too thin. Pure: no IBKR, no I/O, and no gating 
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Iterator
 from datetime import date, datetime
 
 from src.common.config import SpreadsCfg
-from src.common.schemas import ChainOption, ChainSnapshot, GexLevels, SpreadCandidate, SpreadSide
+from src.common.schemas import (
+    ChainOption,
+    ChainSnapshot,
+    GexLevels,
+    SpreadCandidate,
+    SpreadMenuPosition,
+    SpreadSide,
+)
 from src.spreads.pricing import ET
 
 
@@ -75,6 +84,95 @@ def _build(
     )
 
 
+def _legs(chain: ChainSnapshot, side: SpreadSide, today: date) -> dict[float, ChainOption]:
+    right = "P" if side == "put" else "C"
+    return {round(o.strike, 2): o for o in chain.options if o.right == right and o.expiry == today}
+
+
+def _qualify(
+    side: SpreadSide,
+    k: float,
+    legs: dict[float, ChainOption],
+    chain: ChainSnapshot,
+    cfg: SpreadsCfg,
+    now: datetime,
+) -> SpreadCandidate | None:
+    """The spread shorting *k*, or None when it can't be built: no long leg, short over the
+    delta cap, a missing quote, or no credit. The credit floor is the caller's check."""
+    s = cfg.selection
+    long_k = round(k - s.width if side == "put" else k + s.width, 2)
+    long_q = legs.get(long_k)
+    if long_q is None:
+        return None
+    short_q = legs[k]
+    if short_q.delta is not None and abs(short_q.delta) > s.short_delta_max:
+        return None
+    today = now.astimezone(ET).date()
+    cand = _build(
+        make_spread_id(side, today, k, long_k, now),
+        side,
+        short_q,
+        long_q,
+        s.width,
+        chain.spot,
+        chain.as_of,  # when the quotes were taken: the gate's stale_quote input
+    )
+    if cand is None or cand.credit_mid <= 0:
+        return None
+    return cand
+
+
+def _walk(
+    side: SpreadSide, chain: ChainSnapshot, levels: GexLevels, cfg: SpreadsCfg, now: datetime
+) -> Iterator[SpreadCandidate]:
+    """Qualifying spreads on *side* from the action-zone boundary outward. Stops at the first
+    whose credit is under the floor: further out of the money only gets cheaper."""
+    s = cfg.selection
+    boundary = short_boundary(side, levels, cfg)
+    if boundary is None:
+        return
+    legs = _legs(chain, side, now.astimezone(ET).date())
+    if side == "put":
+        shorts = sorted((k for k in legs if k <= boundary), reverse=True)
+    else:
+        shorts = sorted(k for k in legs if k >= boundary)
+    for k in shorts:
+        cand = _qualify(side, k, legs, chain, cfg, now)
+        if cand is None:
+            continue
+        if cand.credit_mid < s.min_credit_pct_of_width * s.width:
+            return
+        yield cand
+
+
+def _inside(
+    baseline: SpreadCandidate, chain: ChainSnapshot, cfg: SpreadsCfg, now: datetime
+) -> SpreadCandidate | None:
+    """The listed strike one step closer to spot than *baseline*. It ignores the action-zone
+    boundary on purpose (the gate doesn't check it) but still clears the delta cap and the
+    credit floor, so Claude can sell more premium than the baseline on a calm day."""
+    s = cfg.selection
+    side = baseline.side
+    legs = _legs(chain, side, now.astimezone(ET).date())
+    closer = [
+        k
+        for k in legs
+        if (k > baseline.short_strike if side == "put" else k < baseline.short_strike)
+    ]
+    if not closer:
+        return None
+    k = min(closer) if side == "put" else max(closer)
+    cand = _qualify(side, k, legs, chain, cfg, now)
+    if cand is None or cand.credit_mid < s.min_credit_pct_of_width * s.width:
+        return None
+    return cand
+
+
+def _sides(cfg: SpreadsCfg, sides: list[SpreadSide] | None) -> list[SpreadSide]:
+    s = cfg.selection
+    return list(s.sides) if sides is None else [x for x in s.sides if x in sides]
+
+
 def select_candidates(
     chain: ChainSnapshot,
     levels: GexLevels,
@@ -82,45 +180,39 @@ def select_candidates(
     now: datetime,
     sides: list[SpreadSide] | None = None,
 ) -> list[SpreadCandidate]:
-    """At most one candidate per side. *sides* (the entry trigger's choice) narrows the walk."""
-    s = cfg.selection
-    today = now.astimezone(ET).date()
+    """At most one candidate per side (the baseline rule). *sides* (the entry trigger's choice)
+    narrows the walk."""
     out: list[SpreadCandidate] = []
-    for side in s.sides if sides is None else [x for x in s.sides if x in sides]:
-        boundary = short_boundary(side, levels, cfg)
-        if boundary is None:
+    for side in _sides(cfg, sides):
+        first = next(_walk(side, chain, levels, cfg, now), None)
+        if first is not None:
+            out.append(first)
+    return out
+
+
+def select_menu(
+    chain: ChainSnapshot,
+    levels: GexLevels,
+    cfg: SpreadsCfg,
+    now: datetime,
+    sides: list[SpreadSide] | None = None,
+) -> list[tuple[SpreadCandidate, SpreadMenuPosition]]:
+    """Per side, closest to spot first: the inside strike (menu_size >= 2), the baseline pick,
+    then up to menu_size - 2 strikes further out. Ungated: ``risk.validate`` decides which
+    items reach Claude."""
+    n = cfg.selection.menu_size
+    out: list[tuple[SpreadCandidate, SpreadMenuPosition]] = []
+    for side in _sides(cfg, sides):
+        walk = _walk(side, chain, levels, cfg, now)
+        baseline = next(walk, None)
+        if baseline is None:
             continue
-        right = "P" if side == "put" else "C"
-        legs = {
-            round(o.strike, 2): o for o in chain.options if o.right == right and o.expiry == today
-        }
-        if side == "put":
-            shorts = sorted((k for k in legs if k <= boundary), reverse=True)
-        else:
-            shorts = sorted(k for k in legs if k >= boundary)
-        for k in shorts:
-            long_k = round(k - s.width if side == "put" else k + s.width, 2)
-            long_q = legs.get(long_k)
-            if long_q is None:
-                continue
-            short_q = legs[k]
-            if short_q.delta is not None and abs(short_q.delta) > s.short_delta_max:
-                continue
-            cand = _build(
-                make_spread_id(side, today, k, long_k, now),
-                side,
-                short_q,
-                long_q,
-                s.width,
-                chain.spot,
-                chain.as_of,  # when the quotes were taken: the gate's stale_quote input
-            )
-            if cand is None or cand.credit_mid <= 0:
-                continue
-            if cand.credit_mid < s.min_credit_pct_of_width * s.width:
-                break
-            out.append(cand)
-            break
+        if n >= 2:
+            inside = _inside(baseline, chain, cfg, now)
+            if inside is not None:
+                out.append((inside, "inside"))
+        out.append((baseline, "baseline"))
+        out.extend((c, "outer") for c in itertools.islice(walk, max(0, n - 2)))
     return out
 
 

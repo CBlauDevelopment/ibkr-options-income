@@ -180,3 +180,58 @@ def test_a_candidate_carries_the_chains_quote_time() -> None:
         sides=["put"],
     )
     assert put.quote_time == NOW
+
+
+from src.spreads.selector import select_menu  # noqa: E402
+
+# 680/675 sits inside the 679.31 boundary; 679 is today's pick; 678 and 677 are further out.
+LADDER = (
+    q(680, "P", 1.00, 1.06, -0.14),
+    q(675, "P", 0.25, 0.29),
+    q(679, "P", 0.80, 0.86, -0.12),
+    q(674, "P", 0.20, 0.24),
+    q(678, "P", 0.70, 0.76, -0.11),
+    q(673, "P", 0.15, 0.19),
+    q(677, "P", 0.62, 0.66, -0.10),
+    q(672, "P", 0.10, 0.14),
+)
+PUTS = CFG.model_copy(update={"selection": CFG.selection.model_copy(update={"sides": ["put"]})})
+
+
+def _sized(n: int):
+    return PUTS.model_copy(update={"selection": PUTS.selection.model_copy(update={"menu_size": n})})
+
+
+def test_menu_is_inside_then_baseline_then_outer() -> None:
+    menu = select_menu(chain(*LADDER), levels(), _sized(4), NOW)
+    assert [(c.short_strike, pos) for c, pos in menu] == [
+        (680, "inside"),
+        (679, "baseline"),
+        (678, "outer"),
+        (677, "outer"),
+    ]
+    assert len({c.spread_id for c, _ in menu}) == 4
+
+
+def test_menu_size_one_is_the_baseline_alone_and_two_adds_inside() -> None:
+    assert [pos for _, pos in select_menu(chain(*LADDER), levels(), _sized(1), NOW)] == ["baseline"]
+    assert [pos for _, pos in select_menu(chain(*LADDER), levels(), _sized(2), NOW)] == [
+        "inside",
+        "baseline",
+    ]
+
+
+def test_inside_strike_must_clear_the_delta_cap() -> None:
+    hot = (q(680, "P", 1.00, 1.06, -0.18), *LADDER[1:])
+    assert [pos for _, pos in select_menu(chain(*hot), levels(), _sized(4), NOW)][0] == "baseline"
+
+
+def test_outer_walk_stops_at_the_credit_floor() -> None:
+    thin = (*LADDER[:6], q(677, "P", 0.55, 0.59, -0.10), q(672, "P", 0.10, 0.14))  # 0.45 < 0.50
+    menu = select_menu(chain(*thin), levels(), _sized(4), NOW)
+    assert [c.short_strike for c, _ in menu] == [680, 679, 678]
+
+
+def test_select_candidates_is_still_the_baseline_item() -> None:
+    (c,) = select_candidates(chain(*LADDER), levels(), PUTS, NOW)
+    assert c.short_strike == 679
