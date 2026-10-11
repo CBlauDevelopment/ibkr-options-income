@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from src.common.config import (
     PRIVATE_CONFIG_FILES,
     Config,
+    SpreadsAiCfg,
     SpreadsCfg,
     SpreadsEntryCfg,
     SpreadsEventCfg,
     SpreadsScheduleCfg,
+    SpreadsSelectionCfg,
     get_config,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _config(**overrides):
@@ -139,3 +146,53 @@ def test_event_until_must_be_a_padded_time() -> None:
     assert SpreadsEventCfg(day="2026-10-28", label="FOMC").until is None
     with pytest.raises(ValidationError):
         SpreadsEventCfg(day="2026-08-28", until="9:30", label="Jackson Hole")
+
+
+def test_shipped_ai_block_is_off_with_opus_high() -> None:
+    sc = get_config().spreads
+    ai = sc.ai
+    assert ai.enabled is False
+    assert (ai.brief_model, ai.brief_effort, ai.pick_model, ai.pick_effort) == (
+        "claude-opus-5-5",
+        "high",
+        "claude-opus-5-5",
+        "high",
+    )
+    assert (ai.brief_timeout_seconds, ai.pick_timeout_seconds) == (120.0, 45.0)
+    assert (ai.max_pick_calls_per_day, ai.max_headlines, ai.workdir) == (4, 20, "data/spreads_ai")
+    assert sc.selection.menu_size == 4
+
+
+def test_ai_needs_spreads_enabled() -> None:
+    with pytest.raises(ValidationError, match="ai.enabled"):
+        SpreadsCfg(enabled=False, ai=SpreadsAiCfg(enabled=True))
+
+
+def test_pick_timeout_must_fit_inside_an_entry_check() -> None:
+    with pytest.raises(ValidationError, match="pick_timeout_seconds"):
+        SpreadsCfg(
+            enabled=True,
+            ai=SpreadsAiCfg(enabled=True, pick_timeout_seconds=300),
+            schedule=SpreadsScheduleCfg(entry_check_minutes=5),
+        )
+    SpreadsCfg(enabled=True, ai=SpreadsAiCfg(enabled=True, pick_timeout_seconds=45))
+
+
+def test_menu_size_cap_and_timeouts_are_positive() -> None:
+    with pytest.raises(ValidationError):
+        SpreadsSelectionCfg(menu_size=0)
+    with pytest.raises(ValidationError):
+        SpreadsAiCfg(max_pick_calls_per_day=0)
+    with pytest.raises(ValidationError):
+        SpreadsAiCfg(pick_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        SpreadsAiCfg(pick_effort="extreme")
+
+
+def test_ai_workdir_resolves_under_the_root_and_is_gitignored() -> None:
+    p = get_config().spreads_ai_workdir()
+    assert p.is_absolute() and p.parts[-2:] == ("data", "spreads_ai")
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "data/spreads_ai/scratch.txt"], cwd=ROOT, check=False
+    )
+    assert ignored.returncode == 0

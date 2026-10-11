@@ -58,6 +58,7 @@ selection:
   min_credit_pct_of_width: 0.05  # $25 on a 5-wide; far-OTM 0DTE credits are thin — the backtest decides
   max_leg_spread_pct: 0.30    # (ask - bid) / mid, per leg
   strike_band_pct: 0.03
+  menu_size: 4                # ai.enabled only: one strike inside the pick + the pick + up to 2 further out
 
 risk:
   starting_capital_usd: 100000      # the book's own capital; grows/shrinks with its realized P&L (per mode)
@@ -100,3 +101,15 @@ backtest:
   index_symbol: "SPX"
   trade_scale: 10.0           # SPX points per SPY point (SPX is the proxy; SPY ≈ SPX/10 less accrued dividends)
   fill_haircut: 0.5           # fraction of the mid→natural gap paid on every simulated fill
+
+ai:                           # Claude picks from the gate-approved menu (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md)
+  enabled: false              # false = today's behaviour exactly: the baseline pick only, no baseline book, no Claude calls
+  brief_model: claude-opus-5-5
+  brief_effort: high          # 09:31 day plan: no deadline, the heavy synthesis
+  pick_model: claude-opus-5-5
+  pick_effort: high           # measured 2026-10-12: ~16 s for a pick-sized prompt (Sonnet/high ~12 s)
+  brief_timeout_seconds: 120
+  pick_timeout_seconds: 45    # must be shorter than schedule.entry_check_minutes
+  max_pick_calls_per_day: 4   # at the cap the main book takes no new entries that day
+  max_headlines: 20
+  workdir: data/spreads_ai    # empty working directory for claude -p (no project context loaded)

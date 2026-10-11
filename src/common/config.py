@@ -845,6 +845,16 @@ class SpreadsSelectionCfg(BaseModel):
     min_credit_pct_of_width: float = 0.05
     max_leg_spread_pct: float = 0.30
     strike_band_pct: float = 0.03
+    # The pick menu when ai.enabled (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md
+    # §4.2): 1 = the baseline strike only; 2 = + one strike inside it; n >= 3 = + up to n - 2
+    # strikes further out. Every item is gated and sized by risk.validate before Claude sees it.
+    menu_size: int = 4
+
+    @model_validator(mode="after")
+    def _menu(self) -> SpreadsSelectionCfg:
+        if self.menu_size < 1:
+            raise ValueError("spreads selection: menu_size must be >= 1")
+        return self
 
 
 class SpreadsRiskCfg(BaseModel):
@@ -905,6 +915,36 @@ class SpreadsBacktestCfg(BaseModel):
     fill_haircut: float = 0.5
 
 
+EffortLevel = Literal["", "low", "medium", "high", "xhigh", "max"]
+
+
+class SpreadsAiCfg(BaseModel):
+    """Claude picks the day's spread from a gate-approved menu, or skips
+    (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md). The menu is built,
+    gated and sized by deterministic code before Claude sees it; Claude returns a letter."""
+
+    enabled: bool = False
+    brief_model: str = "claude-opus-5-5"
+    brief_effort: EffortLevel = "high"
+    pick_model: str = "claude-opus-5-5"
+    pick_effort: EffortLevel = "high"  # measured 2026-10-12: ~16 s for a pick-sized prompt
+    brief_timeout_seconds: float = 120.0
+    pick_timeout_seconds: float = 45.0
+    max_pick_calls_per_day: int = 4
+    max_headlines: int = 20
+    workdir: str = "data/spreads_ai"  # empty cwd for claude -p: no project CLAUDE.md is loaded
+
+    @model_validator(mode="after")
+    def _bounds(self) -> SpreadsAiCfg:
+        if self.brief_timeout_seconds <= 0 or self.pick_timeout_seconds <= 0:
+            raise ValueError("spreads ai: timeouts must be positive")
+        if self.max_pick_calls_per_day < 1:
+            raise ValueError("spreads ai: max_pick_calls_per_day must be >= 1")
+        if self.max_headlines < 0:
+            raise ValueError("spreads ai: max_headlines must be >= 0")
+        return self
+
+
 class SpreadsCfg(BaseModel):
     """Daily credit-spread system (config/spreads.yaml). See the plan's Design section."""
 
@@ -934,6 +974,7 @@ class SpreadsCfg(BaseModel):
     exits: SpreadsExitsCfg = Field(default_factory=SpreadsExitsCfg)
     execution: SpreadsExecutionCfg = Field(default_factory=SpreadsExecutionCfg)
     backtest: SpreadsBacktestCfg = Field(default_factory=SpreadsBacktestCfg)
+    ai: SpreadsAiCfg = Field(default_factory=SpreadsAiCfg)
 
     @model_validator(mode="after")
     def _underlying_in_book(self) -> SpreadsCfg:
@@ -941,6 +982,18 @@ class SpreadsCfg(BaseModel):
         if self.underlying.upper() not in book:
             raise ValueError(
                 f"spreads.underlying {self.underlying!r} must be listed in book_underlyings {sorted(book)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ai_fits(self) -> SpreadsCfg:
+        if not self.ai.enabled:
+            return self
+        if not self.enabled:
+            raise ValueError("spreads ai.enabled needs spreads enabled: true")
+        if self.ai.pick_timeout_seconds >= self.schedule.entry_check_minutes * 60:
+            raise ValueError(
+                "spreads ai.pick_timeout_seconds must be shorter than schedule.entry_check_minutes"
             )
         return self
 
@@ -1246,6 +1299,9 @@ class Config(BaseModel):
 
     def spreads_halt_path(self) -> Path:
         return ROOT / self.spreads.halt_file
+
+    def spreads_ai_workdir(self) -> Path:
+        return ROOT / self.spreads.ai.workdir
 
     @model_validator(mode="after")
     def _spreads_isolated(self) -> Config:

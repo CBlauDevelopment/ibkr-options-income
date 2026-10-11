@@ -55,6 +55,7 @@ data/backups/
 data/spreads_bt/
 data/spreads_*.csv
 data/spreads.halt
+data/spreads_ai/
 logs/*.log
 logs/*.log.*
 logs/*.out
