@@ -145,6 +145,37 @@ def pending_roll_approval_for(pos: PositionSnapshot) -> int | None:
     return None
 
 
+def roll_declined_today(pos: PositionSnapshot) -> bool:
+    """True when a roll for *pos* was rejected or left to expire earlier this ET day.
+
+    The monitor re-evaluates a breached short every 30 minutes; without this, a roll the
+    operator rejected (or ignored past its TTL) came straight back with fresh buttons and a new
+    Claude review up to ~13 times a day (whole-branch review, 2026-10-11). An explicit web
+    ``roll_request`` (``manual=True``) is not held back by it.
+    """
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    day_start = (
+        datetime.combine(today_et(), dtime.min, tzinfo=et).astimezone(UTC).replace(tzinfo=None)
+    )
+    with session_scope() as s:
+        rows = (
+            s.query(ApprovalRow)
+            .filter(
+                ApprovalRow.status.in_([ApprovalStatus.REJECTED, ApprovalStatus.EXPIRED]),
+                ApprovalRow.created_at >= day_start - timedelta(days=1),
+            )
+            .all()
+        )
+        for row in rows:
+            when = row.decided_at or row.created_at
+            if when is not None and when >= day_start and _same_short(row.snapshot, pos):
+                return True
+    return False
+
+
 def _gate_fallback(
     decision: RollDecision, pos: PositionSnapshot, cc_basis: float | None, reasons: list[str]
 ) -> RollDecision:
@@ -194,6 +225,15 @@ async def evaluate_roll(
             detail="A roll for this short is already awaiting approval or working.",
         )
         return decision, existing
+
+    if not manual and roll_declined_today(pos):
+        decision = RollDecision(
+            action="defer",
+            reason="roll_declined_today",
+            detail="A roll for this short was rejected or expired earlier today.",
+        )
+        _log_decision(pos, decision, manual)
+        return decision, None
 
     cfg = get_config()
     rc = cfg.roll

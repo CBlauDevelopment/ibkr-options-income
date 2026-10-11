@@ -460,6 +460,10 @@ every value is yours to edit (nothing learned changes it).
 | `roll.limits.max_rolls_per_chain` / `max_extension_days` | 1 / 28 | A position may be rolled once; the chain may not run more than 28 days past its original expiry. |
 | `roll.exec.reprice_steps` | 3 | An unfilled roll walks from the mid toward the natural price in this many steps, never past the floor. |
 
+Your private `config/settings.yaml` is not updated by `git pull`: copy the `roll:` block from
+`config/examples/settings.yaml` (the services log a warning at startup while it is missing, and
+without it no position is ever rolled).
+
 `risk_limits.yaml → events.ex_dividend_assignment_guard` is the master switch for the ex-dividend
 roll check (a short call whose time value no longer covers the next dividend). Leveraged ETFs are
 never rolled. The 21/7-day timers, delta drift, IV spike, assignment risk and the non-leveraged loss

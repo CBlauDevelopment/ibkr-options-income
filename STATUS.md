@@ -417,6 +417,14 @@ one), there was no roll limit, and alerts fired overnight.
 - **Web** `roll_request` runs the same `evaluate_roll(manual=True)`; `no_qualifying_roll` now carries
   the decision. **Offline** `scripts/roll_backtest.py` compares assign / same-strike roll / close at
   a breach (BS at HV30, indicative).
+- **Whole-branch review fixes:** the Rules Engine re-checks the roll's economics (floor, debit
+  rights, strike direction, contract count) so all three gates enforce one `RollCfg`; the
+  ex-dividend trigger applies to ITM calls only and ignores a past ex-date; a roll rejected or left
+  to expire is not re-proposed the same ET day; the BUY leg is booked under `roll_from.candidate_id`
+  and, without per-leg fills, leg prices net to the combo's actual fill; the chain credit includes
+  the buy-back of a short opened outside the system and ignores partial closes of the open leg; the
+  config loader warns when `settings.yaml` has no `roll:` block (the operator's private copy was
+  updated with the rulings on 2026-10-11).
 - Removed: `generate_roll_candidates`, `roll_pipeline.fetch_roll_inputs` /
   `queue_roll_for_approval`, `monitor.roll_defensive`, the mid-chasing roll repricer.
 

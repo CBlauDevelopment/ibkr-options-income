@@ -30,6 +30,12 @@ class RollChainState:
     current_candidate_id: str | None  # the system candidate that sold the open short
 
 
+def synthetic_close_id(underlying: str, expiry: date, strike: float, right: str) -> str:
+    """The candidate id a roll's BUY fill is booked under when the closed short was not sold by
+    this system (opened by hand in TWS) — shared by the executor and the chain walk."""
+    return f"roll-close:{underlying}:{expiry:%Y%m%d}:{strike:g}:{right}"
+
+
 def _sold_candidate(session: Session, pos: PositionSnapshot) -> CandidateRow | None:
     """The candidate whose SELL fill opened *pos* (latest sale wins), or None."""
     assert pos.strike is not None and pos.expiry is not None and pos.right is not None
@@ -91,8 +97,22 @@ def chain_entry_credit_per_share(session: Session, pos: PositionSnapshot) -> flo
     while cur is not None and len(ids) < _MAX_WALK and cur.candidate_id not in ids:
         ids.append(cur.candidate_id)
         origin = _origin(cur)
+        if origin is not None and not origin.candidate_id:
+            # The first leg was sold outside the system; its buy-back is booked under the
+            # synthetic id, and only that debit is known — the chain is the debit plus the new
+            # credit, never the new leg's gross premium alone.
+            ids.append(
+                synthetic_close_id(cur.underlying, origin.expiry, origin.strike, origin.right.value)
+            )
+            break
         cur = _by_id(session, origin.candidate_id) if origin and origin.candidate_id else None
-    fills = session.execute(select(FillRow).where(FillRow.candidate_id.in_(ids))).scalars().all()
+    fills = [
+        f
+        for f in session.execute(select(FillRow).where(FillRow.candidate_id.in_(ids))).scalars()
+        # A BUY on the open leg itself is a partial close of this position, not a cost of the
+        # chain: counting it shrank the remaining contracts' credit (review, 2026-10-11).
+        if not ((f.action or "SELL").upper() == "BUY" and f.candidate_id == row.candidate_id)
+    ]
     dollars = sum(
         (-1.0 if (f.action or "SELL").upper() == "BUY" else 1.0) * f.avg_price * f.filled_qty * 100
         for f in fills

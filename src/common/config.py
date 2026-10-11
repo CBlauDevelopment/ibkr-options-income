@@ -594,6 +594,25 @@ class RollCfg(BaseModel):
     exec: RollExecCfg = Field(default_factory=RollExecCfg)
 
 
+def _warn_if_roll_block_missing(settings: dict[str, Any]) -> None:
+    """Loud log when settings.yaml has no ``roll:`` block (2026-10-11 roll redesign).
+
+    The private settings file is the operator's own copy, so a new block in the template does
+    not reach it by itself. Without one, ``RollCfg``'s conservative defaults apply (put →
+    assign, call → called away) and no roll is ever proposed — silently, unless this says so.
+    """
+    if "roll" not in settings:
+        log.warning(
+            "config/settings.yaml has no `roll:` block — using RollCfg defaults (no CSP or CC "
+            "is ever rolled). Copy the `roll:` block from config/examples/settings.yaml."
+        )
+
+
+def _load_roll_cfg(settings: dict[str, Any]) -> RollCfg:
+    _warn_if_roll_block_missing(settings)
+    return RollCfg(**(settings.get("roll") or {}))
+
+
 class MonitorCfg(BaseModel):
     delta_ceiling: float = 0.45
     dte_threshold: int = 7
@@ -1317,7 +1336,7 @@ def get_config() -> Config:
         approval=ApprovalCfg(**settings.get("approval", {})),
         execution=ExecutionCfg(**settings.get("execution", {})),
         monitor=MonitorCfg(**settings.get("monitor", {})),
-        roll=RollCfg(**settings.get("roll", {})),
+        roll=_load_roll_cfg(settings),
         automation=AutomationCfg(**settings.get("automation", {})),
         watchdog=WatchdogCfg(**settings.get("watchdog", {})),
         gateway_recovery=GatewayRecoveryCfg(**settings.get("gateway_recovery", {})),

@@ -80,6 +80,8 @@ def roll_trigger(
         and fund.ex_dividend_date is not None
         and fund.dividend_per_share is not None
         and ext is not None
+        and spot is not None
+        and spot > pos.strike  # an OTM call is never exercised for a dividend
     ):
         days_to_ex = (fund.ex_dividend_date - today).days
         if (

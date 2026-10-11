@@ -141,7 +141,7 @@ def _reject_reason(
         not is_put
         and ctx.ex_div_date is not None
         and ctx.dividend is not None
-        and ctx.ex_div_date <= quote.expiry
+        and ctx.today <= ctx.ex_div_date <= quote.expiry  # yfinance can return a past ex-date
     ):
         intrinsic = max(0.0, (ctx.spot or 0.0) - quote.strike)
         if new_mid - intrinsic < ctx.dividend + cfg.ex_div.buffer - _EPS:

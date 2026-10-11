@@ -254,6 +254,24 @@ def validate_candidates(
                     reasons.append("roll_limit_reached")
                 if (cand.expiry - origin.original_expiry).days > roll_limits.max_extension_days:
                     reasons.append("roll_extension_cap")
+                # The roll's economics, re-checked here so all three gates (decision time, the
+                # approval queue, send time) enforce the same RollCfg the generator used —
+                # not just the generator and the executor (whole-branch review, 2026-10-11).
+                roll_cfg = get_config().roll
+                is_call = cand.right == OptionRight.CALL
+                if origin.allow_debit and not is_call:
+                    reasons.append("roll_debit_not_allowed")  # only a keep-shares call may pay
+                floor = (
+                    -roll_cfg.cc.max_debit
+                    if origin.allow_debit and is_call
+                    else roll_cfg.new_leg.min_net_credit
+                )
+                if cand.premium < floor - 1e-9:
+                    reasons.append("roll_net_below_floor")
+                if (cand.strike < origin.strike) if is_call else (cand.strike > origin.strike):
+                    reasons.append("roll_strike_worse")
+                if cand.contracts != origin.contracts:
+                    reasons.append("roll_contracts_mismatch")
 
         # --- Contract count ---
         if cand.contracts < 1:

@@ -62,6 +62,7 @@ from src.ibkr.market_data import req_fresh_mkt_data
 from src.ibkr.portfolio import get_positions
 from src.storage.db import session_scope
 from src.storage.models import CandidateRow, FillRow, OrderRow
+from src.storage.roll_chains import synthetic_close_id
 
 log = logging.getLogger(__name__)
 
@@ -142,8 +143,16 @@ def _original_candidate_id(short: PositionSnapshot) -> str:
         match = next((c for c in candidates if abs((c.strike or 0.0) - short.strike) < 1e-3), None)
         if match is not None:
             return cast(str, match.candidate_id)
-    expiry = short.expiry.strftime("%Y%m%d")
-    return f"roll-close:{underlying}:{expiry}:{short.strike:g}:{short.right.value}"
+    return synthetic_close_id(underlying, short.expiry, short.strike, short.right.value)
+
+
+def _close_candidate_id(short: PositionSnapshot, candidate: TradeCandidate) -> str:
+    """The candidate the roll's BUY fill is booked under: the short the roll was proposed for
+    (``roll_from.candidate_id``) when known — the same id the chain walk follows — else the
+    candidate that sold this contract, else the synthetic ``roll-close:`` id."""
+    if candidate.roll_from is not None and candidate.roll_from.candidate_id:
+        return candidate.roll_from.candidate_id
+    return _original_candidate_id(short)
 
 
 async def _fetch_leg(
@@ -536,13 +545,22 @@ def _record_roll_fills(
     Per-leg avg prices are taken from the trade's per-leg fills when present, else from
     the mids the combo was priced at.
     """
-    close_id = _original_candidate_id(short)
+    close_id = _close_candidate_id(short, candidate)
     open_qty, open_price, open_comm, _ = _leg_fill_summary(trade, open_conid, new_mid)
     close_qty, close_price, close_comm, _ = _leg_fill_summary(trade, close_conid, old_mid)
-    if open_qty <= 0:
+    open_fallback, close_fallback = open_qty <= 0, close_qty <= 0
+    if open_fallback:
         open_qty, open_price = filled_qty, new_mid
-    if close_qty <= 0:
+    if close_fallback:
         close_qty, close_price = filled_qty, old_mid
+    # Without per-leg fills, the legs were priced at the proposal mids; anchor them to the
+    # combo's actual net fill (credit = -net_avg) so a walked concession is not booked as the
+    # mid's larger credit (review, 2026-10-11).
+    if net_avg and (open_fallback or close_fallback):
+        if open_fallback:
+            open_price = close_price - net_avg
+        else:
+            close_price = open_price + net_avg
 
     is_live = bool(getattr(cfg, "is_live", False))
     with session_scope() as session:
