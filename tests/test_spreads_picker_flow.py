@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from src.common.schemas import (
     SpreadBriefResult,
     SpreadDayPlan,
@@ -316,3 +318,142 @@ async def test_a_halt_during_the_pick_records_it_without_trading(tmp_path, sprea
     await svc.tick()
     (rec,) = spreads_db.picks()
     assert rec.send_reasons == ["halted"] and spreads_db.open_positions("shadow") == []
+
+
+# ------------------------------------------------------------ checkpoint B: pin the invariants
+
+SLIP = AI.execution.shadow_slippage_per_leg
+
+
+def _reprice_outer(broker, bid, ask) -> None:
+    """Move the market under Claude's pick C (678/673) between the menu and the send."""
+    broker.leg_quotes[(678.0, "P")] = o(678, "P", bid, ask, delta=-0.11)
+
+
+async def _to_pending(svc, clock) -> None:
+    """09:45 map + brief; 10:05 menu (baseline opens, the pick is in flight)."""
+    clock[0] = T0945
+    await svc.tick()
+    await settle()
+    clock[0] = T1005
+    await svc.tick()
+    await settle()
+    assert svc._pending is not None
+
+
+async def test_the_send_uses_the_requoted_credit_not_the_menus(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0945]
+    svc, broker, _, _ = make(tmp_path, clock)
+    await _to_pending(svc, clock)
+    menu_mid = svc._pending.menu[2].candidate.credit_mid
+    assert menu_mid == pytest.approx(0.56)  # 678: 0.73 mid, 673: 0.17 mid
+    _reprice_outer(broker, 0.80, 0.86)  # the short now mids 0.83: a 0.66 credit
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (main,) = spreads_db.open_positions("shadow")
+    assert main.entry_credit == pytest.approx(0.66 - 2 * SLIP)  # not 0.56 - 2 * SLIP
+    assert main.entry_credit != pytest.approx(menu_mid - 2 * SLIP)
+
+
+async def test_the_contract_count_comes_from_the_regate_not_the_menu(tmp_path, spreads_db) -> None:  # noqa: F811
+    roomy = AI.model_copy(update={"risk": AI.risk.model_copy(update={"max_contracts": 100})})
+    clock = [T0945]
+    svc, broker, _, _ = make(tmp_path, clock, cfg=roomy)
+    await _to_pending(svc, clock)
+    assert svc._pending.menu[2].contracts == 22  # ⌊$10,000 ÷ ((5 − 0.56) × 100)⌋
+    _reprice_outer(broker, 0.80, 0.86)  # a richer credit risks less per contract: 23 fit
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (main,) = spreads_db.open_positions("shadow")
+    assert main.contracts == 23
+
+
+# 09:47 ET arms the put side (low 689.80 stalled 11 min); the baseline book may take two trades
+# a day, so only the per-episode rule keeps it to one spread per episode.
+TWO_A_DAY = ai(
+    MOVE.model_copy(
+        update={
+            "risk": MOVE.risk.model_copy(update={"max_trades_per_day": 2, "max_open_spreads": 2})
+        }
+    )
+)
+T1347 = datetime(2026, 10, 7, 13, 47, tzinfo=UTC)
+
+
+async def _armed_skip(svc, broker, clock) -> None:
+    await _flush(svc, broker, clock)  # low 689.80 at 09:36, holding
+    clock[0] = T1347
+    await svc.tick()
+    await settle()
+    clock[0] = T1347 + timedelta(seconds=30)
+    await svc.tick()
+
+
+async def test_the_baseline_takes_one_spread_per_episode(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0931]
+    svc, broker, _, picker = make(tmp_path, clock, cfg=TWO_A_DAY, picker=FakePicker("skip"))
+    await _armed_skip(svc, broker, clock)
+    assert len(spreads_db.open_positions("baseline")) == 1 and len(picker.picks) == 1
+    for minute in (53, 58):  # two more entry checks inside the same armed episode
+        clock[0] = datetime(2026, 10, 7, 13, minute, tzinfo=UTC)
+        await svc.tick()
+        await settle()
+    assert len(picker.picks) == 1
+    assert len(spreads_db.open_positions("baseline")) == 1  # not one per five-minute check
+
+
+async def test_a_new_session_extreme_is_a_new_episode(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0931]
+    svc, broker, _, picker = make(tmp_path, clock, cfg=TWO_A_DAY, picker=FakePicker("skip"))
+    await _armed_skip(svc, broker, clock)
+    assert len(picker.picks) == 1
+    broker.session.update(last=689.2, low=689.2)  # a new low, then it stalls again
+    clock[0] = datetime(2026, 10, 7, 13, 55, tzinfo=UTC)
+    await svc.tick()
+    clock[0] = datetime(2026, 10, 7, 14, 7, tzinfo=UTC)  # 12 minutes after the new low
+    await svc.tick()
+    await settle()
+    clock[0] = datetime(2026, 10, 7, 14, 7, 30, tzinfo=UTC)
+    await svc.tick()
+    assert len(picker.picks) == 2
+    first, second = spreads_db.picks()
+    assert first.episode_key != second.episode_key and "689.20" in second.episode_key
+    assert len(spreads_db.open_positions("baseline")) == 2  # one per episode
+
+
+class RaisingPicker(FakePicker):
+    async def pick(self, req):
+        self.picks.append(req)
+        raise RuntimeError("the CLI exploded")
+
+
+async def test_a_picker_that_raises_falls_back_to_the_baseline_item(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0945]
+    svc, _, notifier, _ = make(tmp_path, clock, picker=RaisingPicker())
+    await _decide(svc, clock)
+    assert svc._pending is None
+    (main,) = spreads_db.open_positions("shadow")
+    assert main.short_strike == 679.0
+    (rec,) = spreads_db.picks()
+    assert (rec.fallback_reason, rec.executed_letter, rec.filled) == ("picker_error", "B", True)
+    assert any("picker failed (picker_error)" in m for m in notifier.sent)
+
+
+class ExplodingExecutor:
+    async def open(self, c, contracts, recheck):
+        raise RuntimeError("socket died inside the send")
+
+
+async def test_an_error_inside_the_send_marks_the_row_and_clears_the_pick(
+    tmp_path,
+    spreads_db,  # noqa: F811
+) -> None:
+    clock = [T0945]
+    svc, _, notifier, _ = make(tmp_path, clock)
+    svc.executor = ExplodingExecutor()
+    await _decide(svc, clock)
+    assert svc._pending is None
+    (rec,) = spreads_db.picks()
+    assert rec.send_rejected and rec.send_reasons == ["send_error"] and not rec.filled
+    assert any("the pick phase failed" in m for m in notifier.sent)
+    assert spreads_db.open_positions("shadow") == []
