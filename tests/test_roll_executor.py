@@ -17,6 +17,7 @@ from src.common.schemas import (
     OptionRight,
     OrderState,
     PositionSnapshot,
+    RollOrigin,
     ScoreCard,
     Strategy,
     TradeCandidate,
@@ -82,6 +83,19 @@ def _roll_candidate(premium: float = 1.00) -> TradeCandidate:
         delta=-0.25,
         dte=(_NEW_EXPIRY - _TODAY).days,
         scores=ScoreCard(symbol="AAPL"),
+        roll_from=RollOrigin(
+            con_id=None,
+            candidate_id=None,
+            strike=185.0,
+            expiry=_OLD_EXPIRY,
+            right=OptionRight.PUT,
+            contracts=2,
+            chain_id="c",
+            seq=1,
+            original_expiry=_OLD_EXPIRY,
+            old_mid=0.80,
+            new_mid=1.80,
+        ),
     )
 
 
@@ -189,15 +203,41 @@ def test_combo_builder_rejects_bad_inputs():
         build_combo_roll_order("AAPL", _CLOSE_CONID, _OPEN_CONID, 0, net_credit=1.0)
 
 
-def test_resolve_short_picks_nearest_dated_match():
-    near = _short()
-    far = _short().model_copy(update={"expiry": _TODAY + timedelta(days=30), "strike": 190.0})
-    other = _short().model_copy(update={"right": OptionRight.CALL})
-    cand = _roll_candidate()
-    chosen = _resolve_short_to_close([far, near, other], cand)
-    assert chosen is near
-    # No short earlier than the new expiry → None.
-    assert _resolve_short_to_close([], cand) is None
+def test_resolve_short_matches_the_exact_alerted_contract():
+    """GOOGL 330P (nearer) and 335P (alerted) open together: the roll closes 335P."""
+    near = _short().model_copy(update={"strike": 180.0, "con_id": 11})
+    alerted = _short().model_copy(
+        update={"expiry": _OLD_EXPIRY + timedelta(days=7), "strike": 190.0, "con_id": 22}
+    )
+    origin = _roll_candidate().roll_from.model_copy(
+        update={"con_id": 22, "strike": 190.0, "expiry": alerted.expiry}
+    )
+    cand = _roll_candidate().model_copy(update={"roll_from": origin})
+    assert _resolve_short_to_close([near, alerted], cand) is alerted
+
+
+def test_resolve_falls_back_to_the_exact_contract_without_a_conid():
+    other_strike = _short().model_copy(update={"strike": 180.0})
+    assert _resolve_short_to_close([other_strike, _short()], _roll_candidate()) == _short()
+    assert _resolve_short_to_close([other_strike], _roll_candidate()) is None
+
+
+def test_resolve_refuses_a_roll_without_its_origin():
+    cand = _roll_candidate().model_copy(update={"roll_from": None})
+    assert _resolve_short_to_close([_short()], cand) is None
+
+
+def test_walk_limits_concede_toward_natural_but_never_past_the_floor():
+    from src.execution.roll_executor import _walk_targets
+
+    assert _walk_targets(0.40, natural_net=0.10, floor=0.05, steps=3) == pytest.approx(
+        [0.30, 0.20, 0.10]
+    )
+    assert _walk_targets(0.40, natural_net=-0.50, floor=0.25, steps=3) == pytest.approx(
+        [0.35, 0.30, 0.25]
+    )
+    assert _walk_targets(0.40, natural_net=0.10, floor=0.05, steps=0) == []
+    assert _walk_targets(0.20, natural_net=0.10, floor=0.30, steps=3) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -368,6 +408,7 @@ async def test_roll_cancels_on_timeout(tmp_path, monkeypatch):
     cfg.is_live = False
     cfg.execution.fill_timeout_minutes = 0.0
     cfg.risk = real_cfg.risk
+    cfg.roll = real_cfg.roll
     monkeypatch.setattr(rx, "get_config", lambda: cfg)
 
     cand = _roll_candidate()
@@ -386,93 +427,143 @@ async def test_roll_cancels_on_timeout(tmp_path, monkeypatch):
         assert s.query(FillRow).count() == 0
 
 
-async def test_roll_reprice_steps_toward_market(tmp_path, monkeypatch):
-    """With chase enabled, an unfilled roll combo is repriced toward live market credit (C5)."""
-    _db_setup(tmp_path, monkeypatch)
-    _no_sleep(monkeypatch)
+def _cfg(monkeypatch, *, steps: int = 3, ratio: float = 0.0, timeout: float = 1.0, **roll):
     import src.execution.roll_executor as rx
+    from src.common.config import RollCfg
 
-    monkeypatch.setattr(rx, "get_positions", lambda ib: [_short()])
     cfg = MagicMock()
     cfg.is_live = False
-    cfg.execution.fill_timeout_minutes = 1
-    cfg.execution.reprice_enabled = True
+    cfg.execution.fill_timeout_minutes = timeout
     cfg.execution.reprice_interval_seconds = 0.0
-    cfg.execution.max_reprices = 1
-    cfg.execution.reprice_step_pct = 0.34
-    cfg.risk = {"live_execution": {"min_live_premium_ratio": 0.80}}
+    cfg.risk = {"live_execution": {"min_live_premium_ratio": ratio}}
+    cfg.roll = RollCfg(exec={"reprice_steps": steps}, **roll)
     monkeypatch.setattr(rx, "get_config", lambda: cfg)
-    # Fresh leg quotes: new=(1.68,1.72) → mid 1.70; old=(0.78,0.82) → mid 0.80
-    # fresh_net_credit = 0.90 → combo_ask_lmt = -0.90
-    monkeypatch.setattr(rx, "_refetch_bid_ask", AsyncMock(side_effect=[(1.68, 1.72), (0.78, 0.82)]))
+    return cfg
 
-    cand = _roll_candidate(premium=1.00)
+
+async def _run(monkeypatch, cand, ib, positions):
+    import src.execution.roll_executor as rx
+
+    monkeypatch.setattr(rx, "get_positions", lambda ib_: positions)
     order_id = _seed_order(cand)
-    # Initial: new mid 1.80, old mid 0.80 → net credit 1.00, lmtPrice = -1.00.
-    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82), filled=True)
-    calls: dict[str, int] = {"n": 0}
-
-    def _isdone() -> bool:
-        calls["n"] += 1
-        return calls["n"] >= 3  # False×2 (while + reprice guard), then True
-
-    ib.placeOrder.return_value.isDone.side_effect = _isdone
     bot = MagicMock()
     bot.send_message = AsyncMock()
-
     await execute_roll(ib, bot, "chat", order_id, cand)
-
-    # Two placeOrder calls: initial combo + one reprice.
-    assert ib.placeOrder.call_count == 2
     from src.storage.db import session_scope
 
     with session_scope() as s:
         row = s.get(OrderRow, order_id)
-        # reprice_limit("BUY", -1.00, ask=-0.90, step=0.34) → -1.00+0.034 = -0.966 → -0.97
-        assert row.limit_price == pytest.approx(-0.97)
+        return row.state, row.detail, row.limit_price
 
 
-async def test_roll_reprice_floor_not_breached(tmp_path, monkeypatch):
-    """Ceiling on the BAG lmtPrice prevents accepting less than min_live_premium_ratio credit (C5)."""
+async def test_a_changed_position_size_is_refused(tmp_path, monkeypatch):
     _db_setup(tmp_path, monkeypatch)
     _no_sleep(monkeypatch)
-    import src.execution.roll_executor as rx
+    _cfg(monkeypatch)
+    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82))
+    one_left = _short().model_copy(update={"position": -1.0})
+    state, detail, _ = await _run(monkeypatch, _roll_candidate(), ib, [one_left])
+    assert state == OrderState.REJECTED and "position_size_changed" in detail
+    ib.placeOrder.assert_not_called()
 
-    monkeypatch.setattr(rx, "get_positions", lambda ib: [_short()])
-    cfg = MagicMock()
-    cfg.is_live = False
-    cfg.execution.fill_timeout_minutes = 1
-    cfg.execution.reprice_enabled = True
-    cfg.execution.reprice_interval_seconds = 0.0
-    cfg.execution.max_reprices = 1
-    cfg.execution.reprice_step_pct = 1.0  # full step so the ceiling binds clearly
-    cfg.risk = {"live_execution": {"min_live_premium_ratio": 0.80}}
-    monkeypatch.setattr(rx, "get_config", lambda: cfg)
-    # Fresh market drops to $0.70 credit (< floor 0.80 × 1.00 = $0.80).
-    # ceiling_lmt = -0.80; reprice must cap at -0.80, not go above.
-    monkeypatch.setattr(rx, "_refetch_bid_ask", AsyncMock(side_effect=[(1.48, 1.52), (0.78, 0.82)]))
 
-    cand = _roll_candidate(premium=1.00)
-    order_id = _seed_order(cand)
-    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82), filled=True)
-    calls: dict[str, int] = {"n": 0}
+def _call_roll(net: float):
+    short = _short().model_copy(update={"right": OptionRight.CALL})
+    origin = _roll_candidate().roll_from.model_copy(
+        update={"right": OptionRight.CALL, "allow_debit": True}
+    )
+    cand = _roll_candidate(premium=net).model_copy(
+        update={"right": OptionRight.CALL, "strike": 190.0, "delta": 0.45, "roll_from": origin}
+    )
+    return short, cand
+
+
+async def test_a_keep_shares_call_roll_within_the_debit_cap_is_placed(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    short, cand = _call_roll(-0.20)
+    # new mid 1.00, old mid 1.20 → net −0.20 (cap 0.25)
+    ib = _make_ib(new_mid=(0.98, 1.02), old_mid=(1.18, 1.22))
+    state, _, limit = await _run(monkeypatch, cand, ib, [short])
+    assert state == OrderState.FILLED and limit == pytest.approx(0.20)
+
+
+async def test_a_call_roll_beyond_the_debit_cap_is_refused(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    short, cand = _call_roll(-0.20)
+    ib = _make_ib(new_mid=(0.88, 0.92), old_mid=(1.18, 1.22))  # net −0.30
+    state, detail, _ = await _run(monkeypatch, cand, ib, [short])
+    assert state == OrderState.REJECTED and "roll_net_below_floor" in detail
+
+
+async def test_a_csp_debit_roll_is_refused_at_send_time(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    ib = _make_ib(new_mid=(0.78, 0.82), old_mid=(0.80, 0.84))  # net −0.02
+    state, detail, _ = await _run(monkeypatch, _roll_candidate(premium=0.40), ib, [_short()])
+    assert state == OrderState.REJECTED and "roll_net_below_floor" in detail
+
+
+async def test_a_breached_roll_leg_is_not_held_to_the_entry_delta_band(tmp_path, monkeypatch):
+    """New leg at |Δ| 0.50 (entry band is 0.20-0.35) but below the old leg's 0.55: placed."""
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82))
+    ib.reqMktData.side_effect = [_ticker(1.78, 1.82, -0.50), _ticker(0.78, 0.82, -0.55)]
+    state, _, _ = await _run(monkeypatch, _roll_candidate(), ib, [_short()])
+    assert state == OrderState.FILLED
+
+
+async def test_a_roll_leg_with_more_delta_than_the_old_one_is_refused(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82))
+    ib.reqMktData.side_effect = [_ticker(1.78, 1.82, -0.70), _ticker(0.78, 0.82, -0.55)]
+    state, detail, _ = await _run(monkeypatch, _roll_candidate(), ib, [_short()])
+    assert state == OrderState.REJECTED and "roll_delta_increases" in detail
+
+
+async def test_the_combo_walks_toward_natural_in_bounded_steps(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=3)
+    # new 1.60/1.80 (mid 1.70), old 1.20/1.40 (mid 1.30): net mid 0.40, natural 0.20
+    ib = _make_ib(new_mid=(1.60, 1.80), old_mid=(1.20, 1.40))
+    calls = {"n": 0}
 
     def _isdone() -> bool:
         calls["n"] += 1
-        return calls["n"] >= 3
+        return calls["n"] > 7  # isDone is read twice per loop: three walk steps, then filled
 
-    ib.placeOrder.return_value.isDone.side_effect = _isdone
-    bot = MagicMock()
-    bot.send_message = AsyncMock()
+    trade = ib.placeOrder.return_value
+    trade.isDone.side_effect = _isdone
+    limits: list[float] = []
 
-    await execute_roll(ib, bot, "chat", order_id, cand)
+    def _place(contract, order):  # noqa: ANN001
+        limits.append(order.lmtPrice)  # the Order object is mutated in place; record now
+        return trade
 
-    assert ib.placeOrder.call_count == 2
-    from src.storage.db import session_scope
+    ib.placeOrder.side_effect = _place
+    state, _, limit = await _run(monkeypatch, _roll_candidate(premium=0.40), ib, [_short()])
+    assert limits == pytest.approx([-0.40, -0.33, -0.27, -0.20])
+    assert limits[0] == pytest.approx(-0.40)
+    assert limit == pytest.approx(-0.20)  # ends at natural, never past it
+    assert all(lim <= -0.05 + 1e-9 for lim in limits)  # never below the 0.05 floor credit
 
-    with session_scope() as s:
-        row = s.get(OrderRow, order_id)
-        # fresh_net_credit = 1.50 - 0.80 = 0.70; combo_ask_lmt = -0.70
-        # reprice_limit("BUY", -1.00, ask=-0.70, step=1.0, ceiling=-0.80):
-        #   target = -0.70, min(-0.70, -0.80) = -0.80 → ceiling holds minimum $0.80 credit
-        assert row.limit_price == pytest.approx(-0.80)
+
+async def test_both_roll_fills_join_the_campaign(tmp_path, monkeypatch):
+    _db_setup(tmp_path, monkeypatch)
+    _no_sleep(monkeypatch)
+    _cfg(monkeypatch, steps=0)
+    seen: list[tuple] = []
+    monkeypatch.setattr("src.storage.campaigns.attach_fill_to_campaign", lambda *a: seen.append(a))
+    ib = _make_ib(new_mid=(1.78, 1.82), old_mid=(0.78, 0.82))
+    await _run(monkeypatch, _roll_candidate(), ib, [_short()])
+    assert sorted(a[3] for a in seen) == ["BUY", "SELL"]
+    assert {a[2] for a in seen} == {"roll"}

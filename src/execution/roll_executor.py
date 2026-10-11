@@ -44,7 +44,6 @@ from src.common.schemas import (
     OptionRight,
     OrderState,
     PositionSnapshot,
-    Strategy,
     TradeCandidate,
 )
 from src.engine.risk_engine import validate_live_quote
@@ -53,12 +52,11 @@ from src.execution.executor import (
     _as_float,
     _live_confirm_events,
     _quote_timeout,
-    _refetch_bid_ask,
     _safe_float,
     _two_sided,
     register_live_confirm,
 )
-from src.execution.order_builder import build_combo_roll_order, reprice_limit
+from src.execution.order_builder import _round_combo_tick, build_combo_roll_order
 from src.ibkr.contracts import build_option
 from src.ibkr.market_data import req_fresh_mkt_data
 from src.ibkr.portfolio import get_positions
@@ -71,27 +69,52 @@ log = logging.getLogger(__name__)
 def _resolve_short_to_close(
     positions: list[PositionSnapshot], candidate: TradeCandidate
 ) -> PositionSnapshot | None:
-    """Find the existing short this roll buys back.
+    """The exact short this roll was proposed for, or None (2026-10-11).
 
-    Matches a net-short option on the same underlying and right whose expiry is earlier
-    than the new leg's. When several qualify, roll the nearest-dated one (the short most
-    in need of rolling).
+    Matched by conId when both sides carry one, else by the exact contract recorded in
+    ``candidate.roll_from``. Never "the nearest-dated short on the same underlying": with
+    GOOGL 330P and 335P open together that closed the wrong one. A roll without its origin
+    is refused (the Rules Engine rejects it too, ``roll_origin_missing``).
     """
-    matches = [
+    origin = candidate.roll_from
+    if origin is None:
+        return None
+    shorts = [
         p
         for p in positions
         if p.sec_type == "OPT"
         and p.position < 0
         and (p.underlying or p.symbol) == candidate.underlying
-        and p.right == candidate.right
-        and p.expiry is not None
-        and p.strike is not None
-        and p.expiry < candidate.expiry
     ]
-    if not matches:
-        return None
-    matches.sort(key=lambda p: p.expiry)  # type: ignore[arg-type,return-value]
-    return matches[0]
+    if origin.con_id is not None:
+        by_id = next((p for p in shorts if p.con_id == origin.con_id), None)
+        if by_id is not None:
+            return by_id
+    return next(
+        (
+            p
+            for p in shorts
+            if p.right == origin.right
+            and p.expiry == origin.expiry
+            and p.strike is not None
+            and abs(p.strike - origin.strike) < 1e-3
+        ),
+        None,
+    )
+
+
+def _walk_targets(start_net: float, *, natural_net: float, floor: float, steps: int) -> list[float]:
+    """Net credits ($/sh) to step the combo through after the opening mid (2026-10-11).
+
+    Concedes from the mid toward the natural price (new bid − old ask) in *steps* equal
+    steps, never below *floor* — the roll policy's credit floor (or debit cap) and the
+    approved-credit collapse floor, whichever is higher. Empty when there is nothing to
+    concede or the walk is off.
+    """
+    lowest = max(natural_net, floor)
+    if steps <= 0 or lowest >= start_net:
+        return []
+    return [round(start_net - (start_net - lowest) * i / steps, 4) for i in range(1, steps + 1)]
 
 
 def _original_candidate_id(short: PositionSnapshot) -> str:
@@ -263,6 +286,20 @@ async def execute_roll(
         )
         return
 
+    if (
+        candidate.roll_from is not None
+        and int(abs(short.position)) != candidate.roll_from.contracts
+    ):
+        _mark_order(order_id, OrderState.REJECTED, "position_size_changed")
+        await _notify(
+            bot,
+            chat_id,
+            f"Roll NOT placed — the {candidate.underlying} short now holds "
+            f"{int(abs(short.position))} contracts, not the {candidate.roll_from.contracts} "
+            "the roll was approved for.",
+        )
+        return
+
     try:
         # 2. LIVE mode: pre-quote notice + human confirmation before any transmit.
         if cfg.is_live:
@@ -314,27 +351,37 @@ async def execute_roll(
             return
         live_net_credit = new_mid - old_mid
 
-        # 4. Re-gate the NEW leg as the income trade it is (delta-in-range, live greeks in
-        #    LIVE mode); the per-leg premium-collapse check is disabled (premium=0) because
-        #    the roll's economics are the NET credit, which we floor separately below.
-        income_strategy = (
-            Strategy.COVERED_CALL
-            if candidate.right == OptionRight.CALL
-            else Strategy.CASH_SECURED_PUT
-        )
-        regate = candidate.model_copy(update={"strategy": income_strategy, "premium": 0.0})
-        verdict = validate_live_quote(regate, new_quote)
+        # 4. Re-gate. The new leg is checked as the ROLL it is — a two-sided market — not
+        #    against the CC/CSP entry delta band: a breached short's roll target sits near
+        #    0.5 delta by design. The roll's own send-time rules follow, from the same
+        #    RollCfg the generator used: net at or above the floor (min_net_credit, or
+        #    -cc.max_debit for a keep-shares call roll), |new delta| not above the old leg's,
+        #    live IBKR greeks in LIVE mode, and no collapse below the approved net credit.
+        verdict = validate_live_quote(candidate, new_quote)
         reasons = list(verdict.reasons)
-
-        live_cfg = cfg.risk.get("live_execution", {}) or {}
-        min_ratio = live_cfg.get("min_live_premium_ratio")
-        if live_net_credit <= 0:
-            reasons.append("roll_net_debit")
-        elif (
-            candidate.premium > 0
-            and min_ratio
-            and live_net_credit < float(min_ratio) * candidate.premium
+        origin = candidate.roll_from
+        assert origin is not None  # _resolve_short_to_close refused a roll without one
+        roll_floor = (
+            -cfg.roll.cc.max_debit if origin.allow_debit else cfg.roll.new_leg.min_net_credit
+        )
+        if live_net_credit < roll_floor - 1e-9:
+            reasons.append("roll_net_below_floor")
+        if (
+            new_quote.delta is not None
+            and old_quote.delta is not None
+            and abs(new_quote.delta) > abs(old_quote.delta) + 1e-9
         ):
+            reasons.append("roll_delta_increases")
+        live_cfg = cfg.risk.get("live_execution", {}) or {}
+        if (
+            cfg.is_live
+            and live_cfg.get("require_ibkr_greeks_when_live", True)
+            and (new_quote.delta is None or new_quote.greeks_source != "ibkr")
+        ):
+            reasons.append("live_greeks_required")
+        min_ratio = _as_float(live_cfg.get("min_live_premium_ratio"), 0.0)
+        collapse_floor = min_ratio * candidate.premium if candidate.premium > 0 else roll_floor
+        if candidate.premium > 0 and min_ratio and live_net_credit < collapse_floor:
             reasons.append("roll_credit_collapse")
 
         if reasons:
@@ -375,29 +422,21 @@ async def execute_roll(
                 row.ib_order_id = trade.order.orderId
                 row.limit_price = float(order.lmtPrice) if order.lmtPrice is not None else None
 
-        # 6. Wait for terminal state or timeout — cancel on timeout.
-        # Optionally reprice the combo limit toward the live market (config-gated; default off).
-        # Re-fetches per-leg bid/ask to compute a fresh net credit, then steps the BAG
-        # limit toward market while flooring at min_live_premium_ratio × approved premium.
-        exec_cfg = cfg.execution
-        reprice_enabled = getattr(exec_cfg, "reprice_enabled", False) is True
-        reprice_interval = _as_float(getattr(exec_cfg, "reprice_interval_seconds", 45.0), 45.0)
-        max_reprices = int(_as_float(getattr(exec_cfg, "max_reprices", 0), 0.0))
-        step_pct = _as_float(getattr(exec_cfg, "reprice_step_pct", 0.34), 0.34)
-        live_cfg_r = cfg.risk.get("live_execution", {}) or {}
-        min_ratio_r = live_cfg_r.get("min_live_premium_ratio")
-        min_ratio_f = _as_float(min_ratio_r, 0.0) if min_ratio_r is not None else 0.0
-        min_net_credit = (
-            min_ratio_f * candidate.premium if (min_ratio_f > 0 and candidate.premium > 0) else 0.0
+        # 6. Wait for terminal state or timeout — cancel on timeout. Meanwhile walk the net
+        #    limit from the mid toward the natural price (new bid − old ask) in
+        #    roll.exec.reprice_steps bounded steps, never past the roll floor or the
+        #    approved-credit collapse floor (2026-10-11; replaces the mid-chasing repricer).
+        natural_net = (new_quote.bid or 0.0) - (old_quote.ask or 0.0)
+        walk = _walk_targets(
+            live_net_credit,
+            natural_net=natural_net,
+            floor=max(roll_floor, collapse_floor),
+            steps=cfg.roll.exec.reprice_steps,
         )
-        # In lmtPrice space the BAG order BUYs at a negative price (credit = -lmtPrice).
-        # ceiling_lmt = -min_net_credit keeps lmtPrice from exceeding the minimum-credit limit.
-        ceiling_lmt = round(round(-min_net_credit / 0.01) * 0.01, 2) if min_net_credit > 0 else None
-
+        reprice_interval = _as_float(getattr(cfg.execution, "reprice_interval_seconds", 45.0), 45.0)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + fill_timeout
         next_reprice_at = loop.time() + reprice_interval
-        reprices_done = 0
         while not trade.isDone():
             await asyncio.sleep(1)
             now = loop.time()
@@ -406,53 +445,21 @@ async def execute_roll(
                 ib.cancelOrder(trade.order)
                 await asyncio.sleep(2)
                 break
-            if (
-                reprice_enabled
-                and reprices_done < max_reprices
-                and now >= next_reprice_at
-                and not trade.isDone()
-            ):
+            if walk and now >= next_reprice_at and not trade.isDone():
                 next_reprice_at = now + reprice_interval
-                fn_bid, fn_ask = await _refetch_bid_ask(ib, open_contract)
-                fo_bid, fo_ask = await _refetch_bid_ask(ib, close_contract)
-                if fn_ask is not None and fo_ask is not None:
-                    fresh_new_mid = (
-                        (fn_bid + fn_ask) / 2 if fn_bid is not None and fn_bid > 0 else fn_ask
-                    )
-                    fresh_old_mid = (
-                        (fo_bid + fo_ask) / 2 if fo_bid is not None and fo_bid > 0 else fo_ask
-                    )
-                    fresh_net_credit = fresh_new_mid - fresh_old_mid
-                    if fresh_net_credit > 0:
-                        combo_ask_lmt = round(round(-fresh_net_credit / 0.01) * 0.01, 2)
-                        cur_limit = _safe_float(order.lmtPrice)
-                        new_price = (
-                            reprice_limit(
-                                "BUY",
-                                cur_limit,
-                                bid=None,
-                                ask=combo_ask_lmt,
-                                step_pct=step_pct,
-                                ceiling=ceiling_lmt,
-                            )
-                            if cur_limit is not None
-                            else None
-                        )
-                        if new_price is not None:
-                            order.lmtPrice = new_price
-                            ib.placeOrder(combo, order)
-                            reprices_done += 1
-                            log.info(
-                                "roll reprice %d/%d %s net-limit -> %.2f",
-                                reprices_done,
-                                max_reprices,
-                                candidate.underlying,
-                                new_price,
-                            )
-                            with session_scope() as session:
-                                row = session.get(OrderRow, order_id)
-                                if row:
-                                    row.limit_price = new_price
+                target = walk.pop(0)
+                order.lmtPrice = _round_combo_tick(-target)
+                ib.placeOrder(combo, order)
+                log.info(
+                    "roll walk %s net-limit -> %.2f (natural %.2f)",
+                    candidate.underlying,
+                    order.lmtPrice,
+                    natural_net,
+                )
+                with session_scope() as session:
+                    row = session.get(OrderRow, order_id)
+                    if row:
+                        row.limit_price = float(order.lmtPrice)
 
         filled_qty = float(getattr(trade.orderStatus, "filled", 0.0) or 0.0)
         net_avg = float(getattr(trade.orderStatus, "avgFillPrice", 0.0) or 0.0)
@@ -573,6 +580,13 @@ def _record_roll_fills(
             )
             row.filled_qty = filled_qty
             row.avg_fill_price = net_avg
+    # Campaign chaining (C6): both legs belong to the symbol's wheel thread. Never raises.
+    from src.storage.campaigns import attach_fill_to_campaign
+
+    attach_fill_to_campaign(candidate.underlying, close_id, "roll", "BUY", close_price, close_qty)
+    attach_fill_to_campaign(
+        candidate.underlying, candidate.candidate_id, "roll", "SELL", open_price, open_qty
+    )
     log.info(
         "roll filled — order_id=%s sell %s %.0f @%.2f / buy-close %s %.0f @%.2f",
         order_id,
