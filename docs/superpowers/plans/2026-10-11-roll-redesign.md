@@ -528,7 +528,7 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 5 Construction | done | (this commit) | construct 13 pass; fences green; mypy clean | 2026-10-11 | old generator kept until T13; roll legs skip volume gate; strict_mid pricing |
 | 6 Decision tree | done | (this commit) | policy 19 pass; mypy clean | 2026-10-11 | breach takes precedence over ex_div when both hold |
 | 7 Rules Engine | done | (this commit) | full suite 3368 pass; mypy clean | 2026-10-11 | roll without roll_from fails closed; test helper attaches origin |
-| 8 Pipeline | pending | | | | |
+| 8 Pipeline | done | (this commit) | evaluate 6 pass + roll/fence suites 137 pass; mypy clean | 2026-10-11 | old queue_roll_for_approval wraps queue_roll_candidate until T13; pending roll short-circuits to defer/roll_pending |
 | 9 Executor | pending | | | | |
 | 10 Monitor | pending | | | | |
 | 11 Card + close | pending | | | | |
