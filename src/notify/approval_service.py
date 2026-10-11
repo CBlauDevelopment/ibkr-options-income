@@ -333,6 +333,72 @@ async def handle_live_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 
+async def handle_close_short(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the Close button on a roll-policy ``close`` card (2026-10-11).
+
+    ``close_short:<conId>`` names the exact contract. The position is re-read from the broker
+    and quoted fresh; a contract no longer short places nothing. Buying back is risk-reducing,
+    so like every other close it goes through ``close_short_position`` (order/fill records,
+    cancel-on-timeout, idempotency) rather than the Rules Engine, stamped
+    ``CloseReason.DEFENSIVE``. The tap is the human decision.
+    """
+    query = update.callback_query
+    if query is None:
+        return
+    await query.answer()
+    if not _is_authorized(update):
+        logger.warning(
+            "Ignoring close button from unauthorized chat %s",
+            update.effective_chat and update.effective_chat.id,
+        )
+        return
+    data = query.data or ""
+    try:
+        con_id = int(data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        logger.warning("Invalid close_short callback_data: %r", data)
+        return
+
+    ib_exec: IB | None = context.bot_data.get("ib_exec")
+    ib_scan: IB | None = context.bot_data.get("ib_scan")
+    if ib_exec is None or ib_scan is None:
+        await query.edit_message_text("Broker not connected — nothing was closed.")
+        return
+
+    from src.common.schemas import CloseReason
+    from src.execution import position_manager
+    from src.execution.profit_take import _quote_short
+    from src.ibkr import portfolio
+
+    pos = next(
+        (
+            p
+            for p in portfolio.get_positions(ib_scan)
+            if p.con_id == con_id and p.sec_type == "OPT" and p.position < 0
+        ),
+        None,
+    )
+    if pos is None:
+        await query.edit_message_text("That short is no longer open — nothing was closed.")
+        return
+    bid, ask = await _quote_short(ib_scan, pos)
+    if ask is None:
+        await query.edit_message_text("No live quote for that short — nothing was closed.")
+        return
+    result = await position_manager.close_short_position(
+        ib_exec, pos, bid, ask, reason=CloseReason.DEFENSIVE
+    )
+    if result.status in ("filled", "partial"):
+        text = f"🛑 Closed {result.filled_qty:.0f} of {pos.symbol} @ {result.avg_price:.2f}."
+    elif result.status == "skipped":
+        text = "A close for that short is already working."
+    elif result.status == "working":
+        text = "Close order did not fill before the timeout — cancelled; check IBKR."
+    else:
+        text = "Close failed — check IBKR manually."
+    await query.edit_message_text(text)
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -1854,6 +1920,7 @@ async def _run_service(token: str, chat_id: str) -> None:
     # Button callbacks
     app.add_handler(CallbackQueryHandler(handle_button, pattern="^(approve|reject):"))
     app.add_handler(CallbackQueryHandler(handle_live_confirm, pattern="^confirm_live:"))
+    app.add_handler(CallbackQueryHandler(handle_close_short, pattern="^close_short:"))
 
     # Commands
     app.add_handler(CommandHandler("help", handle_help_command))

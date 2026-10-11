@@ -30,6 +30,7 @@ from src.common.schemas import (
     PositionSnapshot,
     Regime,
     RollAlert,
+    RollDecision,
     RollReview,
     SectorContext,
     TechnicalStats,
@@ -1920,6 +1921,78 @@ def format_live_confirm_request(
 # `src/monitor/triggers.py` (beside the codes it names) and is imported here and by the web API
 # router — one mapping, no second copy. `_humanize_trigger` (imported at the top of this module)
 # is the name this module's callers already use; it delegates unchanged.
+
+
+_DECISION_HEADLINES = {
+    "roll": "🔁 *Roll proposal",
+    "assign": "📥 *Let it assign",
+    "let_called_away": "📤 *Let it be called away",
+    "close": "🛑 *Close recommended",
+    "hold": "⏸️ *Hold",
+    "defer": "⏳ *Roll check deferred",
+}
+
+
+def format_roll_decision(
+    pos: PositionSnapshot,
+    quote: OptionQuote,
+    trigger: str,
+    decision: RollDecision,
+    *,
+    max_rolls: int,
+) -> str:
+    """The roll policy's decision for one breached short, in MarkdownV2 (2026-10-11).
+
+    A ``roll`` card names exactly what Approve would send: both legs with their mids, the net
+    per share and in total, the contract count, the chain's roll number and the breakeven —
+    the old roll alert showed none of it. Every card ends with the decision's reason and the
+    construction rejections, so a card that proposes nothing still says why.
+    """
+    sym = pos.underlying or pos.symbol
+    kind = "CC" if pos.right == OptionRight.CALL else "CSP"
+    head = _DECISION_HEADLINES.get(decision.action, "⚠️ *Roll decision")
+    old_label = contract_label(sym, pos.strike or 0.0, pos.right or "P", pos.expiry or today_et())
+    parts: list[str] = [
+        f"{head} — {_md(sym)} {_md(kind)} {_md(fmt_strike(pos.strike or 0.0))}*",
+        f"Trigger: {_md(_humanize_trigger(trigger))}",
+    ]
+    meta: list[str] = []
+    if quote.underlying_price is not None:
+        meta.append(f"spot {_md(f'${quote.underlying_price:,.2f}')}")
+    if quote.delta is not None:
+        meta.append(f"Δ {_md(f'{quote.delta:.2f}')}")
+    if pos.expiry is not None:
+        meta.append(f"DTE {_md(str((pos.expiry - today_et()).days))}")
+    if meta:
+        parts.append(" · ".join(meta))
+    parts.append("")
+
+    cand = decision.candidate
+    if decision.action == "roll" and cand is not None and cand.roll_from is not None:
+        origin = cand.roll_from
+        new_label = contract_label(sym, cand.strike, cand.right, cand.expiry)
+        net = cand.premium
+        total = net * 100 * cand.contracts
+        word = "credit" if net >= 0 else "debit"
+        parts += [
+            f"Buy back  {_md(old_label)} @ {_md(f'{origin.old_mid:.2f}')}",
+            f"Sell      {_md(new_label)} @ {_md(f'{origin.new_mid:.2f}')}"
+            + (f" \\(Δ {_md(f'{cand.delta:.2f}')}\\)" if cand.delta is not None else ""),
+            f"Net {_md(word)}: *{_md(f'{abs(net):.2f}')}*/sh · {_md(f'${abs(total):,.0f}')} "
+            f"total · {cand.contracts} contracts",
+            f"Roll {origin.seq} of {max_rolls} · breakeven {_md(f'{cand.breakeven:.2f}')}",
+            "",
+        ]
+    parts.append(_md(decision.detail or decision.reason))
+    if decision.rejections:
+        skipped = ", ".join(
+            f"{k.replace('_', ' ')} ×{n}" for k, n in sorted(decision.rejections.items())
+        )
+        parts.append(f"_Skipped targets: {_md(skipped)}_")
+    text = "\n".join(parts)
+    if len(text) > _MAX_MESSAGE_LEN:
+        text = text[: _MAX_MESSAGE_LEN - 3] + "\\.\\.\\."
+    return text + "\n_Source: IBKR · roll policy_"
 
 
 def format_roll_alert(
