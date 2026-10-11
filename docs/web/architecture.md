@@ -36,7 +36,7 @@ console ──POST /commands──▶ API ──write-scoped engine──▶ app
 approval_service._command_drain_loop        (every execution.poll_interval_seconds)
    approve / reject      → _process_button(approval_id, action)        [existing, unchanged]
    promote               → re-run single-ticker → gate → raise approval
-   roll_request          → chain → generate_roll_candidates → queue_roll_for_approval
+   roll_request          → roll_pipeline.evaluate_roll(manual=True) → PENDING approval (roll only)
    halt / resume         → set_halted(True/False, reason)
    set_autonomy          → set_autonomy_level
     universe_add / remove → universe_overrides

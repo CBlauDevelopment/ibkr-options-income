@@ -159,11 +159,15 @@ jobs** — keep them straight:
   *realised* vol (HV30) plus `ideal_zone.min_credit_edge_pct` — with the reason
   `premium_below_fair_value`, under `income.require_vrp_edge` (ships `true`). The CSP and CC
   generators run the same check themselves so the operator sees the reason on the card. **Rolls
-  are scoped out of this gate** (with the ROC and annualized-yield floors): a defensive roll books
-  `roc_pct = 0.0` and deliberately pays under the new strike's fair value, so the gate rejected
-  every one of them at the approval-queue re-gate — `strategies/rolling.py`'s own `max_debit` /
-  `min_delta_reduction` bounds are a roll's real economic control, and its `ideal` stays populated
-  for the card but no longer rejects. A missing zone is data-unavailable and never rejects.
+  are scoped out of this gate** (with the ROC and annualized-yield floors, and the IV-rank / IV/RV
+  entry floors): a roll books `roc_pct = 0.0` and a breach roll pays under the new strike's fair
+  value by design, so the gate rejected every one of them at the approval-queue re-gate. A roll's
+  economics are the `roll:` block of `config/settings.yaml` (`RollCfg`, 2026-10-11 roll redesign),
+  which the Rules Engine enforces itself (`roll_net_below_floor`, `roll_strike_worse`,
+  `roll_contracts_mismatch`, `roll_debit_not_allowed`, `roll_limit_reached`, `roll_extension_cap`)
+  and the roll executor re-checks at send time; its `ideal` stays populated for the card but never
+  rejects. The roll *decision* (roll / assign / let called away / close / hold) is deterministic
+  Python in `strategies/roll_policy.py` — no LLM output reaches it. A missing zone is data-unavailable and never rejects.
 - **`zone_fit` only ranks, and still ships at `0.0`.** The separate `fair_value.zone_fit_score`
   hook blends into `technical_score` under the `zone_fit` weight in `scoring_weights.yaml`, which
   is `0.0` for both strategies — strike placement changes no ranking until a human raises it.
