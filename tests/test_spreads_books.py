@@ -205,3 +205,43 @@ async def test_in_paper_mode_only_claudes_choice_reaches_the_main_executor(
     await svc.tick()
     assert [r for _, r, _ in spreads_db.closed_results("baseline")] == ["profit_take"] * 2
     assert main.closes == []
+
+
+class ExplodingCloseExecutor:
+    async def open(self, c, contracts, recheck):
+        raise AssertionError("no entries in this test")
+
+    async def close(self, pos, short_q, long_q, *, urgent):
+        raise RuntimeError("the main book's close blew up")
+
+
+async def test_a_main_book_failure_does_not_starve_the_baseline_exits(
+    tmp_path,
+    spreads_db,  # noqa: F811
+) -> None:
+    clock = [T0945]
+    svc, broker, notifier = make_books(tmp_path, clock)
+    await svc.tick()  # map
+    for mode, sid in (("shadow", "m1"), ("baseline", "b1-BL")):
+        spreads_db.open_position(
+            cand(sid),
+            mode=mode,
+            contracts=1,
+            credit=0.57,
+            commission=1.3,
+            now=T0945,
+            perm_id=None,
+        )
+    svc.executor = ExplodingCloseExecutor()
+    broker.leg_quotes = {
+        (679.0, "P"): o(679, "P", 0.30, 0.34),
+        (674.0, "P"): o(674, "P", 0.03, 0.05),
+    }
+    clock[0] = T1100
+    await svc.tick()  # both books want a profit take; the main book's close raises
+    ((sid, reason, _),) = spreads_db.closed_results("baseline")
+    assert reason == "profit_take" and len(spreads_db.open_positions("shadow")) == 1
+    assert (
+        sum("the manage phase failed" in m for m in notifier.sent) == 1
+    )  # the main key, as before
+    assert not any("manage:baseline" in m for m in notifier.sent)

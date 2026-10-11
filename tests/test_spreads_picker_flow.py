@@ -206,6 +206,7 @@ async def test_a_hung_pick_times_out_without_holding_up_exits(tmp_path, spreads_
     assert svc._pending is None
     (rec,) = spreads_db.picks()
     assert (rec.fallback_reason, rec.executed_letter) == ("timeout", "B")
+    assert rec.latency_ms is not None and rec.latency_ms >= 75_000  # the service's own wait
 
 
 async def test_a_pick_resolving_after_entry_end_is_regated_and_not_sent(
@@ -457,3 +458,42 @@ async def test_an_error_inside_the_send_marks_the_row_and_clears_the_pick(
     assert rec.send_rejected and rec.send_reasons == ["send_error"] and not rec.filled
     assert any("the pick phase failed" in m for m in notifier.sent)
     assert spreads_db.open_positions("shadow") == []
+
+
+class NoSpotBroker(MenuBroker):
+    """The index quote drops out after the menu is built (``spot`` answers None)."""
+
+    spot_gone = False
+
+    async def spot(self):
+        return None if self.spot_gone else await super().spot()
+
+
+async def test_a_pick_is_not_sent_without_a_fresh_spot(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0945]
+    broker = NoSpotBroker(clock)
+    svc, _, _, _ = make(tmp_path, clock, broker=broker)
+    await _to_pending(svc, clock)
+    broker.spot_gone = True
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (rec,) = spreads_db.picks()
+    assert rec.send_rejected and rec.send_reasons == ["no_fresh_spot"] and not rec.filled
+    assert spreads_db.open_positions("shadow") == []
+    assert svc._pending is None
+
+
+async def test_a_pick_that_finished_long_ago_is_recorded_but_not_sent(
+    tmp_path,
+    spreads_db,  # noqa: F811
+) -> None:
+    clock = [T0945]
+    svc, _, _, _ = make(tmp_path, clock)
+    await _to_pending(svc, clock)  # the picker answers at once; nobody collects it for a while
+    assert svc._pending.task.done()
+    clock[0] = T1005 + timedelta(seconds=151)  # > 2 x (45 s timeout + 30 s grace), e.g. a reconnect
+    await svc.tick()
+    (rec,) = spreads_db.picks()
+    assert (rec.choice, rec.executed_letter) == ("C", "C")
+    assert rec.send_rejected and rec.send_reasons == ["stale_pick"] and not rec.filled
+    assert spreads_db.open_positions("shadow") == [] and svc._pending is None

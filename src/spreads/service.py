@@ -385,7 +385,7 @@ class SpreadsService:
             await self._guard("map", self._build_map(now))
         if s.map_time <= hhmm < s.force_close:
             await self._guard("tape", self._sample(now))
-        await self._guard("manage", self._manage(now))
+        await self._manage(now)
         if self.picker is not None:
             await self._guard("brief", self._brief(now))
             if self._pending is not None:
@@ -832,10 +832,15 @@ class SpreadsService:
             snapshot=self._snapshot(levels, allowed, now, plan),
         )
 
-    async def _fresh_candidate(self, c: SpreadCandidate) -> SpreadCandidate | None:
-        """*c* repriced on fresh leg quotes and spot — the pick is up to 75 s old by now."""
+    async def _fresh_candidate(
+        self, c: SpreadCandidate
+    ) -> tuple[SpreadCandidate | None, str | None]:
+        """*c* repriced on fresh leg quotes and spot — the pick is up to 75 s old by now.
+        Returns (candidate, None), or (None, why not): a send is never gated on the menu's spot."""
         right = _right(c.side)
         spot = await self.broker.spot()
+        if spot is None:
+            return None, "no_fresh_spot"
         quotes = await self.broker.requote(
             [
                 ChainOption(
@@ -850,8 +855,8 @@ class SpreadsService:
         short_q = book.get((round(c.short_strike, 2), right))
         long_q = book.get((round(c.long_strike, 2), right))
         if short_q is None or long_q is None:
-            return None
-        return refresh_candidate(c, short_q, long_q, self.now(), spot)
+            return None, "no_fresh_quote"
+        return refresh_candidate(c, short_q, long_q, self.now(), spot), None
 
     async def _resolve_pick(self, now: datetime) -> None:
         p = self._pending
@@ -859,8 +864,8 @@ class SpreadsService:
             return
         pick: SpreadPick | None = None
         fallback: str | None = None
+        waited = (now - p.started).total_seconds()
         if not p.task.done():
-            waited = (now - p.started).total_seconds()
             if waited <= self.cfg.ai.pick_timeout_seconds + _PICK_GRACE_SECONDS:
                 return
             p.task.cancel()
@@ -879,7 +884,12 @@ class SpreadsService:
                 choice="skip",
                 fallback_reason=fallback,
                 market=SpreadMarketSnapshot(),
-                call=SpreadLlmCall(model=ai.pick_model, effort=ai.pick_effort, error=fallback),
+                call=SpreadLlmCall(
+                    model=ai.pick_model,
+                    effort=ai.pick_effort,
+                    latency_ms=int(waited * 1000),
+                    error=fallback,
+                ),
             )
         by_letter = {i.letter: i for i in p.menu}
         baseline = next((i for i in p.menu if i.position == "baseline"), None)
@@ -941,6 +951,14 @@ class SpreadsService:
         self, p: _PendingPick, pick_id: int, chosen: SpreadMenuItem, now: datetime
     ) -> None:
         """Re-quote, re-gate and send the chosen item; the pick row records what happened."""
+        ai = self.cfg.ai
+        if (now - p.started).total_seconds() > 2 * (ai.pick_timeout_seconds + _PICK_GRACE_SECONDS):
+            # The choice was made on a market that is minutes old (the process was away, e.g. a
+            # Gateway drop): record it, send nothing. The next episode asks again.
+            store.mark_pick_sent(
+                pick_id, send_rejected=True, send_reasons=["stale_pick"], filled=False
+            )
+            return
         blocked = [
             reason
             for reason, on in (
@@ -952,10 +970,13 @@ class SpreadsService:
         if blocked:
             store.mark_pick_sent(pick_id, send_rejected=True, send_reasons=blocked, filled=False)
             return
-        fresh = await self._fresh_candidate(chosen.candidate)
+        fresh, why_not = await self._fresh_candidate(chosen.candidate)
         if fresh is None:
             store.mark_pick_sent(
-                pick_id, send_rejected=True, send_reasons=["no_fresh_quote"], filled=False
+                pick_id,
+                send_rejected=True,
+                send_reasons=[why_not or "no_fresh_quote"],
+                filled=False,
             )
             return
         at = self.now()
@@ -996,8 +1017,13 @@ class SpreadsService:
         )
 
     async def _manage(self, now: datetime) -> None:
-        for mode, executor in self.books:
-            await self._manage_book(now, mode, executor)
+        # Each book on its own guard: the baseline is the measuring stick, so a failure in the
+        # main book (a dropped socket, a bad row) must not stop the baseline's exits — or the
+        # reverse. The main book keeps the plain "manage" alert key.
+        for i, (mode, executor) in enumerate(self.books):
+            await self._guard(
+                "manage" if i == 0 else f"manage:{mode}", self._manage_book(now, mode, executor)
+            )
 
     async def _manage_book(self, now: datetime, mode: str, executor: Executor) -> None:
         positions = store.open_positions(mode)
