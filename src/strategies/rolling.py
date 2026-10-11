@@ -64,7 +64,7 @@ def generate_roll_candidates(
         risk["covered_call"] if position.right == OptionRight.CALL else risk["cash_secured_put"]
     )
     income_cfg = risk["income"]
-    roll_cfg = get_config().monitor.roll_defensive if defensive else {}
+    roll_cfg: dict[str, float | bool] = {}  # replaced by RollCfg in the Task 5 rewrite
     # Task 9 fix round 1 (R7): same treatment as the CSP/CC generators — a missing IV rank
     # already passes the IV gate as "data unavailable"; scoring it 0 under IV's weight
     # silently misrepresents the card. Neutral value from config (default 50), tagged so the

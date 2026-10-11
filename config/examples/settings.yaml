@@ -448,34 +448,60 @@ data:
   intraday_price_provider: yfinance        # 1-min bars incl. pre/post for the 📈 reaction
 
 monitor:
-  # Short option delta drift: roll if |delta| exceeds this ceiling.
+  # The monitor's alerts below are INFORMATIONAL since the 2026-10-11 roll redesign — none of
+  # them proposes a roll. Only a strike breach or ex-dividend risk does (see `roll:`). Every
+  # alert waits for RTH + roll.trigger.min_minutes_after_open.
+  # Short option delta drift: alert if |delta| exceeds this ceiling.
   delta_ceiling: 0.45
-  # Roll if DTE drops to this threshold or below.
+  # Alert when DTE drops to this threshold or below.
   dte_threshold: 7
-  # Roll if IV has risen more than this percentage above the entry IV.
+  # Alert if IV has risen more than this percentage above the entry IV.
   iv_spike_pct: 40
   # Warn if ex-dividend date is within this many days for a short call.
   ex_div_days_ahead: 5
   # Re-alert policy is fixed in code (monitor/intraday.py::_select_fresh): once per position
-  # for the DTE-window triggers, at most once per ET day per position while a roll is still
-  # needed, and a strike breach always gets through. (Replaced alert_cooldown_minutes, 2026-10-01.)
-  # N20: when true, a roll trigger sends an approvable roll candidate (Approve → QUEUED ROLL →
-  # execute_roll) instead of an alert-only message. Turned ON 2026-10-01 on the paper account to
-  # verify the BAG combo sign convention — every roll still needs an Approve tap. Re-confirm
-  # before live cutover (STATUS.md live-cutover gate).
+  # for the DTE-window triggers, at most once per ET day per position while still relevant.
+  # N20: when true, a roll decision of `roll` carries Approve/Reject buttons (Approve → QUEUED
+  # ROLL → execute_roll) and a `close` decision carries a Close button. Turned ON 2026-10-01 on
+  # the paper account to verify the BAG combo sign convention — every roll still needs an
+  # Approve tap. Re-confirm before live cutover (STATUS.md live-cutover gate).
   roll_execution_enabled: true
   # C4: assignment-risk alert — fires when |delta| >= threshold AND DTE <= dte window.
-  # Targets deep-ITM shorts near expiry; suggests roll / close / let-assign.
   assignment_alert_delta: 0.70
   assignment_alert_dte: 21
-  # Mechanical management point. Entries are 21-45 DTE; dte_threshold (7) is deep into gamma.
+  # Informational management-point alert.
   manage_at_dte: 21
-  # Defensive rolls are judged on risk reduction, not yield — requiring 1% ROC from a roll
-  # meant the candidate list was empty exactly when the monitor fired.
-  roll_defensive:
-    max_debit: 0.50
-    min_delta_reduction: 0.10
-    require_breakeven_improvement: true
+
+# Roll policy — docs/superpowers/plans/2026-10-11-roll-redesign.md, evidence in
+# docs/research/2026-10-11-rolling-short-options.md. Grades: E = evidence (thin: snippet-level
+# tastylive SPY studies, exchange rules, option theory), C = practitioner consensus,
+# I = inference/judgement. Every value is human-edited; nothing learned may move it.
+roll:
+  trigger:
+    breach_delta: 0.50            # E (strike breach beats breakeven breach) / I (value)
+    evaluate_within_dte: 10       # I — tested shorts with weeks left often recover; act late
+    min_extrinsic: 0.10           # I — …or once extrinsic is this thin (assignment zone)
+    min_minutes_after_open: 15    # I — opening spreads inflated every early alert
+    reevaluate_minutes: 30        # I — re-check a breached short this often while it holds
+  ex_div:                         # master switch: risk_limits.yaml events.ex_dividend_assignment_guard
+    days_ahead: 5                 # I
+    buffer: 0.05                  # E (theory: assignment when extrinsic < dividend) / I (value)
+  csp:
+    when_assignable: roll_if_credit  # operator ruling 2026-10-11 (report default: assign)
+  cc:
+    keep_shares: true             # operator ruling 2026-10-11 (report default: let called away)
+    max_debit: 0.25               # I — $/sh a keep-shares call roll may pay
+  new_leg:
+    max_expiries: 3               # C — shortest roll that works ("roll out the shortest period")
+    target_dte_max: 35            # I — decoupled from the 7-28 entry window
+    strikes_outward: 5            # I
+    max_quote_lines: 10           # fits the monitor's 20 reserved lines beside its standing quotes
+    min_net_credit: 0.05          # E (debit rolls hurt win rate) / I (value: covers two legs)
+  limits:
+    max_rolls_per_chain: 1        # E (study design: one roll) / C ("once, maximum twice")
+    max_extension_days: 28        # I — beyond the chain's original expiry
+  exec:
+    reprice_steps: 3              # I — combo walks mid → natural in bounded steps, never past the floor
 
 # Trade ledger — whole-account history, dashboard /ledger, Google Sheet mirror.
 # docs/superpowers/specs/2026-10-04-trade-ledger-design.md §8. Secrets live in .env.

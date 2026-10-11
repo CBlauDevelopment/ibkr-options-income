@@ -519,6 +519,63 @@ class ExecutionCfg(BaseModel):
     reprice_step_pct: float = 0.34  # fraction of the remaining distance to the bid/ask per step
 
 
+class RollTriggerCfg(BaseModel):
+    """When a breached short is acted on (roll redesign 2026-10-11)."""
+
+    breach_delta: float = Field(default=0.50, gt=0, lt=1)  # |delta| at/above which a short is breached
+    evaluate_within_dte: int = Field(default=10, ge=0)  # a breach is acted on only at/inside this DTE…
+    min_extrinsic: float = Field(default=0.10, ge=0)  # …or once its extrinsic ($/sh) is this thin
+    min_minutes_after_open: int = Field(default=15, ge=0)  # no alerts/evaluations in the opening print
+    reevaluate_minutes: int = Field(default=30, ge=1)  # re-check a breached short this often
+
+
+class RollExDivCfg(BaseModel):
+    days_ahead: int = Field(default=5, ge=0)
+    buffer: float = Field(default=0.05, ge=0)  # a short call's extrinsic must exceed dividend + buffer
+
+
+class RollCspCfg(BaseModel):
+    # "roll_if_credit": roll a breached would-own put for a net credit, else let it assign.
+    # "assign": let it assign without trying a roll.
+    when_assignable: Literal["roll_if_credit", "assign"] = "assign"
+
+
+class RollCcCfg(BaseModel):
+    keep_shares: bool = False  # True: roll a breached call up-and-out rather than lose shares
+    max_debit: float = Field(default=0.25, ge=0)  # $/sh a keep-shares call roll may pay
+
+
+class RollNewLegCfg(BaseModel):
+    max_expiries: int = Field(default=3, ge=1)  # later expirations fetched for a roll
+    target_dte_max: int = Field(default=35, ge=1)  # furthest new expiry, independent of the entry window
+    strikes_outward: int = Field(default=5, ge=0)  # listed strikes beyond the current one, away from spot
+    max_quote_lines: int = Field(default=10, ge=2, le=40)  # roll fetch batch — inside the monitor's lines
+    min_net_credit: float = Field(default=0.05, ge=0)  # $/sh floor for a credit roll (two legs' costs)
+
+
+class RollLimitsCfg(BaseModel):
+    max_rolls_per_chain: int = Field(default=1, ge=0)
+    max_extension_days: int = Field(default=28, ge=0)  # beyond the chain's original expiry
+
+
+class RollExecCfg(BaseModel):
+    reprice_steps: int = Field(default=3, ge=0)  # combo walks mid → natural in this many steps; 0 = off
+
+
+class RollCfg(BaseModel):
+    """Roll policy (docs/superpowers/plans/2026-10-11-roll-redesign.md). Human-edited config;
+    nothing in the eval loop may move it. Read by the roll generator, the Rules Engine and the
+    roll executor alike, so the three cannot disagree."""
+
+    trigger: RollTriggerCfg = Field(default_factory=RollTriggerCfg)
+    ex_div: RollExDivCfg = Field(default_factory=RollExDivCfg)
+    csp: RollCspCfg = Field(default_factory=RollCspCfg)
+    cc: RollCcCfg = Field(default_factory=RollCcCfg)
+    new_leg: RollNewLegCfg = Field(default_factory=RollNewLegCfg)
+    limits: RollLimitsCfg = Field(default_factory=RollLimitsCfg)
+    exec: RollExecCfg = Field(default_factory=RollExecCfg)
+
+
 class MonitorCfg(BaseModel):
     delta_ceiling: float = 0.45
     dte_threshold: int = 7
@@ -533,18 +590,8 @@ class MonitorCfg(BaseModel):
     # Targets deep-ITM shorts near expiry where action (roll/close/assign) is required.
     assignment_alert_delta: float = 0.70
     assignment_alert_dte: int = 21
-    # Manage mechanically at this DTE — entries are 21-45 DTE and the roll trigger fires at
-    # dte_threshold (7), which is deep into gamma with no room to manoeuvre.
+    # Informational management-point alert. Roll economics live in the top-level `roll:` block.
     manage_at_dte: int = 21
-    # Defensive-roll economics. A roll that rescues a challenged short is judged on risk
-    # reduction, not yield: it may cost a bounded debit and must reduce |delta| materially.
-    roll_defensive: dict[str, float | bool] = Field(
-        default_factory=lambda: {
-            "max_debit": 0.50,
-            "min_delta_reduction": 0.10,
-            "require_breakeven_improvement": True,
-        }
-    )
 
 
 class AutomationCfg(BaseModel):
@@ -1095,6 +1142,7 @@ class Config(BaseModel):
     approval: ApprovalCfg
     execution: ExecutionCfg
     monitor: MonitorCfg
+    roll: RollCfg = Field(default_factory=RollCfg)
     automation: AutomationCfg
     watchdog: WatchdogCfg
     gateway_recovery: GatewayRecoveryCfg = Field(default_factory=GatewayRecoveryCfg)
@@ -1251,6 +1299,7 @@ def get_config() -> Config:
         approval=ApprovalCfg(**settings.get("approval", {})),
         execution=ExecutionCfg(**settings.get("execution", {})),
         monitor=MonitorCfg(**settings.get("monitor", {})),
+        roll=RollCfg(**settings.get("roll", {})),
         automation=AutomationCfg(**settings.get("automation", {})),
         watchdog=WatchdogCfg(**settings.get("watchdog", {})),
         gateway_recovery=GatewayRecoveryCfg(**settings.get("gateway_recovery", {})),

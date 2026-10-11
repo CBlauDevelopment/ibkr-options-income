@@ -365,8 +365,8 @@ class IdealZone(BaseModel):
     **income** candidate (CC/CSP) whose ``premium`` falls below it under
     ``income.require_vrp_edge`` (ships ``true``), reason ``premium_below_fair_value``. On a
     ``Strategy.ROLL`` it is display/audit only: a defensive roll pays under fair value by
-    design, so rolls are scoped out of that gate and bounded by ``monitor.roll_defensive``
-    (``max_debit`` / ``min_delta_reduction``) instead. A ``None`` zone never blocks.
+    design, so rolls are scoped out of that gate and bounded by the ``roll:`` config block
+    (``min_net_credit`` / ``cc.max_debit``) instead. A ``None`` zone never blocks.
     ``fair_value.py`` still has no reject path of its own, so the deterministic Rules Engine
     remains the sole path to an order.
     """
