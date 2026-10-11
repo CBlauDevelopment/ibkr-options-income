@@ -525,7 +525,7 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 2 Schemas | done | (this commit) | full suite 3319 pass; mypy clean | 2026-10-11 | - |
 | 3 Chain state | done | (this commit) | roll_chains/loss/profit/monitor/notify pass; mypy clean | 2026-10-11 | CandidateRow looked up by candidate_id column (PK is id) |
 | 4 Targeted fetch | done | (this commit) | roll fetch 5 pass; mypy clean | 2026-10-11 | fetch_roll_inputs untouched here; evaluate_roll uses the targeted fetch (T8), old helper removed in T13 |
-| 5 Construction | pending | | | | |
+| 5 Construction | done | (this commit) | construct 13 pass; fences green; mypy clean | 2026-10-11 | old generator kept until T13; roll legs skip volume gate; strict_mid pricing |
 | 6 Decision tree | pending | | | | |
 | 7 Rules Engine | pending | | | | |
 | 8 Pipeline | pending | | | | |
