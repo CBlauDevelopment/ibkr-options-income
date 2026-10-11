@@ -24,6 +24,7 @@ from src.spreads.report import (
     format_day,
     format_extras,
     format_stats,
+    scope_compare,
     tag_breakdowns,
 )
 
@@ -61,9 +62,16 @@ def main() -> None:
     if a.compare:
         if a.mode == "baseline":
             p.error("--compare compares --mode shadow|paper against the baseline book")
-        main_log, base_log = store.trade_log(a.mode), store.trade_log("baseline")
-        decisions = build_decisions(store.picks(), main_log, base_log)
+        picks, main_log, base_log, since = scope_compare(
+            store.picks(), store.trade_log(a.mode), store.trade_log("baseline"), a.mode
+        )
+        decisions = build_decisions(picks, main_log, base_log)
         slip = get_config().spreads.execution.shadow_slippage_per_leg
+        print(
+            f"scope: --mode {a.mode} picks only, trades opened "
+            + (f"since the first pick ({since:%Y-%m-%d %H:%M} UTC)" if since else "(no picks yet)")
+            + " — pre-AI trades excluded"
+        )
         print("\n".join(format_compare(decisions, main_log, base_log, a.mode, slip)))
         if a.csv:
             rows = decision_rows(decisions)

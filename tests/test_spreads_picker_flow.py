@@ -497,3 +497,94 @@ async def test_a_pick_that_finished_long_ago_is_recorded_but_not_sent(
     assert (rec.choice, rec.executed_letter) == ("C", "C")
     assert rec.send_rejected and rec.send_reasons == ["stale_pick"] and not rec.filled
     assert spreads_db.open_positions("shadow") == [] and svc._pending is None
+
+
+# ------------------------------------------------------------ final review: I1, M2
+
+
+async def test_a_pick_the_regate_refuses_is_reported_not_sent_not_as_a_take(
+    tmp_path,
+    spreads_db,  # noqa: F811
+) -> None:
+    from src.spreads import store
+    from src.spreads.report import build_decisions, compare_by
+
+    clock = [T0945]
+    svc, broker, _, _ = make(tmp_path, clock)
+    await _to_pending(svc, clock)
+    _reprice_outer(broker, 0.25, 0.29)  # the short mids 0.27 against the 0.17 long: 0.10 credit
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (rec,) = spreads_db.picks()
+    assert (rec.choice, rec.executed_letter) == ("C", "C")
+    assert rec.send_rejected and not rec.filled and "credit_below_min" in rec.send_reasons
+    assert spreads_db.open_positions("shadow") == []
+    (base,) = spreads_db.open_positions("baseline")
+    decisions = build_decisions(
+        store.picks(), store.trade_log("shadow"), store.trade_log("baseline")
+    )
+    assert [d.kind for d in decisions] == ["not_sent"]
+    assert decisions[0].main_pnl is None and base.episode_key == rec.episode_key
+    assert compare_by(decisions, "regime") == {}
+
+
+class DriftingExcessBroker(MenuBroker):
+    """Excess liquidity is healthy when the menu is built and gone by the time the pick sends."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.excess: float | None = 50_000.0
+        self.reads = 0
+
+    async def excess_liquidity(self):
+        self.reads += 1
+        return self.excess
+
+
+async def test_the_send_regates_on_fresh_excess_liquidity(tmp_path, spreads_db) -> None:  # noqa: F811
+    clock = [T0945]
+    broker = DriftingExcessBroker(clock)
+    svc, _, _, _ = make(tmp_path, clock, broker=broker)
+    await _to_pending(svc, clock)
+    broker.excess = 1_000.0  # below the 10,000 floor now
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (rec,) = spreads_db.picks()
+    assert rec.send_rejected and rec.send_reasons == ["excess_liquidity_floor"]
+    assert spreads_db.open_positions("shadow") == []
+
+
+async def test_an_unreadable_excess_liquidity_at_send_time_blocks_the_send(
+    tmp_path,
+    spreads_db,  # noqa: F811
+) -> None:
+    clock = [T0945]
+    broker = DriftingExcessBroker(clock)
+    svc, _, _, _ = make(tmp_path, clock, broker=broker)
+    await _to_pending(svc, clock)
+    broker.excess = None
+    clock[0] = T1005 + timedelta(seconds=30)
+    await svc.tick()
+    (rec,) = spreads_db.picks()
+    assert rec.send_rejected and rec.send_reasons == ["account_unknown"]
+
+
+async def test_the_compare_report_says_what_it_is_scoped_to(
+    tmp_path,
+    spreads_db,  # noqa: F811
+    monkeypatch,
+    capsys,
+) -> None:
+    import sys
+
+    from scripts import spreads_report
+
+    clock = [T0945]
+    svc, _, _, _ = make(tmp_path, clock)
+    await _decide(svc, clock)
+    monkeypatch.setattr(sys, "argv", ["spreads_report", "--mode", "shadow", "--compare"])
+    spreads_report.main()
+    out = capsys.readouterr().out
+    assert "scope: --mode shadow picks only, trades opened since the first pick" in out
+    assert "pre-AI trades excluded" in out and "took_outer: n=1" not in out  # still open, unsettled
+    assert "decisions: 1 (0 settled)" in out

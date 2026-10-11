@@ -22,6 +22,7 @@ from src.spreads.report import (
     format_extras,
     format_stats,
     group_stats,
+    scope_compare,
     tag_breakdowns,
 )
 
@@ -117,14 +118,20 @@ def _item(letter, position, short):
     )
 
 
-def _pick(pid, choice, executed, *, fallback=None, vix=17.0, regime="positive"):
-    menu = [_item("A", "inside", 680), _item("B", "baseline", 679), _item("C", "outer", 678)]
+def _pick(
+    pid, choice, executed, *, fallback=None, vix=17.0, regime="positive", menu=None, mode="paper"
+):
+    menu = menu or [
+        _item("A", "inside", 680),
+        _item("B", "baseline", 679),
+        _item("C", "outer", 678),
+    ]
     return SpreadPickRecord(
         pick_id=pid,
         created_at=T,
         day=date(2026, 10, 7),
         episode_key=f"ep{pid}",
-        book_mode="paper",
+        book_mode=mode,
         menu=menu,
         choice=choice,
         reason="r",
@@ -144,13 +151,13 @@ def _pick(pid, choice, executed, *, fallback=None, vix=17.0, regime="positive"):
     )
 
 
-def _trade(mode, pnl, *, pick_id=None, episode=None, credit=0.48, status="closed"):
+def _trade(mode, pnl, *, pick_id=None, episode=None, credit=0.48, status="closed", opened=T):
     return SpreadTradeRecord(
         spread_id=f"{mode}{episode}",
         mode=mode,
         side="put",
         status=status,
-        opened_at=T,
+        opened_at=opened,
         closed_at=T if status == "closed" else None,
         short_strike=679,
         long_strike=674,
@@ -221,3 +228,61 @@ def test_the_day_view_prints_the_plan_prompt_and_reply() -> None:
     assert "=== 2026-10-07 ===" in text and "day plan: none" in text
     assert "took_outer" in text and "prompt:\nP" in text and "reply:\nR" in text
     assert "difference $40.00" in text
+
+
+def test_a_recorded_pick_with_no_main_trade_is_not_sent_and_stays_out_of_the_conditions() -> None:
+    picks = [_pick(1, "C", "C"), _pick(2, "C", "C"), _pick(3, "Z", "B", fallback="off_menu")]
+    main = [_trade("paper", 30.0, pick_id=2, episode="ep2")]  # pick 1 was recorded, never sent
+    base = [_trade("baseline", -10.0, episode=f"ep{i}") for i in (1, 2, 3)]
+    d1, d2, d3 = ds = build_decisions(picks, main, base)
+    assert [d.kind for d in ds] == ["not_sent", "took_outer", "fallback"]
+    rows = compare_by(ds, "regime")
+    assert rows["positive"].n == 1 and rows["positive"].main_total == 30.0  # only the real take
+    text = "\n".join(format_compare(ds, main, base, "paper", slippage_per_leg=0.02))
+    assert "not_sent: n=1" in text and "fallback: n=1" in text  # still in the by-decision rows
+    assert "not_sent 1" in text and "fallback 1" in text  # and the choice distribution
+
+
+def test_the_choice_distribution_separates_the_first_and_second_outer_strike() -> None:
+    menu = [
+        _item("A", "inside", 680),
+        _item("B", "baseline", 679),
+        _item("C", "outer", 678),
+        _item("D", "outer", 677),
+    ]
+    picks = [_pick(1, "C", "C", menu=menu), _pick(2, "D", "D", menu=menu)]
+    main = [
+        _trade("paper", 10.0, pick_id=1, episode="ep1"),
+        _trade("paper", 10.0, pick_id=2, episode="ep2"),
+    ]
+    ds = build_decisions(picks, main, [])
+    text = "\n".join(format_compare(ds, main, [], "paper", slippage_per_leg=0.02))
+    dist = next(line for line in text.splitlines() if line.startswith("choice distribution"))
+    assert "took_outer_1 1" in dist and "took_outer_2 1" in dist
+
+
+def test_compare_is_scoped_to_the_main_mode_and_the_ai_era() -> None:
+    early = datetime(2026, 10, 1, 15, 0, tzinfo=UTC)
+    picks = [
+        _pick(1, "C", "C", mode="shadow"),
+        _pick(2, "C", "C"),
+    ]  # a shadow-era pick, a paper one
+    picks[1] = picks[1].model_copy(update={"created_at": T})
+    main = [
+        _trade("paper", 99.0, episode="pre", opened=early),  # before the picker existed
+        _trade("paper", 30.0, pick_id=2, episode="ep2"),
+    ]
+    base = [
+        _trade("baseline", 5.0, episode="old", opened=early),
+        _trade("baseline", -10.0, episode="ep2"),
+    ]
+    sp, sm, sb, since = scope_compare(picks, main, base, "paper")
+    assert [p.pick_id for p in sp] == [2] and since == T
+    assert [t.pnl_usd for t in sm] == [30.0] and [t.pnl_usd for t in sb] == [-10.0]
+    assert scope_compare([], main, base, "paper")[3] is None
+
+
+def test_the_day_view_prints_the_menu_even_without_a_prompt() -> None:
+    p = _pick(1, "C", "C").model_copy(update={"prompt_text": "", "raw_response": ""})
+    text = "\n".join(format_day(date(2026, 10, 7), "day plan: none", [p], [], []))
+    assert "menu: A inside 680/675 0.50; B baseline 679/674 0.50; C outer 678/673 0.50" in text

@@ -987,7 +987,10 @@ class SpreadsService:
                 "regime": regime_at(p.gex_chain, fresh.spot, p.levels.scale, at),
             }
         )
-        verdict = validate(fresh, self._context(at, moved, p.excess), self.cfg)
+        # Excess liquidity is the one gate input the re-quote does not refresh: read it again, and
+        # let an unreadable account hit the gate's own ``account_unknown`` rule.
+        excess = await self.broker.excess_liquidity()
+        verdict = validate(fresh, self._context(at, moved, excess), self.cfg)
         if not verdict.approved:
             store.mark_pick_sent(
                 pick_id, send_rejected=True, send_reasons=list(verdict.reasons), filled=False
@@ -1001,7 +1004,7 @@ class SpreadsService:
             fresh,
             verdict.contracts,
             moved,
-            p.excess,
+            excess,
             now,
             mode=self.cfg.mode,
             executor=self.executor,

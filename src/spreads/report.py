@@ -11,11 +11,11 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from statistics import mean
 from typing import Protocol
 
-from src.common.schemas import SpreadPickRecord, SpreadTradeRecord
+from src.common.schemas import SpreadMenuItem, SpreadPickRecord, SpreadTradeRecord
 
 
 @dataclass(frozen=True)
@@ -132,6 +132,7 @@ def format_extras(trades: Sequence[TaggedTrade]) -> str:
 
 NOISE_N = 5
 SAMPLE_NOTE_N = 50
+NON_JUDGMENT_KINDS = ("not_sent", "fallback")
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,42 @@ def decision_kind(p: SpreadPickRecord) -> str:
     return "not_sent" if item is None else f"took_{item.position}"
 
 
+def scope_compare(
+    picks: Sequence[SpreadPickRecord],
+    main_log: Sequence[SpreadTradeRecord],
+    base_log: Sequence[SpreadTradeRecord],
+    main_mode: str,
+) -> tuple[
+    list[SpreadPickRecord], list[SpreadTradeRecord], list[SpreadTradeRecord], datetime | None
+]:
+    """Restrict a comparison to the main mode and to the AI era.
+
+    Picks are filtered to ``book_mode == main_mode``; both books' trades to those opened at or
+    after the first such pick (pre-AI trades, and a baseline from another era, are not part of
+    the comparison). Returns the cut-off too (``None`` when there are no picks, in which case there is nothing to compare).
+    """
+    mine = sorted((p for p in picks if p.book_mode == main_mode), key=lambda p: p.created_at)
+    if not mine:
+        return [], [], [], None
+    since = mine[0].created_at
+    return (
+        mine,
+        [t for t in main_log if t.opened_at >= since],
+        [t for t in base_log if t.opened_at >= since],
+        since,
+    )
+
+
+def _label(d: Decision) -> str:
+    """The choice-distribution key: ``took_outer`` is split by its order among the outer items."""
+    if d.kind != "took_outer":
+        return d.kind
+    outers = [i.letter for i in d.pick.menu if i.position == "outer"]
+    if len(outers) < 2 or d.pick.executed_letter not in outers:
+        return d.kind
+    return f"{d.kind}_{outers.index(d.pick.executed_letter) + 1}"
+
+
 def build_decisions(
     picks: Sequence[SpreadPickRecord],
     main_log: Sequence[SpreadTradeRecord],
@@ -167,10 +204,16 @@ def build_decisions(
     for p in picks:
         m, b = main_by_pick.get(p.pick_id), base_by_episode.get(p.episode_key)
         settled = all(t is None or t.status == "closed" for t in (m, b))
+        kind = decision_kind(p)
+        if kind.startswith("took_") and m is None:
+            # Recorded but never opened (stale, refused by the re-gate, no fresh quote, not
+            # filled...): joined on the main-book trade, so a crash between the fill and
+            # ``mark_pick_sent`` still reads correctly.
+            kind = "not_sent"
         out.append(
             Decision(
                 p,
-                decision_kind(p),
+                kind,
                 m.pnl_usd if m is not None else None,
                 b.pnl_usd if b is not None else None,
                 settled,
@@ -231,10 +274,14 @@ def _compare_row(ds: Sequence[Decision]) -> CompareRow:
 
 
 def compare_by(decisions: Sequence[Decision], key: str) -> dict[str, CompareRow]:
-    """Main − baseline P&L per value of condition *key*, settled decisions only."""
+    """Main − baseline P&L per value of condition *key*, settled real decisions only.
+
+    ``not_sent`` (Claude chose, nothing was opened) and ``fallback`` (the picker failed; credited
+    to neither side) are not Claude's judgment, so they stay out of the by-condition tables.
+    """
     by: dict[str, list[Decision]] = defaultdict(list)
     for d in decisions:
-        if d.settled:
+        if d.settled and d.kind not in NON_JUDGMENT_KINDS:
             by[CONDITIONS[key](d.pick)].append(d)
     return {k: _compare_row(ds) for k, ds in sorted(by.items())}
 
@@ -279,7 +326,7 @@ def format_compare(
     lines += [_row_text(k, r) for k, r in _kind_rows(decisions).items()]
     counts: dict[str, int] = defaultdict(int)
     for d in decisions:
-        counts[d.kind] += 1
+        counts[_label(d)] += 1
     lines.append(
         "choice distribution: " + " · ".join(f"{k} {v}" for k, v in sorted(counts.items()))
     )
@@ -306,6 +353,14 @@ def format_compare(
     return lines
 
 
+def _menu_text(menu: Sequence[SpreadMenuItem]) -> str:
+    return "; ".join(
+        f"{i.letter} {i.position} {i.candidate.short_strike:g}/{i.candidate.long_strike:g} "
+        f"{i.candidate.credit_mid:.2f}"
+        for i in menu
+    )
+
+
 def decision_rows(decisions: Sequence[Decision]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for d in decisions:
@@ -327,11 +382,7 @@ def decision_rows(decisions: Sequence[Decision]) -> list[dict[str, object]]:
                 "settled": d.settled,
                 **p.snapshot.model_dump(),
                 **p.market.model_dump(exclude={"headlines", "econ_today", "unavailable"}),
-                "menu": "; ".join(
-                    f"{i.letter} {i.position} {i.candidate.short_strike:g}/{i.candidate.long_strike:g} "
-                    f"{i.candidate.credit_mid:.2f}"
-                    for i in p.menu
-                ),
+                "menu": _menu_text(p.menu),
             }
         )
     return rows
@@ -353,6 +404,7 @@ def format_day(
             f"conditions: {p.snapshot.model_dump()}",
             f"market: {p.market.model_dump(exclude={'headlines', 'econ_today'})}",
             f"outcome: Claude {_usd(d.main_pnl)} · baseline {_usd(d.base_pnl)} · difference {_usd(d.diff)}",
+            f"menu: {_menu_text(p.menu)}",
             "prompt:",
             p.prompt_text,
             "reply:",
