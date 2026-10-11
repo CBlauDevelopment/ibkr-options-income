@@ -11,6 +11,7 @@ from src.common.schemas import (
     OptionQuote,
     OptionRight,
     PositionSnapshot,
+    RollOrigin,
     ScoreCard,
     Strategy,
     TradeCandidate,
@@ -79,6 +80,26 @@ def _candidate(
         current_iv=current_iv,
         dte=dte,
         scores=scores or _scores(),
+        # Production rolls always carry their origin (strategies/rolling.construct_roll); the
+        # Rules Engine rejects one without it (roll_origin_missing).
+        roll_from=_roll_origin(right, dte) if strategy == Strategy.ROLL else None,
+    )
+
+
+def _roll_origin(right: OptionRight, dte: int) -> RollOrigin:
+    expiry = date.today() + timedelta(days=max(dte - 7, 0))
+    return RollOrigin(
+        con_id=1,
+        candidate_id="c-old",
+        strike=150.0,
+        expiry=expiry,
+        right=right,
+        contracts=1,
+        chain_id="c-old",
+        seq=1,
+        original_expiry=expiry,
+        old_mid=5.0,
+        new_mid=5.4,
     )
 
 

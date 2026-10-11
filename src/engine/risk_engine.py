@@ -184,14 +184,23 @@ def validate_candidates(
         # --- IV environment: only sell premium when it's relatively expensive.
         # Enforced only when an IV rank is available (missing history is not a capital
         # risk, just lost optimization — rejecting all would silently zero out scans).
-        if min_iv_rank is not None and cand.iv_rank is not None and cand.iv_rank < min_iv_rank:
+        # Both IV floors are entry-selection filters, not risk limits: a ROLL re-places an
+        # exposure the account already carries, so they do not apply to it (2026-10-11).
+        is_roll = cand.strategy == Strategy.ROLL
+        if (
+            not is_roll
+            and min_iv_rank is not None
+            and cand.iv_rank is not None
+            and cand.iv_rank < min_iv_rank
+        ):
             reasons.append("iv_rank_below_minimum")
 
         # --- IV/RV richness gate: sell only when implied vol richly exceeds realized vol.
         # Missing ratio is treated as "data unavailable" — not a capital risk — so it never
         # blocks the scan. Threshold configurable via risk_limits.yaml → iv → min_iv_rv_ratio.
         if (
-            min_iv_rv is not None
+            not is_roll
+            and min_iv_rv is not None
             and cand.iv_rv_ratio is not None
             and cand.iv_rv_ratio < float(min_iv_rv)
         ):
@@ -223,11 +232,28 @@ def validate_candidates(
         if max_contracts is not None and cand.contracts > max_contracts:
             reasons.append("contracts_exceeds_max")
 
-        # --- Earnings blackout: no short premium that lives through (or just before) earnings ---
+        # --- Earnings blackout: no short premium that lives through (or just before) earnings.
+        # A ROLL is judged only on whether its new expiry runs into earnings: the proximity
+        # clause keeps NEW entries away from an announcement, but a roll that expires first
+        # moves existing exposure off the event, not onto it (2026-10-11).
         if cand.next_earnings is not None:
             days_to_earnings = (cand.next_earnings - today).days
-            if cand.next_earnings <= cand.expiry or 0 <= days_to_earnings <= blackout_days:
+            near = 0 <= days_to_earnings <= blackout_days and not is_roll
+            if cand.next_earnings <= cand.expiry or near:
                 reasons.append("earnings_blackout")
+
+        # --- Roll chain limits (config/settings.yaml → roll.limits; human-edited). A roll must
+        # carry its origin — without it the executor cannot tell which short it closes.
+        if is_roll:
+            origin = cand.roll_from
+            roll_limits = get_config().roll.limits
+            if origin is None:
+                reasons.append("roll_origin_missing")
+            else:
+                if origin.seq > roll_limits.max_rolls_per_chain:
+                    reasons.append("roll_limit_reached")
+                if (cand.expiry - origin.original_expiry).days > roll_limits.max_extension_days:
+                    reasons.append("roll_extension_cap")
 
         # --- Contract count ---
         if cand.contracts < 1:
