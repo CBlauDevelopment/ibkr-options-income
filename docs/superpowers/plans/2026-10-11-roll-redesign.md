@@ -532,7 +532,7 @@ def decide(ctx, quotes, iv_stats, tech_stats, cfg, *, is_leveraged, would_own, c
 | 9 Executor | done | (this commit) | executor 20 pass; mypy clean | 2026-10-11 | roll leg re-gated as ROLL + roll_delta_increases; walk floor = max(policy floor, collapse floor); old nearest-dated + reprice tests replaced |
 | 10 Monitor | done | (this commit) | full suite 3397 pass (config_keys fixed after); mypy clean | 2026-10-11 | decisions run as per-tick tasks; roll_decision rows excluded from info-alert policy; allowlist emptied here |
 | 11 Card + close | done | (this commit) | card 5 + notify/fences pass; mypy clean | 2026-10-11 | done before T10 (T10 consumes the card) |
-| 12 Reviewer | pending | | | | |
+| 12 Reviewer | done | (this commit) | reviewer/monitor/claude suites 200 pass; mypy clean | 2026-10-11 | decision cards reviewed with the proposal; monitor tests patch review_roll |
 | 13 Web roll_request | pending | | | | |
 | 14 Backtest arms | pending | | | | |
 | 15 Docs + gate | pending | | | | |

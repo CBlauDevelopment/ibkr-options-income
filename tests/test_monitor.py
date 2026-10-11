@@ -1498,6 +1498,7 @@ async def test_roll_evaluation_gets_the_live_quote_delta(db: object) -> None:
     with (
         patch("src.execution.roll_pipeline.evaluate_roll", side_effect=_evaluate),
         patch("src.monitor.intraday.is_leveraged_etf", return_value=False),  # TQQQ is one
+        patch("src.monitor.intraday.review_roll", return_value=None),
     ):
         await handle_roll_trigger(
             pos,

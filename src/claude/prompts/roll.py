@@ -5,8 +5,19 @@ from __future__ import annotations
 from src.common.schemas import OptionQuote, PositionSnapshot, RollAlert
 
 
-def build_roll_prompt(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote) -> str:
-    """Return the prompt string for a single-position roll/hold/close decision."""
+def build_roll_prompt(
+    alert: RollAlert,
+    pos: PositionSnapshot,
+    quote: OptionQuote,
+    *,
+    proposal: str | None = None,
+) -> str:
+    """Return the prompt string for a single-position roll/hold/close decision.
+
+    *proposal* (2026-10-11) is the deterministic roll policy's decision for this position.
+    When given, the reviewer is told it may only agree or disagree with it and explain — it
+    cannot change the proposal, which the Rules Engine and the operator's tap alone control.
+    """
     right_label = pos.right.value if pos.right else "?"
     strategy = "Covered Call" if right_label == "C" else "Cash-Secured Put"
 
@@ -48,6 +59,15 @@ def build_roll_prompt(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuot
     if quote.theta is not None:
         lines.append(f"Theta:    {quote.theta:.4f}")
     lines.append(f"DTE:      {quote.dte}")
+
+    if proposal:
+        lines += [
+            "",
+            "=== SYSTEM PROPOSAL ===",
+            proposal,
+            "This is the deterministic roll policy's decision. You may not change it — say "
+            "whether you agree (recommendation matching it) or disagree, and why.",
+        ]
 
     lines += [
         "",

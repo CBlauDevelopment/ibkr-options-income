@@ -494,8 +494,30 @@ async def handle_roll_trigger(
         dkey = _decision_key(decision, approval_id)
         if _decision_sent_today(pos.symbol, dkey):
             return decision
+        review: RollReview | None = None
+        if cfg.claude.enabled:
+            alert = RollAlert(
+                position_symbol=pos.symbol,
+                underlying=pos.underlying or pos.symbol,
+                trigger=trigger,
+                detail=decision.detail or decision.reason,
+                current_delta=quote.delta,
+                dte=quote.dte,
+            )
+            try:
+                loop = asyncio.get_running_loop()
+                review = await loop.run_in_executor(
+                    None, lambda: review_roll(alert, pos, quote, proposal=decision.detail)
+                )
+            except Exception:
+                log.exception("Claude review failed for roll decision %s", pos.symbol)
         text = format_roll_decision(
-            pos, quote, trigger, decision, max_rolls=cfg.roll.limits.max_rolls_per_chain
+            pos,
+            quote,
+            trigger,
+            decision,
+            max_rolls=cfg.roll.limits.max_rolls_per_chain,
+            review=review,
         )
         try:
             await bot.send_message(

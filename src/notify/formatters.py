@@ -1940,6 +1940,7 @@ def format_roll_decision(
     decision: RollDecision,
     *,
     max_rolls: int,
+    review: RollReview | None = None,
 ) -> str:
     """The roll policy's decision for one breached short, in MarkdownV2 (2026-10-11).
 
@@ -1989,6 +1990,14 @@ def format_roll_decision(
             f"{k.replace('_', ' ')} ×{n}" for k, n in sorted(decision.rejections.items())
         )
         parts.append(f"_Skipped targets: {_md(skipped)}_")
+    if review is not None:
+        # Enrichment only: the reviewer saw this decision and may agree or disagree; it cannot
+        # change what the buttons send.
+        parts += ["", "*── Claude ──*", f"*{_md(review.recommendation.upper())}*"]
+        if review.rationale:
+            parts.append(_md(review.rationale))
+        if review.risks:
+            parts.append(f"Risk: {_md(review.risks)}")
     text = "\n".join(parts)
     if len(text) > _MAX_MESSAGE_LEN:
         text = text[: _MAX_MESSAGE_LEN - 3] + "\\.\\.\\."

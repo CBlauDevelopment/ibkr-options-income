@@ -121,6 +121,7 @@ async def _handle(pos, quote, state, now, *, decision=None, approval_id=None, le
         patch.object(intraday, "_alert_window_open", return_value=True),
         patch("src.execution.roll_pipeline.evaluate_roll", new=ev),
         patch.object(intraday, "is_leveraged_etf", return_value=lev),
+        patch.object(intraday, "review_roll", return_value=None),  # never shell out to claude
     ):
         await intraday.handle_roll_trigger(
             pos,

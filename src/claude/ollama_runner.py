@@ -390,7 +390,13 @@ def review_candidates(
     return reviews
 
 
-def review_roll(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote) -> RollReview | None:
+def review_roll(
+    alert: RollAlert,
+    pos: PositionSnapshot,
+    quote: OptionQuote,
+    *,
+    proposal: str | None = None,
+) -> RollReview | None:
     """Local-model equivalent of `runner.review_roll`. Returns None on any failure."""
     cfg = get_config().claude
 
@@ -402,7 +408,7 @@ def review_roll(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote) -> 
         log.debug("ollama: circuit open — skipping roll review")
         return None
 
-    prompt = build_roll_prompt(alert, pos, quote)
+    prompt = build_roll_prompt(alert, pos, quote, proposal=proposal)
 
     raw = _generate(prompt, cfg, schema="json")
     if raw is None:

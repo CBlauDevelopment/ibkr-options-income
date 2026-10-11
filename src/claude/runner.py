@@ -238,7 +238,13 @@ def _review_candidates_cli(
     return []
 
 
-def review_roll(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote) -> RollReview | None:
+def review_roll(
+    alert: RollAlert,
+    pos: PositionSnapshot,
+    quote: OptionQuote,
+    *,
+    proposal: str | None = None,
+) -> RollReview | None:
     """Roll/hold/close recommendation via the configured `claude.backend`.
 
     Returns None on any failure — the caller proceeds without Claude's input.
@@ -247,17 +253,17 @@ def review_roll(alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote) -> 
     cfg = get_config().claude
 
     if cfg.backend == "ollama":
-        return ollama_runner.review_roll(alert, pos, quote)
+        return ollama_runner.review_roll(alert, pos, quote, proposal=proposal)
 
-    review = _review_roll_cli(alert, pos, quote)
+    review = _review_roll_cli(alert, pos, quote, proposal=proposal)
     if review is None and cfg.backend == "cli_then_ollama":
         log.info("claude roll: cli backend returned nothing — falling back to ollama")
-        return ollama_runner.review_roll(alert, pos, quote)
+        return ollama_runner.review_roll(alert, pos, quote, proposal=proposal)
     return review
 
 
 def _review_roll_cli(
-    alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote
+    alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote, *, proposal: str | None = None
 ) -> RollReview | None:
     """Shell out to `claude -p` for a focused roll/hold/close recommendation.
 
@@ -267,7 +273,9 @@ def _review_roll_cli(
     if not cfg.enabled:
         log.info("claude: disabled by config — skipping roll review")
         return None
-    return _run_cli(build_roll_prompt(alert, pos, quote), "claude roll", parse_roll_output)
+    return _run_cli(
+        build_roll_prompt(alert, pos, quote, proposal=proposal), "claude roll", parse_roll_output
+    )
 
 
 def write_journal_narrative(summary: EODSummary) -> str | None:
