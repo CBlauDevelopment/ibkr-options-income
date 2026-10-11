@@ -3,6 +3,21 @@
 Date: 2026-10-12 · Status: approved in conversation, awaiting written-spec review
 Builds on: `docs/superpowers/plans/2026-10-07-daily-credit-spreads.md` (the SPY 0DTE system)
 
+## Amendments during implementation (2026-10-12)
+
+Where the sections below disagree with this block, this block wins. The plan's "Spec rulings"
+(`docs/superpowers/plans/2026-10-12-spreads-claude-picker.md`) are:
+
+1. **`src/claude/runner.py` is not refactored** (replaces the §5.1 move of `_run_cli`/`_build_cmd`/`_log_cost`). `src/claude/cli.py` is a new standalone async runner that imports nothing from `src`; the wheel's runner is untouched.
+2. **`src/spreads_ai/` imports nothing from `src.spreads`** (replaces the §5.2/§5.4 allowance for `src.spreads.report`/`pricing`). Every number reaches the picker on the request, computed by the service.
+3. **Both books take at most one spread per trigger episode** (§4.5 was silent).
+4. **Leg re-quotes are not deduplicated across books** (replaces §4.6): the books are managed one after the other, so their market-data lines are never open at once.
+5. **A failed morning brief is not retried that day.**
+6. **The pick runs as a background task and resolves on a later tick** (replaces the awaited pick in §4.4). The chosen spread is re-quoted and re-gated by the service, in both modes, before the executor sees it.
+7. **An episode whose whole menu fails the main gate has no pick row** (no Claude call); its baseline trade still counts in the book totals.
+
+Checkpoint A also moved `ai.workdir` outside the repo (`~/.cache/ibkr-spreads-ai`, was `data/spreads_ai`) because `claude -p` loaded the project `CLAUDE.md` from inside it. The final review added: the re-gate at send time re-reads excess liquidity; `--compare` is scoped to the main mode and to trades since the first pick; a recorded pick with no main-book trade is `not_sent` and, like `fallback`, stays out of the by-condition tables.
+
 ## 1. Intent
 
 The operator wants Claude to make the daily credit-spread decision. It trades at most 1–2 times a
