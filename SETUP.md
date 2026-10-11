@@ -1745,7 +1745,7 @@ Live trading is not supported by this build. The service refuses to run with `LI
 
 | Command | What it does |
 |---|---|
-| `python -m scripts.run_spreads` | The spreads service (clientId 30). Normally started by `scripts.start` / `./ibkr restart`; `--no-spreads` skips it. Logs to `logs/spreads.log` (`./ibkr logs spreads`) |
+| `python -m scripts.run_spreads` | The spreads service (clientId 30). Normally started by `scripts.start` / `./ibkr restart`; `--no-spreads` skips it. Logs to `logs/spreads.log` (`./ibkr logs spreads`). With `spreads.ai.enabled: true` it also wires in the Claude picker (§16) |
 | `python -m scripts.spreads_report --mode shadow\|paper [--csv path]` | Results from `data/spreads.db`, split by every trade tag |
 | `python -m scripts.spreads_backtest --start … --end … [--profit-take N] [--trigger move\|always] [--negative-gamma allow\|skip] [--csv path]` | ThetaData minute replay of the live rules. A day whose data won't load is listed as skipped instead of ending the run |
 | `python -m scripts.spreads_combo_check --short K --long K [--fill]` | Paper-only check of the combo order sign: display only by default, a filled-and-closed one-lot with `--fill` |

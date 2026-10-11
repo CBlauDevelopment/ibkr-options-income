@@ -237,3 +237,30 @@ def test_only_the_spreads_entrypoint_imports_spreads_ai() -> None:
         str(p.relative_to(ROOT)) for p in [*outside, *scripts] if _imports(p, "src.spreads_ai")
     ]
     assert offenders == []
+
+
+def test_the_full_spreads_process_loads_claude_only_through_the_light_cli() -> None:
+    """The spreads process with the picker wired in: spreads + spreads_ai + the entrypoint. It
+    may load src.claude.cli and the news read-only store, never the wheel's prompt stack, the
+    Ollama runner, the trading path or the news process's read-write engine."""
+    code = (
+        "import importlib, json, pkgutil, sys\n"
+        "import src.spreads as sp, src.spreads_ai as sa\n"
+        "for pkg, prefix in ((sp, 'src.spreads.'), (sa, 'src.spreads_ai.')):\n"
+        "    for m in pkgutil.walk_packages(pkg.__path__, prefix):\n"
+        "        importlib.import_module(m.name)\n"
+        "import scripts.run_spreads\n"
+        "print(json.dumps(sorted(sys.modules)))\n"
+    )
+    env = {**os.environ, "IBKR_CONFIG_USE_EXAMPLES": "1"}
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, check=True
+    )
+    loaded = set(json.loads(out.stdout.strip().splitlines()[-1]))
+    claude = sorted(m for m in loaded if m.startswith("src.claude."))
+    assert claude == ["src.claude.cli"]
+    forbidden = [
+        f for f in FORBIDDEN_FOR_SPREADS if f not in ("src.claude", "src.news", "src.spreads_ai")
+    ]
+    assert [m for m in forbidden if _reaches(loaded, m)] == []
+    assert not _reaches(loaded, "src.news.store.session")

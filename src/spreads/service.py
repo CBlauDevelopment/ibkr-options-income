@@ -34,7 +34,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from src.common.config import SpreadsCfg, get_config
+from src.common.config import Config, SpreadsCfg, get_config
 from src.common.market_hours import is_trading_day, next_session
 from src.common.schemas import (
     ChainOption,
@@ -135,6 +135,11 @@ class Picker(Protocol):
 
     async def brief(self, req: SpreadBriefRequest) -> SpreadBriefResult: ...
     async def pick(self, req: SpreadPickRequest) -> SpreadPick: ...
+
+
+# Builds the picker for run(); supplied by scripts/run_spreads.py so this package never imports
+# src.spreads_ai.
+PickerFactory = Callable[[Config], Picker]
 
 
 # A baseline-book spread is the same spread as the main book's under another id: spread_id is
@@ -1176,7 +1181,9 @@ async def _note_ledger_account(account: str) -> None:
         )
 
 
-async def run(stop_event: asyncio.Event | None = None) -> None:
+async def run(
+    stop_event: asyncio.Event | None = None, picker_factory: PickerFactory | None = None
+) -> None:
     cfg = get_config()
     stop = stop_event or asyncio.Event()
     sc = cfg.spreads
@@ -1201,10 +1208,11 @@ async def run(stop_event: asyncio.Event | None = None) -> None:
     store.init_spreads_db()
     client_id = cfg.ibkr.client_ids["spreads"]
     log.warning(
-        "=" * 60 + "\n  SPREADS SERVICE  |  mode=%s  port=%s  clientId=%s\n" + "=" * 60,
+        "=" * 60 + "\n  SPREADS SERVICE  |  mode=%s  port=%s  clientId=%s  ai=%s\n" + "=" * 60,
         sc.mode,
         cfg.ibkr_port,
         client_id,
+        sc.ai.enabled,
     )
     ib: Any = IB()
 
@@ -1230,8 +1238,18 @@ async def run(stop_event: asyncio.Event | None = None) -> None:
     # open-spreads alerts; the account is filled in once IBKR names it.
     broker = IbkrSpreadsBroker(ib, sc, cfg.secrets.ibkr_account or "")
     notifier = SpreadsNotifier.from_config(cfg)
+    picker = picker_factory(cfg) if sc.ai.enabled and picker_factory is not None else None
+    if sc.ai.enabled and picker is None:
+        log.warning(
+            "spreads: ai.enabled but no picker was supplied — the baseline rule trades alone"
+        )
     service = SpreadsService(
-        broker, SpreadExecutor(ib, broker, sc), notifier, sc, halt_path=cfg.spreads_halt_path()
+        broker,
+        SpreadExecutor(ib, broker, sc),
+        notifier,
+        sc,
+        halt_path=cfg.spreads_halt_path(),
+        picker=picker,
     )
     # One attempt per pass at startup: this loop is the retry, and the full backoff (about
     # 105 s with the defaults) would hold off the open-spreads alert for that long.
