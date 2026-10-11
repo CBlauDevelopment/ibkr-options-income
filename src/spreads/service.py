@@ -40,18 +40,29 @@ from src.common.schemas import (
     ChainSnapshot,
     GexLevels,
     SessionSnapshot,
+    SpreadBriefRequest,
+    SpreadBriefResult,
     SpreadCandidate,
     SpreadEntryContext,
+    SpreadPick,
+    SpreadPickRequest,
     SpreadPosition,
     SpreadRiskContext,
     SpreadSide,
     SpreadVerdict,
 )
 from src.spreads import store
-from src.spreads.executor import UNRESOLVED, FillResult, close_ref
+from src.spreads.executor import UNRESOLVED, FillResult, SpreadExecutor, close_ref
 from src.spreads.gex import build_levels, expected_move, regime_at
 from src.spreads.manager import debit_to_close, evaluate_exit, intrinsic_debit, reconcile
-from src.spreads.notify import SpreadsNotifier, fmt_entry, fmt_eod, fmt_exit, fmt_map
+from src.spreads.notify import (
+    SpreadsNotifier,
+    fmt_books,
+    fmt_entry,
+    fmt_eod,
+    fmt_exit,
+    fmt_map,
+)
 from src.spreads.pricing import ET, day_schedule
 from src.spreads.risk import validate
 from src.spreads.selector import select_candidates
@@ -103,6 +114,19 @@ class Notifier(Protocol):
     async def send(self, text: str) -> None: ...
 
 
+class Picker(Protocol):
+    """Chooses from the gate-approved menu (src/spreads_ai/picker.py::ClaudePicker, wired in
+    by scripts/run_spreads.py). Must never raise; the service still guards every call."""
+
+    async def brief(self, req: SpreadBriefRequest) -> SpreadBriefResult: ...
+    async def pick(self, req: SpreadPickRequest) -> SpreadPick: ...
+
+
+# A baseline-book spread is the same spread as the main book's under another id: spread_id is
+# unique in spread_positions, and both books may hold the baseline strike at once.
+BASELINE_SUFFIX = "-BL"
+
+
 def _right(side: str) -> Literal["C", "P"]:
     return "P" if side == "put" else "C"
 
@@ -117,6 +141,8 @@ class SpreadsService:
         *,
         halt_path: Path,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        picker: Picker | None = None,
+        baseline_executor: Executor | None = None,
     ) -> None:
         self.broker = broker
         self.executor = executor
@@ -135,6 +161,22 @@ class SpreadsService:
         self.eod_sent_for: date | None = None
         self._alerted: set[tuple[date, str]] = set()
         self._mismatch_ticks = 0
+        self.picker = picker
+        # The baseline book (ai.enabled): always the deterministic pick, always simulated —
+        # a shadow-mode executor never touches IBKR, so it needs no ib handle.
+        self.baseline_executor: Executor | None = None
+        if picker is not None:
+            self.baseline_executor = baseline_executor or SpreadExecutor(
+                None, broker, cfg.model_copy(update={"mode": "shadow"}), now=now
+            )
+
+    @property
+    def books(self) -> list[tuple[str, Executor]]:
+        """(mode, executor) per book: the main book, plus the baseline book when Claude picks."""
+        out: list[tuple[str, Executor]] = [(self.cfg.mode, self.executor)]
+        if self.baseline_executor is not None:
+            out.append(("baseline", self.baseline_executor))
+        return out
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -387,8 +429,10 @@ class SpreadsService:
             return  # the tape goes stale and the trigger stops arming (max_tape_age_seconds)
         self._tape_for(now).observe(snap)
 
-    def _context(self, now: datetime, levels: GexLevels, excess: float | None) -> SpreadRiskContext:
-        mode = self.cfg.mode
+    def _context(
+        self, now: datetime, levels: GexLevels, excess: float | None, mode: str | None = None
+    ) -> SpreadRiskContext:
+        mode = mode or self.cfg.mode
         today = now.astimezone(ET).date()
         trades, realized = store.day_stats(today, mode)
         open_count = len(store.open_positions(mode)) + len(store.expiring_positions(mode))
@@ -400,13 +444,13 @@ class SpreadsService:
             trades_today=trades,
             realized_pnl_today_usd=realized,
             excess_liquidity_usd=excess,
-            capital_usd=self.capital(),
+            capital_usd=self.capital(mode),
             sides_today=store.sides_opened(today, mode),  # type: ignore[arg-type]
         )
 
-    def capital(self) -> float:
-        """The book's sizing capital: starting capital plus everything it has realized (this mode)."""
-        return self.cfg.risk.starting_capital_usd + store.realized_pnl_total(self.cfg.mode)
+    def capital(self, mode: str | None = None) -> float:
+        """A book's sizing capital: starting capital plus everything that book has realized."""
+        return self.cfg.risk.starting_capital_usd + store.realized_pnl_total(mode or self.cfg.mode)
 
     def _entry_context(
         self, side: SpreadSide, levels: GexLevels, now: datetime
@@ -469,53 +513,84 @@ class SpreadsService:
             store.record_candidate(cand, verdict, levels.regime, now)
             if not verdict.approved:
                 continue
-
-            def recheck(fresh: SpreadCandidate) -> SpreadVerdict:
-                at = self.now()
-                moved = levels.model_copy(
-                    update={
-                        "spot": fresh.spot,
-                        "regime": regime_at(gex_chain, fresh.spot, levels.scale, at),
-                    }
-                )
-                return validate(fresh, self._context(at, moved, excess), self.cfg)
-
-            result = await self.executor.open(cand, verdict.contracts, recheck)
-            store.record_order(
-                spread_id=cand.spread_id,
-                kind="open",
-                order_ref=result.order_ref,
-                ib_order_id=result.ib_order_id,
-                perm_id=result.perm_id,
-                filled_qty=result.filled_qty,
-                price=result.price,
-                commission=result.commission,
-                reason=result.reason,
-                now=now,
-            )
-            await self._after_order(cand.spread_id, "open", result)
-            if result.filled_qty < 1 or result.price is None:
-                log.info("spreads entry %s not filled: %s", cand.spread_id, result.reason)
-                if self.entries_blocked:
-                    return
-                continue
-            tags = self._entry_context(cand.side, levels, now)
-            pos = store.open_position(
+            await self._open_candidate(
                 cand,
+                verdict.contracts,
+                levels,
+                excess,
+                now,
                 mode=self.cfg.mode,
-                contracts=result.filled_qty,
-                credit=result.price,
-                commission=result.commission,
-                now=now,
-                perm_id=result.perm_id,
-                context=tags,
+                executor=self.executor,
+                gex_chain=gex_chain,
             )
-            await self.notifier.send(fmt_entry(pos, self.cfg.mode, tags))
             if self.entries_blocked:
                 return
 
+    async def _open_candidate(
+        self,
+        cand: SpreadCandidate,
+        contracts: int,
+        levels: GexLevels,
+        excess: float | None,
+        now: datetime,
+        *,
+        mode: str,
+        executor: Executor,
+        gex_chain: ChainSnapshot,
+        pick_id: int | None = None,
+        episode_key: str | None = None,
+    ) -> tuple[SpreadPosition | None, str | None]:
+        """Send one approved spread through *executor* (whose paper path re-gates it on fresh
+        quotes against *mode*'s book) and record it. Returns (position, why not filled)."""
+
+        def recheck(fresh: SpreadCandidate) -> SpreadVerdict:
+            at = self.now()
+            moved = levels.model_copy(
+                update={
+                    "spot": fresh.spot,
+                    "regime": regime_at(gex_chain, fresh.spot, levels.scale, at),
+                }
+            )
+            return validate(fresh, self._context(at, moved, excess, mode), self.cfg)
+
+        result = await executor.open(cand, contracts, recheck)
+        store.record_order(
+            spread_id=cand.spread_id,
+            kind="open",
+            order_ref=result.order_ref,
+            ib_order_id=result.ib_order_id,
+            perm_id=result.perm_id,
+            filled_qty=result.filled_qty,
+            price=result.price,
+            commission=result.commission,
+            reason=result.reason,
+            now=now,
+        )
+        await self._after_order(cand.spread_id, "open", result)
+        if result.filled_qty < 1 or result.price is None:
+            log.info("spreads entry %s not filled: %s", cand.spread_id, result.reason)
+            return None, result.reason or "not_filled"
+        tags = self._entry_context(cand.side, levels, now)
+        pos = store.open_position(
+            cand,
+            mode=mode,
+            contracts=result.filled_qty,
+            credit=result.price,
+            commission=result.commission,
+            now=now,
+            perm_id=result.perm_id,
+            context=tags,
+            pick_id=pick_id,
+            episode_key=episode_key,
+        )
+        await self.notifier.send(fmt_entry(pos, mode, tags))
+        return pos, None
+
     async def _manage(self, now: datetime) -> None:
-        mode = self.cfg.mode
+        for mode, executor in self.books:
+            await self._manage_book(now, mode, executor)
+
+    async def _manage_book(self, now: datetime, mode: str, executor: Executor) -> None:
         positions = store.open_positions(mode)
         if not positions and not store.expiring_positions(mode):
             return
@@ -579,7 +654,7 @@ class SpreadsService:
                     if qty < 1:
                         continue
                     target = p.model_copy(update={"contracts": qty})
-            result = await self.executor.close(target, short_q, long_q, urgent=urgent)
+            result = await executor.close(target, short_q, long_q, urgent=urgent)
             store.record_order(
                 spread_id=p.spread_id,
                 kind="close",
@@ -611,7 +686,11 @@ class SpreadsService:
                 fmt_exit(p.spread_id, decision.reason, result.price, realized, mode)
             )
         force_close = day_schedule(self.cfg.schedule, now.astimezone(ET).date()).force_close
-        if now.astimezone(ET).strftime("%H:%M") >= force_close and not self.cfg.exits.let_expire:
+        if (
+            mode != "baseline"
+            and now.astimezone(ET).strftime("%H:%M") >= force_close
+            and not self.cfg.exits.let_expire
+        ):
             still = store.open_positions(mode)
             if still:  # a time-stop close did not fill: SPY settles in shares
                 await self.alert_once(
@@ -621,8 +700,25 @@ class SpreadsService:
                 )
 
     async def _eod(self, now: datetime) -> None:
-        mode = self.cfg.mode
         today = now.astimezone(ET).date()
+        for mode, _ in self.books:
+            await self._settle_expiring(mode, today, now)
+        mode = self.cfg.mode
+        trades, realized_today = store.day_stats(today, mode)
+        text = fmt_eod(today, mode, trades, realized_today, len(store.open_positions(mode)))
+        if self.picker is not None:
+            _, base_today = store.day_stats(today, "baseline")
+            text += "\n" + fmt_books(
+                mode,
+                realized_today,
+                base_today,
+                store.realized_pnl_total(mode),
+                store.realized_pnl_total("baseline"),
+            )
+        await self.notifier.send(text)
+        self.eod_sent_for = today
+
+    async def _settle_expiring(self, mode: str, today: date, now: datetime) -> None:
         for p in store.expiring_positions(mode):
             if p.expiry > today:
                 continue
@@ -642,11 +738,6 @@ class SpreadsService:
                 now=now,
             )
             await self.notifier.send(fmt_exit(p.spread_id, "expired", debit, realized, mode))
-        trades, realized_today = store.day_stats(today, mode)
-        await self.notifier.send(
-            fmt_eod(today, mode, trades, realized_today, len(store.open_positions(mode)))
-        )
-        self.eod_sent_for = today
 
 
 # ---------------------------------------------------------------------------- process

@@ -70,6 +70,15 @@ def fmt_eod(day: date, mode: str, trades: int, realized_usd: float, open_count: 
     )
 
 
+def fmt_books(
+    mode: str, main_today: float, base_today: float, main_total: float, base_total: float
+) -> str:
+    return (
+        f"{_tag(mode)} Claude {_money(main_today)} vs baseline {_money(base_today)} today"
+        f" · since start {_money(main_total)} vs {_money(base_total)}"
+    )
+
+
 class SpreadsNotifier:
     def __init__(self, token: str, chat_id: str, thread: str) -> None:
         self.token = token
