@@ -928,6 +928,10 @@ class SpreadsAiCfg(BaseModel):
     brief_effort: EffortLevel = "high"
     pick_model: str = "claude-opus-5-5"
     pick_effort: EffortLevel = "high"  # measured 2026-10-12: ~16 s for a pick-sized prompt
+    # On cli_error (how a usage limit surfaces) a call retries once on this model, inside the
+    # same timeout. "" disables the retry.
+    fallback_model: str = "claude-sonnet-5-5"
+    fallback_effort: EffortLevel = "high"
     brief_timeout_seconds: float = 120.0
     pick_timeout_seconds: float = 45.0
     max_pick_calls_per_day: int = 4

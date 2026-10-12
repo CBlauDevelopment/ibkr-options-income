@@ -30,6 +30,7 @@ from src.spreads_ai.prompts import build_brief_prompt, build_pick_prompt
 
 log = logging.getLogger(__name__)
 _SNAPSHOT_TIMEOUT_SECONDS = 15.0
+_MIN_FALLBACK_SECONDS = 5.0  # less left than this: no fallback call, the cli_error stands
 
 Runner = Callable[..., Awaitable[CliResult]]
 Snapshotter = Callable[..., SpreadMarketSnapshot]
@@ -77,16 +78,45 @@ class ClaudePicker:
             log.warning("spreads_ai: market snapshot failed: %s", exc)
             return SpreadMarketSnapshot(unavailable=["snapshot"])
 
-    async def _call(self, prompt: str, *, model: str, effort: str, timeout: float) -> CliResult:
-        kwargs: dict[str, Any] = {
-            "cli_command": self.cli_command,
-            "model": model,
-            "effort": effort,
-            "timeout_seconds": timeout,
-            "cwd": self.workdir,
-            "disallowed_tools": self.disallowed_tools,
-        }
-        return await self._run(prompt, **kwargs)
+    async def _call(
+        self, prompt: str, *, model: str, effort: str, timeout: float
+    ) -> tuple[CliResult, str, str]:
+        """One call, plus one retry on ``ai.fallback_model`` when the first ends in cli_error
+        (a usage limit surfaces that way) and enough of *timeout* is left. Returns the result
+        and the model/effort that produced it; latency and cost cover both calls."""
+
+        async def once(m: str, e: str, t: float) -> CliResult:
+            kwargs: dict[str, Any] = {
+                "cli_command": self.cli_command,
+                "model": m,
+                "effort": e,
+                "timeout_seconds": t,
+                "cwd": self.workdir,
+                "disallowed_tools": self.disallowed_tools,
+            }
+            return await self._run(prompt, **kwargs)
+
+        res = await once(model, effort, timeout)
+        ai = self.cfg.ai
+        left = timeout - res.latency_ms / 1000
+        if (
+            res.error != "cli_error"
+            or not ai.fallback_model
+            or ai.fallback_model == model
+            or left < _MIN_FALLBACK_SECONDS
+        ):
+            return res, model, effort
+        log.warning("spreads_ai: %s failed (cli_error); retrying on %s", model, ai.fallback_model)
+        second = await once(ai.fallback_model, ai.fallback_effort, left)
+        costs = [c for c in (res.cost_usd, second.cost_usd) if c is not None]
+        merged = CliResult(
+            second.text,
+            second.error,
+            res.latency_ms + second.latency_ms,
+            sum(costs) if costs else None,
+            second.raw,
+        )
+        return merged, ai.fallback_model, ai.fallback_effort
 
     async def brief(self, req: SpreadBriefRequest) -> SpreadBriefResult:
         ai = self.cfg.ai
@@ -94,7 +124,7 @@ class ClaudePicker:
         prompt = ""
         try:
             prompt = build_brief_prompt(req, market)
-            res = await self._call(
+            res, model, effort = await self._call(
                 prompt,
                 model=ai.brief_model,
                 effort=ai.brief_effort,
@@ -103,8 +133,8 @@ class ClaudePicker:
             plan = parse_day_plan(res.text) if res.text is not None else None
             error = res.error or (None if plan is not None else "unparseable")
             call = SpreadLlmCall(
-                model=ai.brief_model,
-                effort=ai.brief_effort,
+                model=model,
+                effort=effort,
                 latency_ms=res.latency_ms,
                 cost_usd=res.cost_usd,
                 prompt_text=prompt,
@@ -131,12 +161,12 @@ class ClaudePicker:
         prompt = ""
         try:
             prompt = build_pick_prompt(req, market)
-            res = await self._call(
+            res, model, effort = await self._call(
                 prompt, model=ai.pick_model, effort=ai.pick_effort, timeout=ai.pick_timeout_seconds
             )
             call = SpreadLlmCall(
-                model=ai.pick_model,
-                effort=ai.pick_effort,
+                model=model,
+                effort=effort,
                 latency_ms=res.latency_ms,
                 cost_usd=res.cost_usd,
                 prompt_text=prompt,

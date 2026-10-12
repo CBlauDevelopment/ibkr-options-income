@@ -26,9 +26,12 @@
 | 9 Wiring + process fence | done | eae4fc7 | 3478 passed | 2026-10-12 | sonnet |
 | Checkpoint B (review T7–9) | done | e126d79, 39e0044 | 3488 passed | 2026-10-12 | 0 C / 2 I (tests) / 7 M. Mutant-killing tests (fresh-requote send, re-gate sizing, per-episode baseline, new-extreme episode, picker_error, send_error) + paper-mode books test; fixed no_fresh_spot, per-book manage guard, stale_pick, timeout latency. Parked: transient block burns the episode; `always`+both sides fallback; in-flight pick lost on restart; baseline expired_open alert wording |
 | 10 Report `--compare` | done | 9ebeb0e | 3493 passed | 2026-10-12 | sonnet; nested def instead of noqa lambda; extra format_day test |
-| 11 Docs + final gate | done | this commit | 3493 passed, 1 skipped; ruff check + mypy src clean | 2026-10-12 | sonnet; spec §5.1/§7 workdir wording amended; ARCHITECTURE `cli.py` row no longer says "empty working directory" |
+| 11 Docs + final gate | done | 4fb35d8 | 3493 passed, 1 skipped; ruff check + mypy src clean | 2026-10-12 | sonnet; spec §5.1/§7 workdir wording amended; ARCHITECTURE `cli.py` row no longer says "empty working directory" |
+| Final review (Sonnet) | done | 0605d62, 374f5e1, ea53cd0 | 3501 passed, 1 skipped | 2026-10-12 | I1 unsent picks booked as trades → `not_sent`; `--compare` scoped to main mode and trades since the first pick; fresh excess liquidity at send; re-review NEW-1: the first episode's baseline trade kept |
+| Opus fallback (operator request) | done | this commit | 3505 passed, 1 skipped; ruff + mypy clean | 2026-10-12 | Ruling: `ai.fallback_model`/`fallback_effort` (default `claude-sonnet-5-5`/`high`) retry once on `cli_error` only (a usage limit surfaces that way; timeout/cli_missing/bad_envelope never retry), inside the same timeout, skipped with < 5 s left; latency and cost sum both calls; the record's model/effort are the ones that answered |
+| Final review (Opus) | pending | | | | operator asked for a second whole-branch review on Opus 5.5 now that the limit is reset |
 
-Execution: hybrid subagent-driven (per-task implementers, checkpoint reviews after Tasks 6 and 9, final whole-branch review). Opus subagents unavailable (weekly limit until 2026-10-14 15:00 SGT): all tasks and reviews ran on Sonnet.
+Execution: hybrid subagent-driven (per-task implementers, checkpoint reviews after Tasks 6 and 9, final whole-branch review). Opus subagents unavailable (weekly limit until 2026-10-14 15:00 SGT): all tasks and the first reviews ran on Sonnet; the operator reset the limit on 2026-10-12 and asked for an Opus final review.
 
 Operator checks owed after merge (not done by the implementer):
 1. `./ibkr restart` with `ai.enabled: true` and `mode: paper`. Check that the DAY PLAN card arrives after the 09:31 map.

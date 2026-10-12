@@ -125,3 +125,85 @@ async def test_the_brief_parses_a_plan_or_reports_why_not() -> None:
     assert ok.plan is not None and ok.plan.bias == "neutral" and ok.call.effort == "high"
     bad = await picker(CliResult("nope", None, 20000)).brief(BRIEF_REQ)
     assert bad.plan is None and bad.call.error == "unparseable"
+
+
+def scripted(replies: list[CliResult], calls: list, **ai_overrides) -> ClaudePicker:
+    """A picker whose runner answers each call with the next scripted reply."""
+    queue = list(replies)
+
+    async def run(prompt: str, **kw):
+        calls.append(kw)
+        return queue.pop(0)
+
+    cfg = get_config().spreads
+    cfg = cfg.model_copy(update={"ai": cfg.ai.model_copy(update=ai_overrides)})
+    return ClaudePicker(
+        cfg,
+        cli_command="claude",
+        disallowed_tools="Bash",
+        workdir=Path("/tmp/x"),
+        run=run,
+        snapshot=lambda now, **kw: SpreadMarketSnapshot(),
+    )
+
+
+async def test_a_cli_error_retries_once_on_the_fallback_model_inside_the_same_timeout() -> None:
+    calls: list = []
+    p = scripted(
+        [
+            CliResult(None, "cli_error", 800, 0.01),
+            CliResult('{"choice": "A", "reason": "ok"}', None, 9000, 0.03, "{}"),
+        ],
+        calls,
+    )
+    pick = await p.pick(PICK_REQ)
+    assert (pick.choice, pick.fallback_reason) == ("A", None)
+    assert [c["model"] for c in calls] == ["claude-opus-5-5", "claude-sonnet-5-5"]
+    assert calls[1]["effort"] == "high" and calls[1]["timeout_seconds"] == 45.0 - 0.8
+    assert (pick.call.model, pick.call.effort, pick.call.latency_ms) == (
+        "claude-sonnet-5-5",
+        "high",
+        9800,
+    )
+    assert pick.call.cost_usd == 0.04
+
+
+async def test_the_fallback_failing_too_is_still_a_cli_error_fallback() -> None:
+    calls: list = []
+    p = scripted([CliResult(None, "cli_error", 500), CliResult(None, "cli_error", 400)], calls)
+    pick = await p.pick(PICK_REQ)
+    assert (pick.choice, pick.fallback_reason, pick.call.model) == (
+        "skip",
+        "cli_error",
+        "claude-sonnet-5-5",
+    )
+    assert len(calls) == 2 and pick.call.cost_usd is None
+
+
+async def test_no_retry_on_other_errors_when_disabled_or_when_time_is_short() -> None:
+    for first, overrides in [
+        (CliResult(None, "timeout", 45000), {}),
+        (CliResult(None, "cli_missing", 5), {}),
+        (CliResult(None, "bad_envelope", 900), {}),
+        (CliResult(None, "cli_error", 500), {"fallback_model": ""}),
+        (CliResult(None, "cli_error", 500), {"fallback_model": "claude-opus-5-5"}),
+        (CliResult(None, "cli_error", 40_500), {}),  # 4.5 s left < 5 s
+    ]:
+        calls: list = []
+        pick = await scripted([first], calls, **overrides).pick(PICK_REQ)
+        assert len(calls) == 1, (first, overrides)
+        assert pick.fallback_reason == first.error and pick.call.model == "claude-opus-5-5"
+
+
+async def test_the_brief_falls_back_too() -> None:
+    calls: list = []
+    p = scripted(
+        [
+            CliResult(None, "cli_error", 1000),
+            CliResult('{"bias": "neutral", "summary": "calm"}', None, 20000),
+        ],
+        calls,
+    )
+    res = await p.brief(BRIEF_REQ)
+    assert res.plan is not None and res.call.model == "claude-sonnet-5-5"
+    assert calls[1]["timeout_seconds"] == 120.0 - 1.0
