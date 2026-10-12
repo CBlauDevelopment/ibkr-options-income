@@ -588,3 +588,28 @@ async def test_the_compare_report_says_what_it_is_scoped_to(
     assert "scope: --mode shadow picks only, trades opened since the first pick" in out
     assert "pre-AI trades excluded" in out and "took_outer: n=1" not in out  # still open, unsettled
     assert "decisions: 1 (0 settled)" in out
+
+
+async def test_the_day_view_shows_only_the_requested_main_mode(
+    tmp_path,
+    spreads_db,  # noqa: F811
+    monkeypatch,
+    capsys,
+) -> None:
+    import sys
+
+    import pytest
+
+    from scripts import spreads_report
+
+    clock = [T0945]
+    svc, _, _, _ = make(tmp_path, clock)
+    await _decide(svc, clock)  # a shadow-mode pick
+    day = "2026-10-07"
+    for mode, shown in (("shadow", True), ("paper", False)):
+        monkeypatch.setattr(sys, "argv", ["spreads_report", "--mode", mode, "--day", day])
+        spreads_report.main()
+        assert ("--- pick " in capsys.readouterr().out) is shown, mode
+    monkeypatch.setattr(sys, "argv", ["spreads_report", "--mode", "baseline", "--day", day])
+    with pytest.raises(SystemExit):
+        spreads_report.main()
