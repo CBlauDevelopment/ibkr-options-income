@@ -50,12 +50,20 @@ def main() -> None:
     a = p.parse_args()
     store.init_spreads_db()
     if a.day is not None:
+        if a.mode == "baseline":
+            p.error("--day shows --mode shadow|paper picks against the baseline book")
         plan = store.day_plan(a.day)
         plan_text = "day plan: none" if plan is None else f"day plan: {plan.model_dump()}"
         base_log = store.trade_log("baseline")
         print(
             "\n".join(
-                format_day(a.day, plan_text, store.picks(a.day), store.trade_log(a.mode), base_log)
+                format_day(
+                    a.day,
+                    plan_text,
+                    [x for x in store.picks(a.day) if x.book_mode == a.mode],
+                    store.trade_log(a.mode),
+                    base_log,
+                )
             )
         )
         return

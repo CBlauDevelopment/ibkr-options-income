@@ -218,6 +218,26 @@ def test_the_compare_text_and_csv_rows() -> None:
     (row,) = decision_rows(ds)
     assert row["kind"] == "took_outer" and row["diff_usd"] == 40.0 and row["vix"] == 17.0
     assert str(row["menu"]).startswith("A inside 680/675")
+    assert (row["model"], row["effort"], row["latency_ms"], row["cost_usd"]) == (
+        "m",
+        "high",
+        1,
+        0.0,
+    )
+
+
+def test_compare_splits_opus_picks_from_sonnet_fallback_picks() -> None:
+    opus = _pick(1, "C", "C").model_copy(update={"model": "claude-opus-5-5"})
+    sonnet = _pick(2, "A", "A").model_copy(update={"model": "claude-sonnet-5-5"})
+    main = [
+        _trade("paper", 30.0, pick_id=1, episode="ep1"),
+        _trade("paper", -50.0, pick_id=2, episode="ep2"),
+    ]
+    base = [_trade("baseline", 10.0, episode="ep1"), _trade("baseline", 10.0, episode="ep2")]
+    rows = compare_by(build_decisions([opus, sonnet], main, base), "model")
+    assert rows.keys() == {"claude-opus-5-5/high", "claude-sonnet-5-5/high"}
+    assert rows["claude-opus-5-5/high"].main_total == 30.0
+    assert rows["claude-sonnet-5-5/high"].main_total == -50.0
 
 
 def test_the_day_view_prints_the_plan_prompt_and_reply() -> None:
@@ -271,6 +291,8 @@ def test_compare_is_scoped_to_the_main_mode_and_the_ai_era() -> None:
     main = [
         _trade("paper", 99.0, episode="pre", opened=early),  # before the picker existed
         _trade("paper", 30.0, pick_id=2, episode="ep2"),
+        # ai.enabled was switched off for a while: a deterministic paper trade, not Claude's
+        _trade("paper", 77.0, episode="off", opened=T + timedelta(days=2)),
     ]
     base = [
         _trade("baseline", 5.0, episode="old", opened=early),

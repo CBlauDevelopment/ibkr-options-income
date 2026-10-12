@@ -187,7 +187,7 @@ async def test_no_retry_on_other_errors_when_disabled_or_when_time_is_short() ->
         (CliResult(None, "bad_envelope", 900), {}),
         (CliResult(None, "cli_error", 500), {"fallback_model": ""}),
         (CliResult(None, "cli_error", 500), {"fallback_model": "claude-opus-5-5"}),
-        (CliResult(None, "cli_error", 40_500), {}),  # 4.5 s left < 5 s
+        (CliResult(None, "cli_error", 31_000), {}),  # 14 s left < 15 s: Sonnet would time out
     ]:
         calls: list = []
         pick = await scripted([first], calls, **overrides).pick(PICK_REQ)

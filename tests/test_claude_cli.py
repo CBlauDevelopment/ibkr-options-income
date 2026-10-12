@@ -71,6 +71,11 @@ async def test_garbage_stdout_is_a_bad_envelope(tmp_path) -> None:
     assert res.error == "bad_envelope" and res.raw.strip() == "not json"
 
 
+async def test_a_failing_exit_with_plain_text_is_a_cli_error_so_the_fallback_runs(tmp_path) -> None:
+    res = await _run(fake_cli(tmp_path, 'print("usage limit reached"); sys.exit(1)'), tmp_path)
+    assert res.error == "cli_error" and res.raw.strip() == "usage limit reached"
+
+
 async def test_a_failing_exit_with_no_output_is_a_cli_error(tmp_path) -> None:
     res = await _run(fake_cli(tmp_path, "sys.exit(3)"), tmp_path)
     assert res.error == "cli_error"

@@ -88,12 +88,15 @@ async def run_claude(
             "claude cli: rc=%s stderr=%s", proc.returncode, err.decode(errors="replace")[:200]
         )
         return CliResult(None, "cli_error", elapsed(), raw=raw)
+    # a non-zero exit is a cli_error even when stdout is not an envelope: a usage limit may be
+    # printed as plain text, and the caller retries only on cli_error
+    unreadable = "cli_error" if proc.returncode != 0 else "bad_envelope"
     try:
         envelope = json.loads(raw)
     except json.JSONDecodeError:
-        return CliResult(None, "bad_envelope", elapsed(), raw=raw)
+        return CliResult(None, unreadable, elapsed(), raw=raw)
     if not isinstance(envelope, dict):
-        return CliResult(None, "bad_envelope", elapsed(), raw=raw)
+        return CliResult(None, unreadable, elapsed(), raw=raw)
     cost_raw = envelope.get("total_cost_usd")
     cost = float(cost_raw) if isinstance(cost_raw, int | float) else None
     reply = envelope.get("result")

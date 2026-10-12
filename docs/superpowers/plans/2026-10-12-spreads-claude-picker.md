@@ -28,8 +28,8 @@
 | 10 Report `--compare` | done | 9ebeb0e | 3493 passed | 2026-10-12 | sonnet; nested def instead of noqa lambda; extra format_day test |
 | 11 Docs + final gate | done | 4fb35d8 | 3493 passed, 1 skipped; ruff check + mypy src clean | 2026-10-12 | sonnet; spec §5.1/§7 workdir wording amended; ARCHITECTURE `cli.py` row no longer says "empty working directory" |
 | Final review (Sonnet) | done | 0605d62, 374f5e1, ea53cd0 | 3501 passed, 1 skipped | 2026-10-12 | I1 unsent picks booked as trades → `not_sent`; `--compare` scoped to main mode and trades since the first pick; fresh excess liquidity at send; re-review NEW-1: the first episode's baseline trade kept |
-| Opus fallback (operator request) | done | this commit | 3505 passed, 1 skipped; ruff + mypy clean | 2026-10-12 | Ruling: `ai.fallback_model`/`fallback_effort` (default `claude-sonnet-5-5`/`high`) retry once on `cli_error` only (a usage limit surfaces that way; timeout/cli_missing/bad_envelope never retry), inside the same timeout, skipped with < 5 s left; latency and cost sum both calls; the record's model/effort are the ones that answered |
-| Final review (Opus) | pending | | | | operator asked for a second whole-branch review on Opus 5.5 now that the limit is reset |
+| Opus fallback (operator request) | done | 25834ab | 3505 passed, 1 skipped; ruff + mypy clean | 2026-10-12 | Ruling: `ai.fallback_model`/`fallback_effort` (default `claude-sonnet-5-5`/`high`) retry once on `cli_error` only (a usage limit surfaces that way; timeout/cli_missing/bad_envelope never retry), inside the same timeout, skipped with < 5 s left; latency and cost sum both calls; the record's model/effort are the ones that answered |
+| Final review (Opus) | done | this commit | 3507 passed, 1 skipped; ruff + mypy clean | 2026-10-12 | 0 C / 1 I / 12 M. Fixed I1 (`--compare` and the CSV carry the model: a `model` condition, model/effort/latency/cost columns), M1 (non-zero exit + plain text → `cli_error`, so the fallback runs), M2 (fallback floor 15 s), M3 (backstop timed from task creation), M5 (cap documented as pick decisions), M6 (Claude's side of `--compare` is pick trades only), M8 (`menu_size` 1–13), M9 (`--day` scoped to the main mode), M11 (dead `_PendingPick.excess`), M12 (this log). Parked: M4 a service-timeout record names `pick_model`, and a retried call keeps only the second call's raw reply; M7 the prompt's "your picks" stats and the EOD "since start" line include pre-AI main-book trades; M10 a hung market snapshot leaks a worker thread |
 
 Execution: hybrid subagent-driven (per-task implementers, checkpoint reviews after Tasks 6 and 9, final whole-branch review). Opus subagents unavailable (weekly limit until 2026-10-14 15:00 SGT): all tasks and the first reviews ran on Sonnet; the operator reset the limit on 2026-10-12 and asked for an Opus final review.
 
@@ -64,7 +64,7 @@ Baseline before Task 1 (main @ `835a30d`): `python -m pytest -q` → **3400 pass
   - `pick_model: claude-opus-5-5`, `pick_effort: high`;
   - `brief_timeout_seconds: 120`, `pick_timeout_seconds: 45`;
   - `max_pick_calls_per_day: 4`, `max_headlines: 20`;
-  - `workdir: data/spreads_ai`, `selection.menu_size: 4`.
+  - ~~`workdir: data/spreads_ai`~~ `workdir: ~/.cache/ibkr-spreads-ai` (amended at checkpoint A), `selection.menu_size: 4`.
 - Paper/shadow only: `run()` still idles under `LIVE_TRADING=true`.
 - Every commit message ends with:
   ```

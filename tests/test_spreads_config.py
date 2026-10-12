@@ -186,6 +186,9 @@ def test_menu_size_cap_and_timeouts_are_positive() -> None:
     with pytest.raises(ValidationError):
         SpreadsSelectionCfg(menu_size=0)
     with pytest.raises(ValidationError):
+        SpreadsSelectionCfg(menu_size=14)  # 2 sides x 14 > 26 letters
+    assert SpreadsSelectionCfg(menu_size=13).menu_size == 13
+    with pytest.raises(ValidationError):
         SpreadsAiCfg(max_pick_calls_per_day=0)
     with pytest.raises(ValidationError):
         SpreadsAiCfg(pick_timeout_seconds=0)

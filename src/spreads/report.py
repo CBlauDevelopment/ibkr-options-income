@@ -167,8 +167,9 @@ def scope_compare(
 ]:
     """Restrict a comparison to the main mode and to the AI era.
 
-    Picks are filtered to ``book_mode == main_mode``; Claude's trades to those opened at or after
-    the first such pick. The baseline trade of an episode opens in ``_decide``, 15-75 s *before*
+    Picks are filtered to ``book_mode == main_mode``; Claude's trades to pick trades (a
+    ``pick_id``) opened at or after the first such pick, so main-book trades from a stretch with
+    ``ai.enabled: false`` are never counted as Claude's. The baseline trade of an episode opens in ``_decide``, 15-75 s *before*
     its pick row is written, so the baseline is cut at the earliest baseline trade belonging to a
     scoped pick's episode instead (pre-AI trades, and a baseline from another era, stay out).
     Returns the first pick's time too (``None`` when there are no picks, in which case there is
@@ -182,7 +183,7 @@ def scope_compare(
     base_since = min((t.opened_at for t in base_log if t.episode_key in episodes), default=since)
     return (
         mine,
-        [t for t in main_log if t.opened_at >= since],
+        [t for t in main_log if t.opened_at >= since and t.pick_id is not None],
         [t for t in base_log if t.opened_at >= min(since, base_since)],
         since,
     )
@@ -256,6 +257,8 @@ CONDITIONS: dict[str, Callable[[SpreadPickRecord], str]] = {
     "event": lambda p: "event" if p.snapshot.event_flag else "normal",
     "side": lambda p: p.snapshot.side or "n/a",
     "plan": lambda p: p.snapshot.plan_bias or "no plan",
+    # the model that answered: since the fallback, a decision may be Opus or the Sonnet retry
+    "model": lambda p: f"{p.model}/{p.effort}",
 }
 
 
@@ -381,6 +384,10 @@ def decision_rows(decisions: Sequence[Decision]) -> list[dict[str, object]]:
                 "executed_letter": p.executed_letter,
                 "fallback_reason": p.fallback_reason,
                 "reason": p.reason,
+                "model": p.model,
+                "effort": p.effort,
+                "latency_ms": p.latency_ms,
+                "cost_usd": p.cost_usd,
                 "main_pnl_usd": d.main_pnl,
                 "base_pnl_usd": d.base_pnl,
                 "diff_usd": d.diff,

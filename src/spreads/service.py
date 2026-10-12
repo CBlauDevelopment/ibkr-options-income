@@ -160,7 +160,6 @@ class _PendingPick:
     episode: str
     menu: list[SpreadMenuItem]
     levels: GexLevels
-    excess: float | None
     gex_chain: ChainSnapshot
     snapshot: SpreadPickSnapshot
 
@@ -823,11 +822,12 @@ class SpreadsService:
         )
         self._pending = _PendingPick(
             task=asyncio.create_task(self.picker.pick(request)),
-            started=now,
+            # not the tick's start: a map refresh, manage requotes and the chain fetch may
+            # already have used much of the grace before the task exists
+            started=self.now(),
             episode=episode,
             menu=menu,
             levels=levels,
-            excess=excess,
             gex_chain=gex_chain,
             snapshot=self._snapshot(levels, allowed, now, plan),
         )

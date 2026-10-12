@@ -852,8 +852,8 @@ class SpreadsSelectionCfg(BaseModel):
 
     @model_validator(mode="after")
     def _menu(self) -> SpreadsSelectionCfg:
-        if self.menu_size < 1:
-            raise ValueError("spreads selection: menu_size must be >= 1")
+        if not 1 <= self.menu_size <= 13:  # 2 sides x 13 = 26 letters, A-Z
+            raise ValueError("spreads selection: menu_size must be 1-13")
         return self
 
 
@@ -934,7 +934,7 @@ class SpreadsAiCfg(BaseModel):
     fallback_effort: EffortLevel = "high"
     brief_timeout_seconds: float = 120.0
     pick_timeout_seconds: float = 45.0
-    max_pick_calls_per_day: int = 4
+    max_pick_calls_per_day: int = 4  # pick decisions; a fallback retry is part of its decision
     max_headlines: int = 20
     # Outside the repo: claude -p walks up from its cwd and would load the project CLAUDE.md.
     workdir: str = "~/.cache/ibkr-spreads-ai"

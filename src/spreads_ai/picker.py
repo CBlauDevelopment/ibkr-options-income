@@ -30,7 +30,8 @@ from src.spreads_ai.prompts import build_brief_prompt, build_pick_prompt
 
 log = logging.getLogger(__name__)
 _SNAPSHOT_TIMEOUT_SECONDS = 15.0
-_MIN_FALLBACK_SECONDS = 5.0  # less left than this: no fallback call, the cli_error stands
+# less left than this: no fallback call, the cli_error stands (Sonnet/high measured ~12 s/pick)
+_MIN_FALLBACK_SECONDS = 15.0
 
 Runner = Callable[..., Awaitable[CliResult]]
 Snapshotter = Callable[..., SpreadMarketSnapshot]
