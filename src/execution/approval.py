@@ -116,15 +116,20 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
     else:
         reason = None
     if reason is not None:
-        set_halted(True, reason)
+        set_halted(True, reason, source="breaker")
         log.critical("Circuit breaker tripped — %s. Execution halted.", reason)
-        try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"🛑 Circuit breaker: execution HALTED — {reason}. Send /resume to re-enable.",
-            )
-        except Exception:
-            log.exception("Failed to send circuit-breaker halt notification")
+        text = (
+            f"🛑 Circuit breaker: execution HALTED — {reason}. New-entry scans are paused "
+            "until you send /resume (profit-take and loss exits keep running)."
+        )
+        # The main chat, and the scan thread where every skipped cycle now shows (2026-10-12:
+        # the main-chat alert alone was missed and the scans stopped for the session).
+        scan_thread = cfg.secrets.telegram_thread_scan
+        for thread in [None, *([int(scan_thread)] if scan_thread else [])]:
+            try:
+                await bot.send_message(chat_id=chat_id, message_thread_id=thread, text=text)
+            except Exception:
+                log.exception("Failed to send circuit-breaker halt notification")
         return
 
     # ------------------------------------------------------------------ #

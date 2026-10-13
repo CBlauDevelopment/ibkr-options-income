@@ -1522,11 +1522,21 @@ async def _intraday_scan_loop(
                 continue
 
             logger.info("Intraday loop: RTH cycle starting")
+            # A halted cycle says so instead of promising a scan the halt check below skips
+            # (2026-10-12: a breaker halt hid behind 25 "Scan started" posts for a session).
+            if is_halted():
+                cycle_text = (
+                    f"⏸ Scan skipped · {now_et_hhmm()} — execution halted: "
+                    f"{get_halt_reason() or 'no reason recorded'}. Profit-take and loss exits "
+                    "still run; send /resume to re-enable new entries."
+                )
+            else:
+                cycle_text = f"\U0001f504 Scan started · {now_et_hhmm()}"
             try:
                 await bot.send_message(
                     chat_id=chat_id,
                     message_thread_id=thread_id(cfg.secrets.telegram_thread_scan),
-                    text=f"\U0001f504 Scan started · {now_et_hhmm()}",
+                    text=cycle_text,
                 )
             except Exception:
                 logger.exception("Intraday loop: failed to send scan-started message")

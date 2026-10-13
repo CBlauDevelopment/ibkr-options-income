@@ -16,6 +16,7 @@ from src.ops.watchdog import (
     Check,
     decide_alerts,
     eod_check,
+    halt_check,
     heartbeat_check,
     iv_history_check,
     scan_loop_check,
@@ -230,7 +231,7 @@ def test_iv_history_check_ok_when_fresh(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_run_checks_composes_all_eight_checks_and_gates_monitor_outside_rth(monkeypatch):
+def test_run_checks_composes_all_nine_checks_and_gates_monitor_outside_rth(monkeypatch):
     from src.common.config import get_config
     from src.ops import watchdog
 
@@ -252,6 +253,7 @@ def test_run_checks_composes_all_eight_checks_and_gates_monitor_outside_rth(monk
         "command_drain",
         "news",
         "monitor",
+        "halt",
         "scan_loop",
         "eod",
         "iv_history",
@@ -438,3 +440,29 @@ def test_run_checks_scan_loop_quiet_when_halted(monkeypatch):
 
 def test_run_checks_scan_loop_quiet_past_entry_cutoff(monkeypatch):
     assert _run_checks_in_rth(monkeypatch, et_hour=15, et_minute=30, halted=False).ok is True
+
+
+# --- 2026-10-12: a circuit-breaker halt silenced the scan loop for a whole session ----------
+#
+# scan_loop stays quiet while halted (an operator /halt is intentional), so a breaker trip
+# needs its own check: it fails during RTH until someone /resumes, and realerts hourly.
+
+
+def test_halt_check_fails_on_a_breaker_halt_during_rth():
+    c = halt_check(
+        halted=True, source="breaker", reason="Drawdown $257,288 from high-water mark", in_rth=True
+    )
+    assert c.ok is False
+    assert "circuit breaker" in c.detail and "$257,288" in c.detail and "/resume" in c.detail
+
+
+def test_halt_check_quiet_for_an_operator_halt_outside_rth_or_when_running():
+    assert halt_check(halted=True, source="operator", reason="manual /halt", in_rth=True).ok
+    assert halt_check(halted=True, source="breaker", reason="x", in_rth=False).ok
+    assert halt_check(halted=False, source="", reason="", in_rth=True).ok
+
+
+def test_halt_check_alerts_on_a_halt_with_no_recorded_source():
+    """A halt persisted before the source was recorded: better a spurious alert than silence."""
+    c = halt_check(halted=True, source="", reason="Drawdown $1 from high-water mark", in_rth=True)
+    assert c.ok is False and "unknown source" in c.detail

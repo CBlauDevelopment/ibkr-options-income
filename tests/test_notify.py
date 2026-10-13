@@ -2408,6 +2408,54 @@ async def test_intraday_loop_probe_block_reports_diagnosis_and_codes():
     ib_scan.disconnect.assert_called_once()
 
 
+async def test_intraday_loop_says_a_halted_cycle_is_skipped_and_why():
+    """2026-10-12: a breaker halt left every cycle posting "Scan started" and then skipping the
+    scan in the log only — 25 promises of a scan that never ran. A halted cycle says it is
+    skipped and why, and still runs the closing-risk checks."""
+    from types import SimpleNamespace
+
+    import src.notify.approval_service as approval_service
+
+    ib_scan = MagicMock()
+    ib_scan.isConnected.return_value = True
+    bot = AsyncMock()
+    app = SimpleNamespace(bot=bot, bot_data={})
+    profit_takes = AsyncMock()
+
+    with (
+        patch.object(approval_service, "is_rth", return_value=True),
+        patch.object(approval_service, "is_halted", return_value=True),
+        patch.object(
+            approval_service,
+            "get_halt_reason",
+            return_value="Drawdown $257,288 from high-water mark",
+        ),
+        patch.object(approval_service, "is_new_entry_window", return_value=True),
+        patch.object(approval_service, "seconds_until_next_aligned_mark", return_value=0.01),
+        patch.object(approval_service, "_check_profit_takes", profit_takes),
+        patch.object(approval_service, "_check_loss_exits", AsyncMock()),
+        patch("src.orchestrator.scan.run_scan", AsyncMock()) as mock_run_scan,
+    ):
+        loop_task = asyncio.create_task(
+            approval_service._intraday_scan_loop(app, ib_scan, None, "123")
+        )
+        try:
+            for _ in range(200):
+                if profit_takes.await_count >= 1 and bot.send_message.call_count >= 1:
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            loop_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await loop_task
+
+    texts = [c.kwargs["text"] for c in bot.send_message.call_args_list]
+    assert texts and not any("Scan started" in t for t in texts)
+    assert "Scan skipped" in texts[0] and "$257,288" in texts[0] and "/resume" in texts[0]
+    profit_takes.assert_awaited()
+    mock_run_scan.assert_not_called()
+
+
 async def test_intraday_loop_reaches_next_aligned_mark_while_scan_still_running(db):
     """Regression for 2026-08-13: a full, legitimately slow sweep (e.g. right after a restart,
     before any symbol has a scan_state baseline) used to be `await`ed inline, so the loop could

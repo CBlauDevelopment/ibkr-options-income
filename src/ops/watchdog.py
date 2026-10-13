@@ -38,6 +38,8 @@ from src.storage.system_settings import (
     EOD_COMPLETED_KEY,
     MONITOR_HEARTBEAT_KEY,
     SCAN_COMPLETED_KEY,
+    get_halt_reason,
+    get_halt_source,
     get_setting,
     is_halted,
 )
@@ -104,6 +106,24 @@ def news_check(now: datetime, *, max_age_min: int) -> Check:
                 f"news: cannot read heartbeat from data/news.db ({type(exc).__name__})",
             )
     return heartbeat_check("news", hb, now, max_age_min=max_age_min)
+
+
+def halt_check(*, halted: bool, source: str, reason: str, in_rth: bool) -> Check:
+    """Fails during RTH while the kill switch is held by anything but the operator.
+
+    ``scan_loop`` is quiet while halted because a ``/halt`` is a deliberate pause; a circuit
+    breaker trip is not, and on 2026-10-12 one stopped every new-entry scan for a session
+    after a single alert. An operator halt stays quiet; a breaker halt, or one persisted
+    before the source was recorded, re-alerts every ``realert_minutes`` until ``/resume``."""
+    if not halted or not in_rth or source == "operator":
+        return Check("halt", True, "")
+    who = "the circuit breaker" if source == "breaker" else f"an unknown source ({source or '—'})"
+    return Check(
+        "halt",
+        False,
+        f"halt: execution halted by {who} — {reason or 'no reason recorded'}. New-entry scans "
+        "are paused; send /resume to re-enable.",
+    )
 
 
 def scan_loop_check(
@@ -394,8 +414,10 @@ def run_checks(now: datetime, cfg: WatchdogCfg) -> list[Check]:
     # reading the halt flag counts as "not halted": better a spurious alert than silence.
     try:
         halted = is_halted()
+        halt_source, halt_reason = get_halt_source(), get_halt_reason()
     except Exception:
-        halted = False
+        halted, halt_source, halt_reason = False, "", ""
+    checks.append(halt_check(halted=halted, source=halt_source, reason=halt_reason, in_rth=in_rth))
     past_entry_cutoff = in_rth and not is_new_entry_window(
         now_et, entry_cutoff=full_cfg.scheduler.entry_cutoff
     )

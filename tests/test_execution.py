@@ -1468,10 +1468,16 @@ async def test_process_queued_orders_auto_trips_halt_on_drawdown(monkeypatch, tm
     _db_setup(tmp_path, monkeypatch)
 
     import src.storage.db as dbmod
-    from src.storage.system_settings import get_halt_reason, is_halted, set_high_water_mark
+    from src.storage.system_settings import (
+        get_halt_reason,
+        get_halt_source,
+        is_halted,
+        set_high_water_mark,
+    )
 
     mock_cfg = MagicMock()
     mock_cfg.secrets.ibkr_account = ""
+    mock_cfg.secrets.telegram_thread_scan = "2"
     mock_cfg.execution.transmit_only_in_rth = False
     monkeypatch.setattr("src.execution.approval.get_config", lambda: mock_cfg)
     monkeypatch.setattr("src.execution.approval.is_rth", lambda: True)
@@ -1508,11 +1514,17 @@ async def test_process_queued_orders_auto_trips_halt_on_drawdown(monkeypatch, tm
 
     mock_ib = MagicMock()
     mock_ib.managedAccounts.return_value = ["DU1"]
-    await process_queued_orders(mock_ib, AsyncMock(), "99999")
+    bot = AsyncMock()
+    await process_queued_orders(mock_ib, bot, "99999")
 
     assert executed == []
     assert is_halted()
     assert "high-water mark" in get_halt_reason()
+    assert get_halt_source() == "breaker"
+    # 2026-10-12: the alert went only to the main chat and was missed; the scan thread, where
+    # the skipped cycles show, gets it too.
+    threads = [c.kwargs.get("message_thread_id") for c in bot.send_message.call_args_list]
+    assert threads == [None, 2]
 
 
 async def test_execute_candidate_no_greeks_entry_iv_none(monkeypatch, tmp_path):

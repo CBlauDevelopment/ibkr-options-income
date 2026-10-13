@@ -24,8 +24,12 @@ AUTONOMY_LEVEL_KEY = "autonomy_level"
 AUTONOMY_WHITELIST_KEY = "autonomy_whitelist"
 HALT_KEY = "execution_halted"
 HALT_REASON_KEY = "execution_halt_reason"
+HALT_SOURCE_KEY = "execution_halt_source"
 SCAN_LEASE_KEY = "scan_lease_expiry"
-HIGH_WATER_MARK_KEY = "nlv_high_water_mark"
+# USD since 099fd0a (net liq reported in USD, not the account's base currency). The old
+# "nlv_high_water_mark" row holds a base-currency (SGD) figure and is deliberately never
+# read: against USD net liq it read as a ~25% drawdown and halted the wheel (2026-10-12).
+HIGH_WATER_MARK_KEY = "nlv_high_water_mark_usd"
 MONITOR_HEARTBEAT_KEY = "monitor_heartbeat"
 MONITOR_IBKR_CONNECTED_KEY = "monitor_ibkr_connected"
 COMMAND_DRAIN_IBKR_CONNECTED_KEY = "command_drain_ibkr_connected"
@@ -265,15 +269,24 @@ def is_halted() -> bool:
     return get_setting(HALT_KEY, "false").lower() == "true"
 
 
-def set_halted(enabled: bool, reason: str = "") -> None:
-    """Engage or release the kill switch, recording why it tripped."""
+def set_halted(enabled: bool, reason: str = "", *, source: str = "operator") -> None:
+    """Engage or release the kill switch, recording why it tripped and who tripped it:
+    ``"operator"`` (/halt, the web console) or ``"breaker"`` (the circuit breakers). The
+    watchdog keeps alerting on a breaker halt; an operator halt is a deliberate pause."""
     set_setting(HALT_KEY, "true" if enabled else "false")
     set_setting(HALT_REASON_KEY, reason if enabled else "")
+    set_setting(HALT_SOURCE_KEY, source if enabled else "")
 
 
 def get_halt_reason() -> str:
     """Human-readable reason the kill switch is engaged (empty when not halted)."""
     return get_setting(HALT_REASON_KEY, "")
+
+
+def get_halt_source() -> str:
+    """Who engaged the kill switch: ``"operator"``, ``"breaker"``, or ``""`` (not halted, or
+    a halt persisted before the source was recorded)."""
+    return get_setting(HALT_SOURCE_KEY, "")
 
 
 def get_high_water_mark() -> float:

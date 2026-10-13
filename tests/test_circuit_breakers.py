@@ -299,3 +299,29 @@ def test_drawdown_breaker_tracks_the_high_water_mark(tmp_path, monkeypatch):
     assert get_high_water_mark() == pytest.approx(310_000.0)
     breach = drawdown_breached(270_000.0)  # -12.9% from 310k, cap 10%
     assert breach is not None and breach == pytest.approx(40_000.0)
+
+
+def test_a_base_currency_high_water_mark_never_trips_the_usd_breaker(tmp_path, monkeypatch):
+    """2026-10-12: the HWM was stored as S$1,044,124 (SGD base, before 099fd0a made net liq
+    USD); against US$786,836 it read as a 24.6% drawdown and halted every scan all day. The
+    pre-USD key is never read: the breaker re-seeds from the first USD figure."""
+    from src.execution.circuit_breakers import drawdown_breached
+    from src.storage.system_settings import get_high_water_mark, set_setting
+
+    _db_setup(tmp_path, monkeypatch)
+    set_setting("nlv_high_water_mark", "1044124.49")  # the legacy, base-currency row
+    assert drawdown_breached(786_836.0) is None
+    assert get_high_water_mark() == pytest.approx(786_836.0)
+    assert drawdown_breached(700_000.0) == pytest.approx(86_836.0)  # -11% in USD still trips
+
+
+def test_a_halt_records_its_source_and_resume_clears_it(tmp_path, monkeypatch):
+    from src.storage.system_settings import get_halt_source, set_halted
+
+    _db_setup(tmp_path, monkeypatch)
+    set_halted(True, "manual /halt")
+    assert get_halt_source() == "operator"
+    set_halted(True, "Drawdown $1 from high-water mark", source="breaker")
+    assert get_halt_source() == "breaker"
+    set_halted(False)
+    assert get_halt_source() == ""
