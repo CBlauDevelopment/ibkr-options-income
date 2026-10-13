@@ -132,6 +132,35 @@ describe("Sheet", () => {
     expect(screen.getByTestId("ticks")).toHaveTextContent("1");
     expect(document.activeElement).toBe(note);
   });
+  it("keeps Escape and Tab inside the sheet when focus lands on its prose", () => {
+    // Clicking non-focusable prose focuses the nearest focusable ancestor: the panel itself.
+    // Without a focusable panel focus falls to <body> and the sheet's key handling never sees it.
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Review trade">
+        <p>Claude says the put is well covered.</p>
+        <button type="button">First</button>
+        <button type="button">Last</button>
+      </Sheet>,
+    );
+    const panel = screen.getByRole("dialog", { name: "Review trade" });
+    expect(panel).toHaveAttribute("tabindex", "-1");
+    panel.focus();
+    expect(document.activeElement).toBe(panel);
+
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Shift+Tab from the panel would otherwise leave the sheet for the page behind it.
+    const shiftTabNotPrevented = fireEvent.keyDown(panel, { key: "Tab", shiftKey: true });
+    expect(shiftTabNotPrevented).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Last" }));
+
+    panel.focus();
+    const tabNotPrevented = fireEvent.keyDown(panel, { key: "Tab" });
+    expect(tabNotPrevented).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
   it("renders nothing when closed", () => {
     render(
       <Sheet open={false} onClose={() => {}} title="Review trade">

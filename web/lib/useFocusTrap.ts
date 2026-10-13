@@ -47,10 +47,15 @@ export function useFocusTrap(
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      const current = document.activeElement;
+      // Focus on the panel itself (after a click on prose) enters the loop at the near end.
+      if (current === el) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && current === first) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && current === last) {
         e.preventDefault();
         first.focus();
       }

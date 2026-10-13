@@ -32,7 +32,10 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="animate-sheet-in relative max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-surface p-6 shadow-[0_-8px_40px_rgba(0,0,0,0.18)] motion-reduce:animate-none sm:h-full sm:max-h-none sm:w-[440px] sm:rounded-none sm:rounded-l-[24px]"
+        // Focusable (but not tabbable) so a click on non-focusable prose lands focus on the
+        // panel rather than <body>, where Escape and the Tab trap would never hear it.
+        tabIndex={-1}
+        className="animate-sheet-in relative outline-none max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-surface p-6 shadow-[0_-8px_40px_rgba(0,0,0,0.18)] motion-reduce:animate-none sm:h-full sm:max-h-none sm:w-[440px] sm:rounded-none sm:rounded-l-[24px]"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-2xl font-extrabold tracking-[-0.015em]">

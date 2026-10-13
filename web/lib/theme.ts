@@ -52,5 +52,11 @@ export function applyTheme(pref: ThemePref): ResolvedTheme {
 /**
  * Runs in <head> before first paint so a dark preference never flashes light.
  * Kept as a string because it must execute before React; mirrors parsePref/resolveTheme.
+ *
+ * The second block makes "follow the OS" work app-wide: it listens for the OS colour scheme
+ * flipping and re-applies the theme only while the stored preference is "system", reading
+ * storage at flip time so a change made on the More page (or in another tab) is respected.
+ * It lives here rather than in a hook so it runs from first load on every page, not only
+ * while the page that mounts useThemePref is open.
  */
-export const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem("${THEME_STORAGE_KEY}");if(p!=="dark"&&p!=="system")p="light";var d=p==="dark"||(p==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.dataset.theme=d?"dark":"light";document.documentElement.dataset.themePref=p;}catch(e){document.documentElement.dataset.theme="light";}})();`;
+export const THEME_INIT_SCRIPT = `(function(){var K="${THEME_STORAGE_KEY}";try{var p=localStorage.getItem(K);if(p!=="dark"&&p!=="system")p="light";var d=p==="dark"||(p==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.dataset.theme=d?"dark":"light";document.documentElement.dataset.themePref=p;}catch(e){document.documentElement.dataset.theme="light";}try{var mq=window.matchMedia("(prefers-color-scheme: dark)");mq.addEventListener("change",function(e){try{if(localStorage.getItem(K)==="system"){document.documentElement.dataset.theme=(e&&typeof e.matches==="boolean"?e.matches:mq.matches)?"dark":"light";}}catch(x){}});}catch(e){}})();`;
