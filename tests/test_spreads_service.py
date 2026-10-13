@@ -793,3 +793,35 @@ async def test_each_distinct_mismatch_is_alerted_once(tmp_path, spreads_db) -> N
     assert sum("disagree" in m for m in notifier.sent) == 2
     await svc.tick()
     assert sum("disagree" in m for m in notifier.sent) == 2
+
+
+class ThinBroker(FakeBroker):
+    """The 679/674 put spread pays 0.10 mid — under CFG's 0.50 floor (10% of a 5-wide)."""
+
+    async def fetch_chain(self, **kw):
+        snap = await super().fetch_chain(**kw)
+        if kw["symbol"] != "SPY":
+            return snap
+        thin = {679.0: o(679, "P", 0.30, 0.34, delta=-0.12)}
+        opts = [thin.get(x.strike, x) if x.right == "P" else x for x in snap.options]
+        return snap.model_copy(update={"options": opts})
+
+
+# 2026-10-12: the trigger armed all day, the SPY chain was fetched every 5 min, and every
+# check returned without a word — no candidate, no log line, no Telegram.
+async def test_an_armed_check_with_nothing_to_sell_says_why_once_a_day(
+    tmp_path, spreads_db, caplog
+) -> None:
+    clock = [T0945]
+    svc, _, notifier = make(tmp_path, clock, ONE_A_DAY, broker=ThinBroker(clock))
+    await svc.tick()  # map
+    clock[0] = T1005
+    with caplog.at_level("INFO", logger="src.spreads.service"):
+        await svc.tick()
+    assert spreads_db.open_positions("shadow") == []
+    (msg,) = [m for m in notifier.sent if "put side armed but nothing to sell" in m]
+    assert "679/674" in msg and "$0.10" in msg and "$0.50" in msg
+    assert "put" in caplog.text and "nothing to sell" in caplog.text
+    clock[0] = T1100
+    await svc.tick()  # still nothing: logged, but no second message today (one per side)
+    assert sum("nothing to sell" in m for m in notifier.sent) == 2

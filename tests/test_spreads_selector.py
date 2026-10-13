@@ -6,7 +6,12 @@ import pytest
 
 from src.common.config import get_config
 from src.common.schemas import ChainOption, ChainSnapshot, GexLevels
-from src.spreads.selector import refresh_candidate, select_candidates, short_boundary
+from src.spreads.selector import (
+    refresh_candidate,
+    select_candidates,
+    short_boundary,
+    why_nothing,
+)
 
 NOW = datetime(2026, 10, 7, 14, 30, tzinfo=UTC)  # 10:30 EDT
 TODAY = date(2026, 10, 7)
@@ -235,3 +240,15 @@ def test_outer_walk_stops_at_the_credit_floor() -> None:
 def test_select_candidates_is_still_the_baseline_item() -> None:
     (c,) = select_candidates(chain(*LADDER), levels(), PUTS, NOW)
     assert c.short_strike == 679
+
+
+def test_why_nothing_names_the_check_every_strike_failed() -> None:
+    # put boundary: min(690 - 6, 680 - 0.69) = 679.31. 679 is over the delta cap; 674 has no
+    # 669 long leg; nothing is buildable.
+    ch = chain(q(679, "P", 0.9, 1.0, delta=-0.2), q(674, "P", 0.4, 0.5, delta=-0.1))
+    why = why_nothing("put", ch, levels(), CFG, NOW)
+    assert why.startswith("put: short ≤ 679.31 (spot 690.00, EM 6.00 × 1, put wall 680.00)")
+    assert "no buildable spread (1 over the delta cap, 1 no long leg)" in why
+    assert why_nothing("put", ch, levels(expected_move=None), CFG, NOW).endswith(
+        "no strike boundary"
+    )

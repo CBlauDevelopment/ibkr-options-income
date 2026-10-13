@@ -89,24 +89,23 @@ def _legs(chain: ChainSnapshot, side: SpreadSide, today: date) -> dict[float, Ch
     return {round(o.strike, 2): o for o in chain.options if o.right == right and o.expiry == today}
 
 
-def _qualify(
+def _qualify_why(
     side: SpreadSide,
     k: float,
     legs: dict[float, ChainOption],
     chain: ChainSnapshot,
     cfg: SpreadsCfg,
     now: datetime,
-) -> SpreadCandidate | None:
-    """The spread shorting *k*, or None when it can't be built: no long leg, short over the
-    delta cap, a missing quote, or no credit. The credit floor is the caller's check."""
+) -> tuple[SpreadCandidate | None, str | None]:
+    """``_qualify``, plus why not: (candidate, None) or (None, reason)."""
     s = cfg.selection
     long_k = round(k - s.width if side == "put" else k + s.width, 2)
     long_q = legs.get(long_k)
     if long_q is None:
-        return None
+        return None, "no long leg"
     short_q = legs[k]
     if short_q.delta is not None and abs(short_q.delta) > s.short_delta_max:
-        return None
+        return None, "over the delta cap"
     today = now.astimezone(ET).date()
     cand = _build(
         make_spread_id(side, today, k, long_k, now),
@@ -117,9 +116,24 @@ def _qualify(
         chain.spot,
         chain.as_of,  # when the quotes were taken: the gate's stale_quote input
     )
-    if cand is None or cand.credit_mid <= 0:
-        return None
-    return cand
+    if cand is None:
+        return None, "no quote"
+    if cand.credit_mid <= 0:
+        return None, "no credit"
+    return cand, None
+
+
+def _qualify(
+    side: SpreadSide,
+    k: float,
+    legs: dict[float, ChainOption],
+    chain: ChainSnapshot,
+    cfg: SpreadsCfg,
+    now: datetime,
+) -> SpreadCandidate | None:
+    """The spread shorting *k*, or None when it can't be built: no long leg, short over the
+    delta cap, a missing quote, or no credit. The credit floor is the caller's check."""
+    return _qualify_why(side, k, legs, chain, cfg, now)[0]
 
 
 def _walk(
@@ -143,6 +157,54 @@ def _walk(
         if cand.credit_mid < s.min_credit_pct_of_width * s.width:
             return
         yield cand
+
+
+def why_nothing(
+    side: SpreadSide, chain: ChainSnapshot, levels: GexLevels, cfg: SpreadsCfg, now: datetime
+) -> str:
+    """Why ``_walk`` yields nothing on *side*, in one line for the log and Telegram: the
+    boundary and what it was built from, then the nearest strike's credit against the floor,
+    or which checks every strike past the boundary failed."""
+    s = cfg.selection
+    boundary = short_boundary(side, levels, cfg)
+    if boundary is None:
+        return f"{side}: no expected move, so no strike boundary"
+    put = side == "put"
+    wall = levels.put_wall if put else levels.call_wall
+    where = (
+        f"short {'≤' if put else '≥'} {boundary:.2f} (spot {levels.spot:.2f}, "
+        f"EM {levels.expected_move:.2f} × {s.em_multiple:g}, "
+        f"{side} wall {'n/a' if wall is None else f'{wall:.2f}'})"
+    )
+    legs = _legs(chain, side, now.astimezone(ET).date())
+    shorts = (
+        sorted((k for k in legs if k <= boundary), reverse=True)
+        if put
+        else sorted(k for k in legs if k >= boundary)
+    )
+    if not shorts:
+        return f"{side}: {where} — no listed strike there"
+    floor = s.min_credit_pct_of_width * s.width
+    skipped: dict[str, int] = {}
+    for k in shorts:
+        cand, why = _qualify_why(side, k, legs, chain, cfg, now)
+        if cand is None:
+            skipped[why or "?"] = skipped.get(why or "?", 0) + 1
+            continue
+        delta = "n/a" if cand.short_delta is None else f"{abs(cand.short_delta):.2f}"
+        past = "" if not skipped else f" (nearer: {_counts(skipped)})"
+        if cand.credit_mid < floor:
+            return (
+                f"{side}: {where} — nearest {k:g}/{cand.long_strike:g} pays "
+                f"${cand.credit_mid:.2f} mid (Δ {delta}), under the ${floor:.2f} credit floor"
+                f"{past}"
+            )
+        return f"{side}: {where} — {k:g}/{cand.long_strike:g} qualifies"
+    return f"{side}: {where} — no buildable spread ({_counts(skipped)})"
+
+
+def _counts(skipped: dict[str, int]) -> str:
+    return ", ".join(f"{n} {why}" for why, n in skipped.items())
 
 
 def _inside(

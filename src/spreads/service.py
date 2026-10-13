@@ -80,7 +80,7 @@ from src.spreads.notify import (
 from src.spreads.pricing import ET, day_schedule
 from src.spreads.report import compute_stats
 from src.spreads.risk import validate
-from src.spreads.selector import refresh_candidate, select_candidates, select_menu
+from src.spreads.selector import refresh_candidate, select_candidates, select_menu, why_nothing
 from src.spreads.tape import SessionTape, trigger
 
 log = logging.getLogger(__name__)
@@ -556,7 +556,9 @@ class SpreadsService:
         if self.picker is not None:
             await self._decide(now, chain, levels, excess, allowed)
             return
-        for cand in select_candidates(chain, levels, self.cfg, now, sides=allowed.sides):
+        cands = select_candidates(chain, levels, self.cfg, now, sides=allowed.sides)
+        await self._nothing_to_sell(now, chain, levels, allowed, {c.side for c in cands})
+        for cand in cands:
             # Validated on the clock it runs at, so the quote's age (chain.as_of) is real.
             verdict = validate(cand, self._context(self.now(), levels, excess), self.cfg)
             store.record_candidate(cand, verdict, levels.regime, now)
@@ -574,6 +576,27 @@ class SpreadsService:
             )
             if self.entries_blocked:
                 return
+
+    async def _nothing_to_sell(
+        self,
+        now: datetime,
+        chain: ChainSnapshot,
+        levels: GexLevels,
+        allowed: SpreadTrigger,
+        offered: set[str],
+    ) -> None:
+        """An armed check that found no strike to sell on a side says why: in the log every
+        time, on Telegram once per side per ET day (it can repeat every entry check)."""
+        for side in allowed.sides:
+            if side in offered or side not in self.cfg.selection.sides:
+                continue
+            why = why_nothing(side, chain, levels, self.cfg, now)
+            log.info("spreads: %s armed (%s), nothing to sell — %s", side, allowed.reason, why)
+            await self.alert_once(
+                f"nothing_to_sell:{side}",
+                f"[{self.cfg.mode.upper()}] {side} side armed but nothing to sell — {why}. "
+                "Later checks today are logged only (logs/spreads.log).",
+            )
 
     async def _open_candidate(
         self,
@@ -776,7 +799,9 @@ class SpreadsService:
         main_ctx = self._context(self.now(), levels, excess)
         approved: list[tuple[SpreadCandidate, SpreadMenuPosition, int]] = []
         baseline_item: SpreadCandidate | None = None
-        for cand, position in select_menu(chain, levels, self.cfg, now, sides=allowed.sides):
+        items = select_menu(chain, levels, self.cfg, now, sides=allowed.sides)
+        await self._nothing_to_sell(now, chain, levels, allowed, {c.side for c, _ in items})
+        for cand, position in items:
             verdict = validate(cand, main_ctx, self.cfg)
             store.record_candidate(cand, verdict, levels.regime, now)
             if position == "baseline" and baseline_item is None:
