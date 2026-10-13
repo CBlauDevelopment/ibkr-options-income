@@ -58,20 +58,27 @@ export function ControlsStrip() {
         <ControlPill label="Pending" value={String(data.pending_commands)} />
       </div>
 
-      {!data.drain_healthy && (
-        <p
-          className="rounded-md border border-border bg-surface px-4 py-2 text-xs text-content"
-          data-testid="drain-dead-warning"
-        >
-          the trading service is not draining commands
-          {data.drain_last_seen
-            ? ` (last seen ${relativeAge(data.drain_last_seen)})`
-            : " (it has never run)"}
-          . A click below queues an intent; it will not be applied until the drain
-          is back.
-        </p>
-      )}
+      {!data.drain_healthy && <DrainWarning lastSeen={data.drain_last_seen} />}
     </div>
+  );
+}
+
+/**
+ * The "not draining" line that sits beside the halt and autonomy controls wherever they
+ * render: here and in the shell's bot sheet (`components/shell/BotSheet.tsx`). Shared so the
+ * two surfaces cannot drift apart. The caller renders it only when `drain_healthy` is false.
+ */
+export function DrainWarning({ lastSeen }: { lastSeen: string | null }) {
+  return (
+    <p
+      className="rounded-md border border-border bg-surface px-4 py-2 text-xs text-content"
+      data-testid="drain-dead-warning"
+    >
+      the trading service is not draining commands
+      {lastSeen ? ` (last seen ${relativeAge(lastSeen)})` : " (it has never run)"}
+      . A click below queues an intent; it will not be applied until the drain
+      is back.
+    </p>
   );
 }
 

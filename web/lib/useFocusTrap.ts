@@ -11,7 +11,10 @@ const FOCUSABLE =
  *
  * Keys pressed inside a NESTED dialog (e.g. ConfirmAction opened from inside a sheet) are
  * left to that dialog: the listener is on the container itself and ignores any event whose
- * nearest [role="dialog"] is not this container.
+ * nearest [role="dialog"] is not this container. While a nested dialog is open it owns the
+ * keys even when focus has fallen back to the container (a click on the nested dialog's
+ * prose, padding or scrim focuses the nearest focusable ancestor, the panel): Escape is left
+ * to bubble to the nested dialog's own handler, and Tab moves focus into the nested dialog.
  *
  * onEscape is read through a ref, so a parent that re-renders with a fresh inline callback
  * (Home polls) does not re-run the effect and pull focus back to the first control.
@@ -34,13 +37,22 @@ export function useFocusTrap(
 
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as Element | null;
-      if (target?.closest('[role="dialog"]') !== el) return;
+      if (!el || target?.closest('[role="dialog"]') !== el) return;
+      const nested = Array.from(el.querySelectorAll<HTMLElement>('[role="dialog"]')).pop();
+      if (nested) {
+        // Not stopped: the nested dialog (ConfirmAction listens on document) cancels itself.
+        if (e.key !== "Tab") return;
+        e.preventDefault();
+        const inner = Array.from(nested.querySelectorAll<HTMLElement>(FOCUSABLE));
+        (e.shiftKey ? inner[inner.length - 1] : inner[0])?.focus();
+        return;
+      }
       if (e.key === "Escape") {
         e.stopPropagation();
         onEscapeRef.current();
         return;
       }
-      if (e.key !== "Tab" || !el) return;
+      if (e.key !== "Tab") return;
       const items = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (n) => n.closest('[role="dialog"]') === el,
       );

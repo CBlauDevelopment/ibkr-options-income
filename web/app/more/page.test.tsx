@@ -34,6 +34,11 @@ describe("More page", () => {
     expect(screen.getByRole("link", { name: /News/ })).toHaveAttribute("href", "/news");
     expect(screen.getByRole("link", { name: /Import a statement/ })).toHaveAttribute("href", "/ledger/import");
   });
+  it("links to Universe and Ledger, which have no tab or rail entry", () => {
+    renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
+    expect(screen.getByRole("link", { name: /^Universe/ })).toHaveAttribute("href", "/research/universe");
+    expect(screen.getByRole("link", { name: /^Ledger/ })).toHaveAttribute("href", "/ledger");
+  });
   it("reaches the bot controls on a phone, where the rail is hidden", async () => {
     renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
     expect(await screen.findByRole("button", { name: /Bot running/ })).toBeInTheDocument();

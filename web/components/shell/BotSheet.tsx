@@ -1,11 +1,17 @@
 "use client";
 
 import { AutonomyControl } from "@/components/options/AutonomyControl";
+import { DrainWarning } from "@/components/options/ControlsStrip";
 import { HaltControl } from "@/components/options/HaltControl";
 import type { ControlsResponse } from "@/components/options/types";
 import { Sheet } from "@/components/ui/Sheet";
 
-/** Halt is one tap, resume needs RESUME, rung changes confirm: all unchanged, only relocated. */
+/**
+ * Halt is one tap, resume needs RESUME, rung changes confirm: all unchanged, only relocated.
+ * The "not draining" warning sits right above the controls, as it does beside the strip on
+ * /trades: a halt queued while no drain picks it up is the worst case, and the sheet re-renders
+ * with each controls refetch, so it appears even if the drain dies while the sheet is open.
+ */
 export function BotSheet({
   open,
   onClose,
@@ -21,6 +27,7 @@ export function BotSheet({
         Mode: <span className="font-semibold text-content">{controls.mode}</span>
       </p>
       <div className="mt-4 grid gap-5">
+        {!controls.drain_healthy && <DrainWarning lastSeen={controls.drain_last_seen} />}
         <HaltControl
           halted={controls.halted}
           haltReason={controls.halt_reason}

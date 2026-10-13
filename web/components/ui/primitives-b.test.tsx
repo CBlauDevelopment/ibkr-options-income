@@ -111,6 +111,36 @@ describe("Sheet", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(cancel);
   });
+  it("hands Escape and Tab to a nested dialog when focus lands on the sheet panel", () => {
+    // A click on the nested dialog's prose or scrim focuses the nearest focusable ancestor,
+    // the sheet panel. The nested dialog still owns the keys (Section B review I3).
+    const onClose = vi.fn();
+    const reachedDocument = vi.fn();
+    document.addEventListener("keydown", reachedDocument);
+    try {
+      render(<SheetHarness onClose={onClose} />);
+      fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+      const panel = screen.getByRole("dialog", { name: "Review trade" });
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+
+      panel.focus();
+      fireEvent.keyDown(panel, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+      // Not swallowed: a nested dialog listening on document (ConfirmAction) hears it.
+      expect(reachedDocument).toHaveBeenCalledTimes(1);
+
+      panel.focus();
+      expect(fireEvent.keyDown(panel, { key: "Tab" })).toBe(false);
+      expect(document.activeElement).toBe(cancel);
+
+      screen.getByRole("button", { name: "First" }).focus();
+      expect(fireEvent.keyDown(document.activeElement as Element, { key: "Tab", shiftKey: true })).toBe(false);
+      expect(document.activeElement).toBe(cancel);
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", reachedDocument);
+    }
+  });
   it("keeps focus where the user put it when the parent re-renders with a fresh onClose", () => {
     // Home polls: the sheet's parent re-renders on every refetch with an inline onClose.
     function Parent() {

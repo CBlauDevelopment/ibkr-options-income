@@ -24,7 +24,8 @@ export function BotCard() {
   }
   if (!data) return null;
 
-  const state = `${data.halted ? "Halted" : "Bot running"} · ${data.mode}`;
+  // "Wheel halted": the web halt is the wheel's switch; credit spreads have their own.
+  const state = `${data.halted ? "Wheel halted" : "Bot running"} · ${data.mode}`;
   return (
     <>
       <button
