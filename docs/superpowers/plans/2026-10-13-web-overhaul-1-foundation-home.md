@@ -50,8 +50,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | Section / task | Status | Commits | Gate | Date | Rulings |
 |---|---|---|---|---|---|
 | **A entry checks** (baseline) | done | main a731d59 | pytest 3520+1 skip, vitest 496, tsc/lint/ruff/mypy green | 2026-10-13 | tsc baseline had 9 test-file errors; fixed first in 6273d87 on main at operator's choice |
-| 1 Tokens, fonts, theme | done | this commit (`feat(web): payslip tokens, Hanken Grotesk, light default with dark and system themes`) | vitest 508 (496+12), tsc 0, lint clean | 2026-10-13 | web/CLAUDE.md: also removed stale "Dark-only in P1." sentence and changed "focus is blue" to "focus is ink" (both contradicted the new invariants; plan listed only the bullets) |
-| 2 Primitives A | not started | | | | |
+| 1 Tokens, fonts, theme | done | 323cd4f | vitest 508 (496+12), tsc 0, lint clean | 2026-10-13 | web/CLAUDE.md: also removed stale "Dark-only in P1." sentence and changed "focus is blue" to "focus is ink" (both contradicted the new invariants; plan listed only the bullets) |
+| 2 Primitives A | done | this commit (`feat(web): ui primitives - Button, Card, SegmentedControl, StatusWord, Meter`) | vitest 519 (508+11), tsc 0, lint clean | 2026-10-13 | none |
 | 3 Primitives B | not started | | | | |
 | 4 Strategy filter | not started | | | | |
 | **B entry checks** | not started | | | | |
@@ -790,7 +790,7 @@ git commit -m "feat(web): payslip tokens, Hanken Grotesk, light default with dar
   - `StatusWord({ tone?: "neutral" | "flag" | "today"; children })`
   - `Meter({ value: number | null; max: number | null; label: string })`
 
-- [ ] **Step 1: Write the failing tests** — `web/components/ui/primitives-a.test.tsx`
+- [x] **Step 1: Write the failing tests** — `web/components/ui/primitives-a.test.tsx`
 
 ```tsx
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -900,12 +900,12 @@ describe("Meter", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run components/ui/primitives-a.test.tsx`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 3: Implement the five primitives**
+- [x] **Step 3: Implement the five primitives**
 
 `web/components/ui/Button.tsx`:
 
@@ -1105,12 +1105,12 @@ export function Meter({ value, max, label }: { value: number | null; max: number
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run components/ui/primitives-a.test.tsx`
 Expected: PASS (11 tests).
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
