@@ -22,6 +22,7 @@ function approval(overrides: Partial<ApprovalSummary>): ApprovalSummary {
     decided_at: null,
     order_state: null,
     source: "scan",
+    review: null,
     ...overrides,
   };
 }

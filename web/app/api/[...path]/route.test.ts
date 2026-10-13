@@ -83,24 +83,21 @@ describe("API proxy", () => {
   it("returns 405 for PUT", async () => {
     process.env.API_TOKEN = "tok";
     const { PUT } = await import("./route");
-    const req = new Request("http://localhost:3000/api/x", { method: "PUT" });
-    const res = await PUT(req, { params: Promise.resolve({ path: ["x"] }) });
+    const res = await PUT();
     expect(res.status).toBe(405);
   });
 
   it("returns 405 for PATCH", async () => {
     process.env.API_TOKEN = "tok";
     const { PATCH } = await import("./route");
-    const req = new Request("http://localhost:3000/api/x", { method: "PATCH" });
-    const res = await PATCH(req, { params: Promise.resolve({ path: ["x"] }) });
+    const res = await PATCH();
     expect(res.status).toBe(405);
   });
 
   it("returns 405 for HEAD", async () => {
     process.env.API_TOKEN = "tok";
     const { HEAD } = await import("./route");
-    const req = new Request("http://localhost:3000/api/x", { method: "HEAD" });
-    const res = await HEAD(req, { params: Promise.resolve({ path: ["x"] }) });
+    const res = await HEAD();
     expect(res.status).toBe(405);
   });
 

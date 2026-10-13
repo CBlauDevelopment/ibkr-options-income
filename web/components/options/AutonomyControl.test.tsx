@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
+import type { CommandStatus } from "@/lib/commands";
 import { AutonomyControl } from "./AutonomyControl";
 
 function withClient(ui: React.ReactElement) {
@@ -33,7 +34,7 @@ afterEach(() => {
   confirmCommand.mockReset();
 });
 
-function appliedCommand(overrides: Record<string, unknown> = {}) {
+function appliedCommand(overrides: Partial<CommandStatus> = {}): CommandStatus {
   return {
     id: 5,
     kind: "set_autonomy",
