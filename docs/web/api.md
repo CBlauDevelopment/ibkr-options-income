@@ -935,15 +935,18 @@ legs, because that is the unit the operator thinks in. An option whose
 
 Adjusted-basis semantics — **both cost bases are reported, never one
 substituted for the other**: `avg_cost` is what IBKR says;
-`adjusted_cost_basis` is what the collected premium makes it (from
-`campaigns.adjusted_cost_basis`, when the shares came from an assignment).
+`adjusted_cost_basis` is what the collected premium makes it: IBKR's
+`avg_cost` less the premium of legs before each assignment, over every open
+assigned campaign on the symbol, spread across all shares held (when any of
+the shares came from an assignment).
 `unrealized_pnl` is against the former, `unrealized_pnl_adjusted` against the
 latter. `adjusted_cost_basis` is `null` for shares that did not come from an
 assignment, and `unrealized_pnl_adjusted` is `null` with it — not a copy of
 `unrealized_pnl`, and not zero. The basis is read through the API's own
-read-only engine (mirroring `storage.campaigns.adjusted_cost_basis_for`'s
-newest-open-assigned-campaign rule exactly), never through the storage
-engine's read-write session.
+read-only engine through the same pure
+`storage.campaigns.whole_position_basis` the covered-call gate uses (since
+2026-10-13; before, the newest open assigned campaign's basis), never through
+the storage engine's read-write session.
 
 `moneyness` (`itm`/`atm`/`otm`) needs the underlying's price: the group's own
 stock leg first, else the latest settled close in `price_history` — both from

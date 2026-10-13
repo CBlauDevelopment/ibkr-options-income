@@ -331,7 +331,7 @@ MCP so the headless `claude -p` subprocess can do ad-hoc lookups (`ib_portfolio`
 | **Telegram multi-thread routing** | **Complete. Phases 1–11 ✅.** Phases 1–9 (thread IDs, formatters, per-thread routing, LLM-skip integration, S6 suppression, premarket snapshot, system_settings keys, doc sweep, test stubs) are complete as previously documented. **Phase 10 (accumulated status messages):** "no candidates" and "unchanged" quiet cycles now *append* a `[HH:MM] …` timestamped line to a single persisted Telegram message (edited in-place via `_append_status`) instead of replacing it — so 4 quiet cycles in a row build a tidy timestamped log in one message rather than 4 separate messages. Body text is stored alongside the message-id in a `{key}_body` system_settings key; when the body exceeds 3800 chars the slate is wiped. A real candidate/buy-list send clears both keys so the next quiet cycle starts a fresh message. The old `_edit_or_send` is replaced by `_append_status`. **New-day rollover (2026-08-28):** the same wipe-and-resend now also triggers on the first quiet cycle of a new ET calendar day (tracked in a `{key}_date` system_settings key), regardless of body length, so a quiet cycle on a new trading day always starts its own message rather than appending to a message left over from a previous day — applies to all three screens (CC, CSP, buy-to-own) since they share `_append_status`. **Phase 11 (order notifications to topic 58):** `send_order_notification` in `sender.py` and `format_order_notification` in `formatters.py` send/edit plain-text order-status messages to `telegram_thread_account` (topic 58); each order gets one persistent message keyed by `order_notification_{order_id}_msg_id`. `executor.py` calls it on order placed, filled, live re-gate failure, IB rejection, and timeout; `approval.py` calls it for TTL-expiry, re-validation failure, and daily-trade-cap cancellations. The intraday scan loop calls `_update_pending_order_notifications` after each scan to push live underlying-price and option-mid updates to every SUBMITTED order's thread-58 message. |
 | **Ledger assignment detection** | **Auto-detected (Phase 4).** The EOD run diffs the prior day's position snapshot (`position_snapshots` table) against current positions: a vanished short whose underlying stock moved ~100×contracts in the assignment direction is flagged `assigned` and fed to `reconcile(assigned_candidate_ids=…)` (`src/claude/eval/assignment.py`). The manual `scripts.reconcile_outcomes --assigned <id>` override still exists for corrections. Two residuals remain: (a) the `assigned` realized P&L is the option-leg premium only — stock-leg P&L is still not modelled in the ledger; (b) covered-call assignment needs a prior snapshot showing the held shares, so it isn't detected on the very first EOD run before any snapshot exists. |
 | **Backtesting engine** | **Built (Phase 4); v2 added (N21); C10/C11 added (Competitive Phase 5).** `src/backtest/` simulates CC/CSP income over historical prices. **v1** synthesises premiums with Black-Scholes from trailing 30-day HV (a fair-value IV proxy → expected edge ≈ 0 by construction — it validates plumbing, not the edge). **v2** (`--use-stored-iv`) prices the entry premium from the symbol's stored daily IV (`iv_history`), so the run measures the variance-risk premium (IV−HV, reported as `mean_vrp_pct`); `--profit-take 0.5` simulates the 50% take rule and `--min-iv-rank` gates entries by IV rank, so the strategy hypothesis can be tested with/without gating. Reports premium, net P&L, win/assignment/profit-take rate, return on capital, annualized, buy-&-hold benchmark, and max drawdown via `scripts.backtest`. **C10** `src/backtest/earnings.py` adds earnings-cycle segmentation: `simulate_earnings_cycles` segments the price series by historical earnings dates (loaded via `data.load_earnings_dates` from yfinance), evaluates the strategy across each inter-earnings window (gating when the window is too narrow for the DTE), and optionally adds a vol-crush follow-on entry right after earnings. **C11** `scripts/backtest_candidate.py` adds an on-demand per-candidate CLI: `--compact` outputs a 4-line summary suitable for Claude injection; `--earnings` enables the earnings-cycle mode. **Phase 6** extracted the reusable core into `src/backtest/on_demand.py` (`params_from_candidate`, `run_backtest`, `summarize`, `backtest_candidate`) — the CLI is now a thin wrapper, and the **Claude-invocable action** is delivered: `strategist.build_prompt` injects a per-candidate backtest line when `claude.backtest_in_prompt` is enabled (default OFF). `report.compact_report` and `report.format_earnings_cycle_report` are the matching renderers. All still an approximation (no spread/slippage; daily marks for the profit-take walk) and fully isolated from the live broker/risk path (the fence — `on_demand.py` is never imported by `engine/`, `execution/`, or sizing). |
-| **Campaign chaining (C6)** | **Built (Competitive Phase 4); cost-basis wired live in Phase 6.** `src/storage/campaigns.py` links each CSP→assignment→CC→roll→close sequence for a symbol into one P&L thread (`CampaignRow`). The executor calls `attach_fill_to_campaign` after every fill, which opens a campaign on the first SELL, appends subsequent fills as legs, and auto-closes when buy quantity equals sell quantity (unless assigned). `mark_campaign_assigned(symbol, assignment_price, right)` sets `assigned=True` and computes `adjusted_cost_basis = assignment_price − net_premium/100` per share for share-acquiring (put) assignments. **Phase 6 closed a gap:** `mark_campaign_assigned` was previously only called in tests, so adjusted cost basis was never populated in production — the EOD reconciler now calls it for each detected assignment (`eval/assignment.assigned_shorts` surfaces the strike). `adjusted_cost_basis` now also feeds the covered-call gate directly (D5, remediation Task 6): `strategies/covered_call.py` reads it via `campaigns.adjusted_cost_basis_for(symbol)` and uses it — falling back to IBKR's raw `avg_cost` when no open assigned campaign exists — for the `min_strike_vs_basis` comparison, collateral, ROC, breakeven, and the ideal-zone cost basis, so the wheel's already-collected premium affects which strikes are writable rather than being visible only on the `/campaigns` and `/campaigns open` Telegram commands, which still display the wheel P&L thread for each symbol. |
+| **Campaign chaining (C6)** | **Built (Competitive Phase 4); cost-basis wired live in Phase 6.** `src/storage/campaigns.py` links each CSP→assignment→CC→roll→close sequence for a symbol into one P&L thread (`CampaignRow`). The executor calls `attach_fill_to_campaign` after every fill, which opens a campaign on the first SELL, appends subsequent fills as legs, and auto-closes when buy quantity equals sell quantity (unless assigned). `mark_campaign_assigned(symbol, assignment_price, right, candidate_id)` sets `assigned=True` and computes `adjusted_cost_basis = assignment_price − premium / assigned shares` for share-acquiring (put) assignments (per assigned share since 2026-10-13; it divided by 100 before). **Phase 6 closed a gap:** `mark_campaign_assigned` was previously only called in tests, so adjusted cost basis was never populated in production — the EOD reconciler now calls it for each detected assignment (`eval/assignment.assigned_shorts` surfaces the strike). `adjusted_cost_basis` now also feeds the covered-call gate directly (D5, remediation Task 6): `strategies/covered_call.py` reads a whole-position basis via `campaigns.adjusted_cost_basis_for(symbol, shares_held, avg_cost)` — IBKR's `avg_cost` less the premium of legs before each assignment, over every open assigned campaign — and uses it, falling back to IBKR's `avg_cost` when no open assigned campaign exists, for the `min_strike_vs_basis` comparison, collateral, ROC, breakeven, and the ideal-zone cost basis, so the wheel's already-collected premium affects which strikes are writable rather than being visible only on the `/campaigns` and `/campaigns open` Telegram commands, which still display the wheel P&L thread for each symbol. |
 | **Phase 5 disk cache** | **Built.** Fundamentals (`src/analytics/fundamentals.py`) and sentiment (`src/analytics/sentiment.py`) are persisted to SQLite via `FundamentalCacheRow` and `SentimentCacheRow` (`src/storage/models.py`) with an earnings-aware TTL. The cache invalidates daily and on proximity to earnings so stale fundamentals do not leak through a blackout. |
 | **ML regime detection, vol forecasting, Postgres migration, local-LLM hybrid** | Future ideas, not started. The FMP/Polygon provider swap is now a config change (Phase 2's `src/data/` abstraction), so the data-backend half of any future migration is a `config/settings.yaml → data.*` edit plus a new backend implementing the Protocols — not a rewrite of every analytics module. |
 | **News thread: spreads-book impact, IBKR real-time reaction data** | **Deferred.** The news cards' "your book" lines cover the wheel only (spreads legs are excluded from the portfolio snapshot); real-time reaction data via IBKR is out because the news process deliberately holds no IBKR connection. No LLM-derived news signal will ever enter ranking, gating or sizing (spec D3, permanent). |
@@ -371,6 +371,63 @@ outside `src/api/commands.py` imports `get_command_engine`); the trading system 
 databases are separate `Base`/engine pairs so `create_all()` can never cross-build.
 
 ---
+
+## Bugs fixed (2026-10-13 — 2026-10-12 RTH: wheel halted all day unseen, spreads checks silent)
+
+- **The wheel's drawdown breaker compared an SGD high-water mark against USD net liq.** The
+  HWM (`nlv_high_water_mark`, S$1,044,124, set 2026-10-06) predates `099fd0a`, which made the
+  account snapshot report USD. Against US$786,836 it read as a $257,288 (24.6%) drawdown, so the
+  first execution pass with a queued order (09:39 ET) tripped `/halt`; it tripped again 15 s
+  after `/resume`, and every 15-min cycle then logged `execution halted — skipping new-entry
+  scan`. The HWM now lives under `nlv_high_water_mark_usd`; the old row is never read, and the
+  first USD reading re-seeds the mark (the real USD drawdown since 2026-10-06 was ~3%, under the
+  10% cap). The halt itself is persisted: send `/resume` once the service runs the fix.
+- **An armed spreads check with nothing to sell said nothing.** The trigger armed all day and
+  the SPY chain was fetched every 5 min, but no strike past the action-zone boundary cleared
+  both `short_delta_max` (0.15) and the `min_credit_pct_of_width` floor ($0.25 on a 5-wide),
+  so `select_menu` returned nothing and `_entries` returned without a log line, a candidate row
+  or a message. `selector.why_nothing` now explains the side (the boundary and what built it,
+  then the nearest strike's credit against the floor, or the checks every strike failed); the
+  service logs it at INFO on every such check and sends it on Telegram once per side per ET
+  day. **Known limitation:** with a 1.0 × EM boundary, a 0.15 delta cap and a fixed $0.25
+  floor, a 0DTE SPY spread rarely qualifies once the straddle shrinks after the first hour —
+  only one candidate was recorded across 2026-10-09 and 2026-10-12. The selection tunables are
+  the operator's call (the backtest decides); the new message shows how far off each check is.
+- **A breaker halt hid behind "Scan started".** Each 15-min cycle posted `🔄 Scan started`
+  before its halt check, then skipped the scan in the log only, and the watchdog's `scan_loop`
+  check is deliberately quiet while halted, so after the single trip alert (main chat only) the
+  session looked busy and did nothing. A halted cycle now posts `⏸ Scan skipped — execution
+  halted: <reason> … /resume`; the breaker's alert also goes to the scan thread; and `set_halted`
+  records who halted (`execution_halt_source`: `operator` or `breaker`), so the watchdog's new
+  `halt` check re-alerts during RTH every `realert_minutes` while a breaker (or unknown-source)
+  halt stands. An operator `/halt` stays quiet, as before.
+
+## Bugs fixed (2026-10-13 — the wheel's adjusted cost basis; per-lot covered calls not built)
+
+- **`mark_campaign_assigned` divided the campaign's premium by 100, not by the shares
+  assigned.** Right only for a one-contract wheel. MARA (10 puts at $0.37, $370 in all) was
+  stored at an adjusted basis of **8.30** instead of **11.63**, so the covered-call gate would
+  have passed strikes from $8.30 — calls that sell below the real cost. The basis is now
+  `strike − premium / (assigned contracts × 100)`, and the assignment (leg, strike, shares,
+  premium of the legs before it) is recorded in the campaign's `payload`.
+  `campaigns.repair_assigned_bases()` runs from `init_db()` and rebuilds rows the old formula
+  wrote (MARA → 11.63 on the next start; dry-run on a copy of the live DB confirmed it).
+- **The gate applied the newest campaign's basis to every share.** It now uses one basis for
+  the whole position: IBKR's average cost less the premium of legs rolled or bought back before
+  each assignment, over every open assigned campaign, spread across all shares held. IBKR's
+  average cost already nets the assigned put's own premium (MARA: 11.6375 = 12 − 0.37 +
+  commission), so subtracting the campaign's whole premium from it would count that premium
+  twice. The web portfolio page renders the same number through the same pure function.
+- **Per-lot covered calls: researched, deliberately not built.** Every current holding is a
+  single lot (AMD, BAC, GOOGL, MARA, NVDA, SOXL), so per-lot and aggregate give identical
+  answers. A covered call is not tied to a lot — on assignment IBKR delivers shares by the
+  account's lot-matching method (FIFO default; Specific Lot is editable until 20:30 ET, and
+  IBKR does not document that it applies to assignments), so per-lot strike rules would not
+  control which shares go. For a Singapore tax resident who is a US non-resident alien, lot
+  choice generally has no tax effect (verify with an adviser). Basis is a sunk cost; writing
+  below it is an explicit choice already available through `covered_call.min_strike_vs_basis`.
+  Revisit if holdings come to span several lots at very different prices and IBKR confirms
+  specific-lot delivery on assignment.
 
 ## Built (2026-10-12 — Claude picks the daily credit spread)
 
