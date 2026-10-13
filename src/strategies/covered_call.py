@@ -127,11 +127,14 @@ def screen_cc_candidates(
         result.skipped = "shares_already_covered" if owned_contracts else "under_one_round_lot"
         return result
 
-    # Prefer the wheel-adjusted basis: after a CSP assignment the real basis is the assignment
-    # price less the premium already collected on this campaign (D5) — without it, the gate
-    # below compares strikes to IBKR's raw avg_cost and refuses strikes that are genuinely
-    # profitable on the campaign. Falls back to avg_cost for shares bought outright.
-    basis = adjusted_cost_basis_for(symbol) or position.avg_cost
+    # Prefer the wheel-adjusted basis (D5): IBKR's avg_cost already nets the assigned put's
+    # premium but not the legs rolled before it, so without this the gate refuses strikes that
+    # are genuinely profitable on the campaign. One basis for every share held, weighted across
+    # all open assigned campaigns and shares bought outright; avg_cost when there's none.
+    basis = (
+        adjusted_cost_basis_for(symbol, shares_held=position.position, avg_cost=position.avg_cost)
+        or position.avg_cost
+    )
 
     risk = get_config().risk
     cc_cfg = risk["covered_call"]

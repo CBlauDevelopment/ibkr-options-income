@@ -211,11 +211,12 @@ def test_adjusted_basis_reads_through_the_read_only_engine(
     assert group["stock"]["adjusted_cost_basis"] == 173.50
 
 
-def test_newest_assigned_campaign_wins_the_basis(
+def test_every_open_assigned_campaign_blends_into_one_basis(
     client, seed_assigned_campaign, seed_portfolio_snapshot
 ) -> None:
     """Two open assigned campaigns on one symbol (a second assignment while the first
-    thread is still open) must render the newest thread's basis, not raise into None."""
+    thread is still open) blend over every share held — not the newest thread's basis
+    applied to all of them (2026-10-13), and never an exception into None."""
     from datetime import date, timedelta
 
     from src.storage.db import session_scope
@@ -237,10 +238,11 @@ def test_newest_assigned_campaign_wins_the_basis(
                 assigned=True,
                 adjusted_cost_basis=179.0,
                 realized_stock_pnl=None,
-                payload={},
+                payload={"assigned_shares": 100.0, "prior_legs_premium": 100.0},
             )
         )
-    seed_portfolio_snapshot(positions=[stock(symbol="NVDA", shares=100, avg_cost=180.0)])
+    seed_portfolio_snapshot(positions=[stock(symbol="NVDA", shares=200, avg_cost=180.0)])
 
     group = client.get("/portfolio/positions", headers=OWNER).json()["groups"][0]
-    assert group["stock"]["adjusted_cost_basis"] == 179.0
+    # 180 − (650 + 100) / 200 shares
+    assert group["stock"]["adjusted_cost_basis"] == 176.25

@@ -287,7 +287,11 @@ def seed_campaign():
 @pytest.fixture()
 def seed_assigned_campaign():
     """Insert one open, assigned campaign with an adjusted cost basis — Task 2.2's
-    adjusted-basis join and Task 2.3's leg rendering both read this shape."""
+    adjusted-basis join and Task 2.3's leg rendering both read this shape.
+
+    The payload records the assignment as ``mark_campaign_assigned`` does: 100 shares and a
+    $650 premium from legs before the assigned one, so against an IBKR avg cost of 180 the
+    whole-position basis is 180 − 650 / 100 = 173.50."""
 
     def _seed(
         *,
@@ -331,7 +335,12 @@ def seed_assigned_campaign():
                     assigned=True,
                     adjusted_cost_basis=adjusted_basis,
                     realized_stock_pnl=None,
-                    payload={"first_strategy": strategy},
+                    payload={
+                        "first_strategy": strategy,
+                        "assignment_price": assignment_price,
+                        "assigned_shares": 100.0,
+                        "prior_legs_premium": 650.0,
+                    },
                 )
             )
 

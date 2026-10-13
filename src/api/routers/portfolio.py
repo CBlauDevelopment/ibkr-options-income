@@ -50,6 +50,7 @@ from src.api.portfolio_source import read_portfolio
 from src.common.assignment_risk import assignment_risk_thresholds, is_assignment_risk
 from src.common.config import get_config
 from src.common.schemas import OptionRight, PositionSnapshot
+from src.storage.campaigns import prior_legs_premium, whole_position_basis
 from src.storage.models import CampaignRow, CandidateRow
 
 router = APIRouter()
@@ -564,7 +565,7 @@ def _stock_leg(
     # invariant (§4.2). `storage.campaigns.adjusted_cost_basis_for` opens the storage
     # engine's own read-write session_scope, which an API process must not do; the
     # universe composer is the one documented exception, and this route is not it.
-    adjusted = _campaign_basis_from_reading(db, underlying)
+    adjusted = _campaign_basis_from_reading(db, underlying, stock_pos)
     return StockLeg(
         as_of=as_of,
         shares=stock_pos.position,
@@ -581,25 +582,25 @@ def _stock_leg(
     )
 
 
-def _campaign_basis_from_reading(db: TradingDb, underlying: str) -> float | None:
+def _campaign_basis_from_reading(
+    db: TradingDb, underlying: str, stock_pos: PositionSnapshot
+) -> float | None:
     """Adjusted basis read through the route's own read-only session.
 
-    Mirrors `storage.campaigns.adjusted_cost_basis_for` exactly — newest open assigned
-    campaign for the symbol, basis kept only when positive — so the two readers cannot
-    disagree about which campaign's basis a stock leg renders.
+    Mirrors `storage.campaigns.adjusted_cost_basis_for` exactly — every open assigned
+    campaign for the symbol, blended over the whole position by the same pure
+    `whole_position_basis` — so the page and the covered-call gate cannot disagree.
     """
     try:
-        val = db.execute(
-            select(CampaignRow.adjusted_cost_basis)
-            .where(
+        payloads = db.execute(
+            select(CampaignRow.payload).where(
                 CampaignRow.symbol == underlying,
                 CampaignRow.status == "open",
                 CampaignRow.assigned.is_(True),
             )
-            .order_by(CampaignRow.opened_date.desc(), CampaignRow.id.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        return float(val) if val is not None and float(val) > 0 else None
+        ).scalars()
+        priors = [p for p in (prior_legs_premium(x) for x in payloads) if p is not None]
+        return whole_position_basis(priors, stock_pos.position, stock_pos.avg_cost)
     except Exception:
         return None
 

@@ -529,7 +529,12 @@ async def run() -> None:
         # C6: roll the assignment through to the wheel campaign so adjusted cost basis is
         # maintained (put assignment) / the campaign is flagged assigned (call assignment).
         for sh in assigned:
-            mark_campaign_assigned(sh.underlying, assignment_price=sh.strike, right=sh.right)
+            mark_campaign_assigned(
+                sh.underlying,
+                assignment_price=sh.strike,
+                right=sh.right,
+                candidate_id=sh.candidate_id,
+            )
         save_position_snapshot(today, positions)
     except Exception:
         logger.exception("EOD: ledger reconciliation failed — continuing")

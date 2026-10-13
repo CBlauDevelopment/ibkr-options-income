@@ -375,11 +375,11 @@ def _cc_quote_at(strike: float, *, dte: int = 20) -> OptionQuote:
 def test_covered_call_uses_campaign_adjusted_cost_basis(tmp_path, monkeypatch):
     """D5: premium already collected must be visible to the gate deciding on more.
 
-    A CSP on AAPL is assigned at $150 after collecting $4.50/share of premium across the
-    campaign, so the wheel's true basis is $145.50 — but the raw IBKR `avg_cost` on the
-    resulting stock position is $150.00. A $147 call is genuinely profitable against the
-    true basis and must pass; screened against the raw $150 basis it would be rejected as
-    below cost.
+    A $3.00 CSP on AAPL is rolled (bought back at $1.00, keeping $200) into a $2.50 CSP that
+    is assigned at $150. IBKR books the shares at 150 − 2.50 = $147.50 — it nets the assigned
+    put's own premium, not the rolled leg's — so the wheel's true basis is 147.50 − 2.00 =
+    $145.50. A $147 call is genuinely profitable against it and must pass; screened against
+    IBKR's $147.50 it would be rejected as below cost.
     """
     from src.storage.campaigns import attach_fill_to_campaign, mark_campaign_assigned
     from src.storage.db import session_scope
@@ -387,15 +387,20 @@ def test_covered_call_uses_campaign_adjusted_cost_basis(tmp_path, monkeypatch):
 
     _db_setup(tmp_path, monkeypatch)
     # attach_fill_to_campaign rolls up financials from FillRow, not from its own arguments —
-    # a real FillRow (as the executor writes on every fill) must exist first, matching the
-    # pattern the F1 tests above already use (_seed_fill then attach_fill_to_campaign).
-    with session_scope() as s:
-        _seed_fill(s, "cand-1", "SELL", 4.50, 1.0)  # $450 net premium on 1 contract
-    attach_fill_to_campaign("AAPL", "cand-1", "cash_secured_put", "SELL", 4.50, 1.0)
-    mark_campaign_assigned("AAPL", assignment_price=150.0, right="P")
+    # a real FillRow (as the executor writes on every fill) must exist first. The roll sells
+    # the new put before buying the old one back, so the campaign never reads as flat.
+    for cid, action, price in (
+        ("cand-1", "SELL", 3.00),
+        ("cand-2", "SELL", 2.50),
+        ("cand-1", "BUY", 1.00),
+    ):
+        with session_scope() as s:
+            _seed_fill(s, cid, action, price, 1.0)
+        attach_fill_to_campaign("AAPL", cid, "cash_secured_put", action, price, 1.0)
+    mark_campaign_assigned("AAPL", assignment_price=150.0, right="P", candidate_id="cand-2")
 
     pos = PositionSnapshot(
-        symbol="AAPL", sec_type="STK", position=100, avg_cost=150.0, underlying="AAPL"
+        symbol="AAPL", sec_type="STK", position=100, avg_cost=147.50, underlying="AAPL"
     )
     iv_stats = IVStats(symbol="AAPL", current_iv=28.0, iv_rank=55.0, hv_30=22.0)
     tech = TechnicalStats(symbol="AAPL", price=147.0, rsi_14=55.0)
@@ -403,6 +408,6 @@ def test_covered_call_uses_campaign_adjusted_cost_basis(tmp_path, monkeypatch):
 
     result = screen_cc_candidates("AAPL", [_cc_quote_at(147.0)], pos, iv_stats, tech, fund)
 
-    # Adjusted basis is 150.00 - 4.50 = 145.50, so the $147 strike is ABOVE basis and allowed.
+    # Adjusted basis is 147.50 - 2.00 = 145.50, so the $147 strike is ABOVE basis and allowed.
     passed_strikes = [c.strike for c in result.passed]
     assert 147.0 in passed_strikes, [r for _, r in result.rejected]

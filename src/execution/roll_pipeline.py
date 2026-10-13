@@ -288,7 +288,14 @@ async def evaluate_roll(
         (p for p in positions if p.sec_type == "STK" and (p.underlying or p.symbol) == underlying),
         None,
     )
-    cc_basis = adjusted_cost_basis_for(underlying) or (stock.avg_cost if stock else None)
+    cc_basis = (
+        (
+            adjusted_cost_basis_for(underlying, shares_held=stock.position, avg_cost=stock.avg_cost)
+            or stock.avg_cost
+        )
+        if stock
+        else None
+    )
     would_own = underlying.upper() in {
         str(x).upper() for x in (effective_universe().get("would_own") or [])
     }

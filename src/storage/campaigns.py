@@ -9,6 +9,7 @@ Public API:
   mark_campaign_assigned   — called by EOD reconciler when assignment is detected
   load_campaigns           — read-side for /campaigns Telegram command
   adjusted_cost_basis_for  — read-side for the covered-call gate (D5)
+  repair_assigned_bases    — init_db: rebuild bases the per-100 formula wrote (2026-10-13)
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 
 from src.storage.db import session_scope
-from src.storage.models import CampaignRow, FillRow
+from src.storage.models import CampaignRow, CandidateRow, FillRow
 
 log = logging.getLogger(__name__)
 
@@ -147,15 +148,64 @@ def attach_fill_to_campaign(
         )
 
 
+def _leg_totals(session, candidate_id: str) -> tuple[float, float]:
+    """(net short contracts, net premium in dollars) of one leg, from its fills."""
+    contracts = premium = 0.0
+    for f in session.execute(select(FillRow).where(FillRow.candidate_id == candidate_id)).scalars():
+        qty = float(f.filled_qty or 0.0)
+        sign = 1.0 if (f.action or "SELL").upper() == "SELL" else -1.0
+        contracts += sign * qty
+        premium += sign * float(f.avg_price or 0.0) * qty * 100
+    return contracts, premium
+
+
+def _record_assignment(
+    session, row: CampaignRow, candidate_id: str | None, strike: float | None
+) -> bool:
+    """Freeze the assignment on *row*: the assigned leg's shares, its strike, and the premium
+    of the legs before it. Returns False (row untouched) when the leg can't be found.
+
+    adjusted_cost_basis = strike − (premium of the legs up to and including the assigned one)
+    / assigned shares. ``prior_legs_premium`` is the part IBKR's own average cost does not
+    already net: IBKR books assigned shares at the strike less the assigned put's premium."""
+    legs = list(row.leg_candidate_ids or [])
+    if candidate_id is None:
+        # The newest leg still short is the one that was assigned.
+        candidate_id = next((c for c in reversed(legs) if _leg_totals(session, c)[0] > 0), None)
+    if candidate_id is None or candidate_id not in legs:
+        return False
+    contracts, leg_premium = _leg_totals(session, candidate_id)
+    if strike is None:
+        strike = session.execute(
+            select(CandidateRow.strike).where(CandidateRow.candidate_id == candidate_id)
+        ).scalar()
+    if contracts <= 0 or strike is None:
+        return False
+    prior = sum(_leg_totals(session, c)[1] for c in legs[: legs.index(candidate_id)])
+    shares = contracts * 100
+    row.adjusted_cost_basis = round(float(strike) - (prior + leg_premium) / shares, 4)
+    row.payload = {
+        **(row.payload or {}),
+        "assigned_candidate_id": candidate_id,
+        "assignment_price": float(strike),
+        "assigned_shares": shares,
+        "prior_legs_premium": round(prior, 2),
+    }
+    return True
+
+
 def mark_campaign_assigned(
     symbol: str,
     assignment_price: float | None = None,
     right: str | None = None,
+    candidate_id: str | None = None,
 ) -> None:
     """Mark the open campaign for *symbol* as assigned and compute adjusted cost basis.
 
-    adjusted_cost_basis = assignment_price − (net_premium / 100) per share, so the
-    operator knows their effective stock entry price net of all collected premium.
+    adjusted_cost_basis = assignment_price − (premium of the campaign's legs up to the assigned
+    one) / assigned shares — per share across every contract assigned (2026-10-13: it divided
+    by 100, right only for a one-contract wheel). *candidate_id* names the assigned leg; without
+    it the newest leg still short is taken.
 
     The ACB is only meaningful when shares are *acquired* — i.e. a short **put** assignment
     (``right`` is ``"P"`` or unknown). For a short **call** assignment (``right == "C"``) the
@@ -177,11 +227,54 @@ def mark_campaign_assigned(
 
             row.assigned = True
             acquires_shares = (right or "P").upper() != "C"
-            if acquires_shares and assignment_price is not None and row.net_premium > 0:
-                # net_premium is total dollars; divide by 100 to get per-share.
-                row.adjusted_cost_basis = round(assignment_price - row.net_premium / 100, 4)
+            if acquires_shares and assignment_price is not None:
+                if not _record_assignment(session, row, candidate_id, assignment_price):
+                    log.warning(
+                        "mark_campaign_assigned: no assigned leg found for %s — basis not set",
+                        symbol,
+                    )
     except Exception:
         log.warning("mark_campaign_assigned failed for %s", symbol, exc_info=True)
+
+
+def repair_assigned_bases() -> int:
+    """Rebuild every assigned campaign's basis that has no assignment record — the rows the
+    per-100 formula wrote before 2026-10-13. Idempotent; returns how many rows it fixed.
+    Called from ``init_db``. Never raises."""
+    fixed = 0
+    try:
+        with session_scope() as session:
+            rows = (
+                session.execute(
+                    select(CampaignRow).where(
+                        CampaignRow.assigned, CampaignRow.adjusted_cost_basis.is_not(None)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                if "assigned_shares" in (row.payload or {}):
+                    continue
+                old = row.adjusted_cost_basis
+                if _record_assignment(session, row, None, None):
+                    fixed += 1
+                    log.warning(
+                        "campaign %s: adjusted cost basis repaired %.4f → %.4f",
+                        row.campaign_id,
+                        old,
+                        row.adjusted_cost_basis,
+                    )
+                else:
+                    log.warning(
+                        "campaign %s: basis %.4f predates the assignment record and its "
+                        "assigned leg can't be found — left as is (the gate ignores it)",
+                        row.campaign_id,
+                        old,
+                    )
+    except Exception:
+        log.warning("repair_assigned_bases failed", exc_info=True)
+    return fixed
 
 
 def load_campaigns(
@@ -227,33 +320,50 @@ def load_campaigns(
         return []
 
 
-def adjusted_cost_basis_for(symbol: str) -> float | None:
-    """Per-share adjusted cost basis from *symbol*'s open, assigned campaign, or None.
+def whole_position_basis(
+    prior_premiums: list[float], shares_held: float, avg_cost: float | None
+) -> float | None:
+    """The wheel-adjusted basis of every share held: IBKR's average cost (which already nets
+    each assigned put's own premium) less the premium of the legs before each assignment,
+    spread over all shares held. None when there's nothing to adjust or no position. Pure —
+    the API's read-only route calls it too."""
+    if not prior_premiums or avg_cost is None or shares_held <= 0:
+        return None
+    return round(avg_cost - sum(prior_premiums) / shares_held, 4)
 
-    After a CSP assignment the true basis is the assignment price less the premium already
-    collected across the campaign (``mark_campaign_assigned``). Without this reader, the
-    covered-call gate compared strikes to IBKR's raw ``avg_cost`` — so with the default
-    ``min_strike_vs_basis: 1.00`` the premium already earned was invisible to the gate
-    deciding whether you may earn more (D5).
+
+def prior_legs_premium(payload: dict | None) -> float | None:
+    """A campaign's ``prior_legs_premium``, or None before its assignment was recorded."""
+    p = payload or {}
+    if "assigned_shares" not in p:
+        return None
+    return float(p.get("prior_legs_premium") or 0.0)
+
+
+def adjusted_cost_basis_for(
+    symbol: str, *, shares_held: float, avg_cost: float | None
+) -> float | None:
+    """The wheel-adjusted per-share basis of the whole *symbol* position, or None.
+
+    Every open, assigned campaign counts, not just the newest (2026-10-13), and the result
+    is share-weighted over everything held, shares bought outright included — see
+    ``whole_position_basis``. Without this reader the covered-call gate compared strikes to
+    IBKR's raw ``avg_cost``, which misses premium from legs rolled before the assignment
+    (D5).
 
     Never raises — a storage failure here must not break a scan.
     """
     try:
         with session_scope() as session:
-            row = session.execute(
-                select(CampaignRow)
-                .where(
+            payloads = session.execute(
+                select(CampaignRow.payload).where(
                     CampaignRow.symbol == symbol,
                     CampaignRow.status == "open",
                     CampaignRow.assigned,
                 )
-                .order_by(CampaignRow.opened_date.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            if row is None or row.adjusted_cost_basis is None:
-                return None
-            basis = float(row.adjusted_cost_basis)
-            return basis if basis > 0 else None
+            ).scalars()
+            priors = [p for p in (prior_legs_premium(x) for x in payloads) if p is not None]
+        return whole_position_basis(priors, shares_held, avg_cost)
     except Exception:
         log.warning("adjusted_cost_basis_for failed for %s", symbol, exc_info=True)
         return None

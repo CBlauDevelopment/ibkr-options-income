@@ -235,6 +235,9 @@ def init_db() -> None:
     _ensure_added_columns(_engine)
     _ensure_app_commands_pending_only_dedupe(_engine)
     _ensure_indexes(_engine)
+    from src.storage.campaigns import repair_assigned_bases  # imports this module
+
+    repair_assigned_bases()
 
 
 @contextmanager
