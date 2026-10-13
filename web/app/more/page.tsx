@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { BotCard } from "@/components/shell/BotCard";
 import { SystemStatusCard } from "@/components/shell/SystemStatusCard";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { Card } from "@/components/ui/Card";
@@ -17,6 +18,10 @@ export default function MorePage() {
   return (
     <div className="mx-auto max-w-[720px] px-4 py-6 md:px-7">
       <h1 className="text-2xl font-extrabold tracking-[-0.015em]">More</h1>
+
+      <section className="mt-6" aria-label="Bot">
+        <BotCard />
+      </section>
 
       <Card className="mt-6">
         <h2 className="text-[1.0625rem] font-bold">Theme</h2>

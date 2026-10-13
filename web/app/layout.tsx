@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Hanken_Grotesk, Red_Hat_Mono } from "next/font/google";
 import "./globals.css";
+import { HaltedBanner } from "@/components/shell/HaltedBanner";
 import { Rail } from "@/components/shell/Rail";
+import { TabBar } from "@/components/shell/TabBar";
 import { Providers } from "@/app/providers";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
@@ -40,9 +42,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         suppressHydrationWarning
       >
         <Providers>
-          <div className="flex h-screen overflow-hidden">
+          <div className="flex h-dvh overflow-hidden">
             <Rail />
-            <main className="flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <HaltedBanner />
+              <main className="flex-1 overflow-y-auto overflow-x-hidden pb-24 md:pb-0">{children}</main>
+            </div>
+            <TabBar />
           </div>
         </Providers>
       </body>

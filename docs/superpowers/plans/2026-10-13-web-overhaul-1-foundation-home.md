@@ -55,8 +55,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | 3 Primitives B | done | 93c7814 | vitest 532 (519+13), tsc 0, lint clean | 2026-10-13 | `useFocusTrap` reads `onEscape` through a ref (plan listed it in the effect deps, so a parent re-rendering with an inline onClose, as polling Home will, re-ran the effect and pulled focus to the Close button); +1 test (RED then GREEN). The plan's "11 tests" is 12 from its own code, 13 with the ruling's test. Sheet shadow `rgba(0,0,0,0.18)` kept as written (DESIGN.md allows one ambient sheet shadow) |
 | 4 Strategy filter | done | 5b165f8 | vitest 542 (532+10), tsc 0, lint clean; after the review fix pass vitest 548, tsc 0, lint clean | 2026-10-13 | none for the task itself (the brief's "11 tests" is 10 from its own code). **Section A review fix pass (I1 `useThemePref` hydration mismatch, I2 follow-OS listener moved into `THEME_INIT_SCRIPT`, I3 focusable `Sheet` panel): one extra commit `fix(web): theme hydration, follow-OS app-wide, sheet keys when focus is on body` after Task 4, so every later entry-check commit count on this branch shifts by +1 (B1 expects five commits on `main..HEAD`, not four).** |
 | **B entry checks** | done | main..HEAD = 5 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67) | vitest 548, tsc/lint green, B3-B6 pass | 2026-10-13 | B1 counts five commits, not four (Section A's review fix pass, f1e5a67) |
-| 5 Routes and redirects | done | (this commit; Task 6's commit records the hash) | vitest 552 (548+4), tsc 0, lint clean | 2026-10-13 | Step 5 link rewrite touched navigation links only: `app/trades/[approvalId]/page.tsx`, `components/options/{ApprovalCard,ApprovalDetail,AssessedRow,ShortsRow}.tsx`, `components/shell/RailSection.tsx`; tests `components/options/AssessedRow.test.tsx` (1 href) and `ShortsTable.test.tsx` (2 hrefs). The grep's other hits are API paths (`apiFetch("/options/...")`, `/pnl/...`, `/universe`, `lib/api-types.ts`, `lib/commands.ts`) and code comments; they stay, since rewriting them would break the API calls. More test fixture uses `rows: []` (SystemStatusCard's real body), as Step 1 directs |
-| 6 Shell | not started | | | | |
+| 5 Routes and redirects | done | 8fab3c3 | vitest 552 (548+4), tsc 0, lint clean | 2026-10-13 | Step 5 link rewrite touched navigation links only: `app/trades/[approvalId]/page.tsx`, `components/options/{ApprovalCard,ApprovalDetail,AssessedRow,ShortsRow}.tsx`, `components/shell/RailSection.tsx`; tests `components/options/AssessedRow.test.tsx` (1 href) and `ShortsTable.test.tsx` (2 hrefs). The grep's other hits are API paths (`apiFetch("/options/...")`, `/pnl/...`, `/universe`, `lib/api-types.ts`, `lib/commands.ts`) and code comments; they stay, since rewriting them would break the API calls. More test fixture uses `rows: []` (SystemStatusCard's real body), as Step 1 directs |
+| 6 Shell | done | (this commit; Section C's first commit records the hash) | vitest 565 (552+4 nav+10 shell+1 More-2 ControlsStrip; Rail's 3 replaced 3), tsc 0, lint clean; `next build` green (15 routes); real browser: 307s, five pages render, halt / RESUME / rung change from the bot sheet against a mock API | 2026-10-13 | `HaltedBanner` also says "No new orders will be queued or transmitted; profit-take closes still run": Step 1's copied ControlsStrip wording assertion failed against the plan's banner (RED then GREEN). `ControlsStrip.test.tsx`: dropped the `halted-banner` null check and the two banner tests (the null-time case is now `shell.test` "omits the time"; the banner omits the time instead of saying "unknown time", and `HaltControl` still says it). `text-on-flag` on sunk measured 6.95/10.17 (hover 6.19/8.90): kept. Build gate run in a scratch copy of `web/` (node_modules symlinked) because the operator's own `next dev` on :3000 shares `web/.next`. HaltControl, AutonomyControl, ConfirmAction and DecideControls (via ApprovalCard.test) tests unchanged and green |
 | **C entry checks** | not started | | | | |
 | 7 Account value API | not started | | | | |
 | 8 Spreads read API | not started | | | | |
@@ -2064,7 +2064,7 @@ git commit -m "feat(web): Trades/Activity/Research/More routes with redirects fr
   `BotCard`, `BotSheet`, `HaltedBanner`. Query keys reused: `["options","controls"]`,
   `["options","approvals","pending"]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `web/lib/nav.test.ts`:
 
@@ -2252,12 +2252,12 @@ Before Step 2, read `web/components/options/ControlsStrip.test.tsx` and copy any
 the halted banner's wording that the three HaltedBanner tests above do not already cover into
 `shell.test.tsx` under `describe("HaltedBanner")`, adapted to render `<HaltedBanner />`.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run lib/nav.test.ts components/shell`
 Expected: FAIL (modules not found; Rail still renders from `/nav`).
 
-- [ ] **Step 3: Implement `web/lib/nav.ts`**
+- [x] **Step 3: Implement `web/lib/nav.ts`**
 
 ```ts
 import type { LucideIcon } from "lucide-react";
@@ -2296,7 +2296,7 @@ export function activeKey(pathname: string): string | null {
 }
 ```
 
-- [ ] **Step 4: Implement the shell components**
+- [x] **Step 4: Implement the shell components**
 
 `web/components/shell/Rail.tsx`:
 
@@ -2559,12 +2559,12 @@ Then:
   pill. Delete the matching banner assertions from `ControlsStrip.test.tsx` (now covered in
   `shell.test.tsx`).
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run`
 Expected: PASS.
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
