@@ -191,7 +191,7 @@ export function AssessedRow({
       {approvalId != null && (
         <p className="mt-1 text-xs">
           <Link
-            href={`/options/${approvalId}`}
+            href={`/trades/${approvalId}`}
             className="text-content underline hover:text-focus focus-visible:ring-focus"
           >
             View approval

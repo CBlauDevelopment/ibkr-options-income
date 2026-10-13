@@ -29,7 +29,7 @@ export function ApprovalDetailCard({ detail }: { detail: ApprovalDetail }) {
     <div className="space-y-6">
       <div>
         <Link
-          href="/options"
+          href="/trades"
           className="text-xs text-muted hover:text-content"
         >
           Back to approvals

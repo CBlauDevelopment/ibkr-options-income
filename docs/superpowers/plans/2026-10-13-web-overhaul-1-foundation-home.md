@@ -54,8 +54,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | 2 Primitives A | done | f7ccc23 | vitest 519 (508+11), tsc 0, lint clean | 2026-10-13 | none |
 | 3 Primitives B | done | 93c7814 | vitest 532 (519+13), tsc 0, lint clean | 2026-10-13 | `useFocusTrap` reads `onEscape` through a ref (plan listed it in the effect deps, so a parent re-rendering with an inline onClose, as polling Home will, re-ran the effect and pulled focus to the Close button); +1 test (RED then GREEN). The plan's "11 tests" is 12 from its own code, 13 with the ruling's test. Sheet shadow `rgba(0,0,0,0.18)` kept as written (DESIGN.md allows one ambient sheet shadow) |
 | 4 Strategy filter | done | 5b165f8 | vitest 542 (532+10), tsc 0, lint clean; after the review fix pass vitest 548, tsc 0, lint clean | 2026-10-13 | none for the task itself (the brief's "11 tests" is 10 from its own code). **Section A review fix pass (I1 `useThemePref` hydration mismatch, I2 follow-OS listener moved into `THEME_INIT_SCRIPT`, I3 focusable `Sheet` panel): one extra commit `fix(web): theme hydration, follow-OS app-wide, sheet keys when focus is on body` after Task 4, so every later entry-check commit count on this branch shifts by +1 (B1 expects five commits on `main..HEAD`, not four).** |
-| **B entry checks** | not started | | | | |
-| 5 Routes and redirects | not started | | | | |
+| **B entry checks** | done | main..HEAD = 5 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67) | vitest 548, tsc/lint green, B3-B6 pass | 2026-10-13 | B1 counts five commits, not four (Section A's review fix pass, f1e5a67) |
+| 5 Routes and redirects | done | (this commit; Task 6's commit records the hash) | vitest 552 (548+4), tsc 0, lint clean | 2026-10-13 | Step 5 link rewrite touched navigation links only: `app/trades/[approvalId]/page.tsx`, `components/options/{ApprovalCard,ApprovalDetail,AssessedRow,ShortsRow}.tsx`, `components/shell/RailSection.tsx`; tests `components/options/AssessedRow.test.tsx` (1 href) and `ShortsTable.test.tsx` (2 hrefs). The grep's other hits are API paths (`apiFetch("/options/...")`, `/pnl/...`, `/universe`, `lib/api-types.ts`, `lib/commands.ts`) and code comments; they stay, since rewriting them would break the API calls. More test fixture uses `rows: []` (SystemStatusCard's real body), as Step 1 directs |
 | 6 Shell | not started | | | | |
 | **C entry checks** | not started | | | | |
 | 7 Account value API | not started | | | | |
@@ -1783,29 +1783,29 @@ changing their behaviour.
 
 **Entry checks (run before Task 5):**
 
-- [ ] **B1. Section A landed.** `git log --oneline main..HEAD` shows four commits; Tasks 1–4 are
+- [x] **B1. Section A landed.** `git log --oneline main..HEAD` shows four commits; Tasks 1–4 are
   ticked with commit hashes in the Progress log.
-- [ ] **B2. Web gate green, no regressions.**
+- [x] **B2. Web gate green, no regressions.**
   `cd web && npx vitest run && npx tsc --noEmit && npm run lint`. The vitest count is the A2 baseline
   plus Section A's new tests, with zero failures and zero skipped tests that were not skipped at
   baseline.
-- [ ] **B3. Section A's interfaces exist.** This prints nothing:
+- [x] **B3. Section A's interfaces exist.** This prints nothing:
 
   ```bash
   cd web && for f in components/ui/{Button,Card,SegmentedControl,StatusWord,Meter,Disclosure,Stub,Sheet}.tsx \
     lib/{theme,useThemePref,useFocusTrap,strategy,useStrategyFilter}.ts; do [ -f "$f" ] || echo "MISSING $f"; done
   ```
 
-- [ ] **B4. No raw colour crept in.** This prints nothing:
+- [x] **B4. No raw colour crept in.** This prints nothing:
 
   ```bash
   cd web && grep -rnE "#[0-9a-fA-F]{3,8}\b|\b(bg|text|border)-(white|black|gray|zinc|neutral|slate|green|red|lime)-?" \
     components/ui lib --include=*.tsx --include=*.ts | grep -v "\.test\."
   ```
 
-- [ ] **B5. Copy rules.** `grep -rn "—" web/components/ui --include=*.tsx | grep -v "\.test\."` shows
+- [x] **B5. Copy rules.** `grep -rn "—" web/components/ui --include=*.tsx | grep -v "\.test\."` shows
   no em dash inside JSX text or a string literal (an em dash in a code comment is allowed).
-- [ ] **B6. The theme works in a real browser.** `cd web && npm run dev -- -p 3001`, open
+- [x] **B6. The theme works in a real browser.** `cd web && npm run dev -- -p 3001`, open
   `http://localhost:3001/`; in DevTools run `localStorage.setItem("ibkr-theme","dark")` and reload:
   the page paints dark with no light flash. Set it back to `"light"`. Stop the server.
 
@@ -1836,7 +1836,7 @@ bot sheet.
 - Produces: routes `/trades`, `/trades/[approvalId]`, `/activity`, `/research`,
   `/research/universe`, `/more`; `ThemeToggle()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `web/next.config.test.ts`:
 
@@ -1893,12 +1893,12 @@ Before writing the More test's `status` fixture, open `web/components/shell/Syst
 and copy the minimal valid `GET /system/status` body it uses; replace the `status` constant above
 with it if the field names differ (`systems` is a placeholder name only if that file shows another).
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run next.config.test.ts app/more/page.test.tsx`
 Expected: FAIL (`redirects` undefined; `./page` not found).
 
-- [ ] **Step 3: Move the pages**
+- [x] **Step 3: Move the pages**
 
 ```bash
 cd web
@@ -1921,7 +1921,7 @@ Create `web/app/page.tsx` (temporary: Research stays at `/` until Task 14 builds
 export { default } from "./research/page";
 ```
 
-- [ ] **Step 4: Redirects** — `web/next.config.ts`
+- [x] **Step 4: Redirects** — `web/next.config.ts`
 
 ```ts
 import type { NextConfig } from "next";
@@ -1943,7 +1943,7 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-- [ ] **Step 5: Update in-app links**
+- [x] **Step 5: Update in-app links**
 
 Run: `cd web && grep -rnE "[\"'\`]/(options|pnl|universe)([/\"'\`?]|$)" app components lib --include=*.tsx --include=*.ts | grep -v test`
 
@@ -1952,7 +1952,7 @@ For every hit, change `/options/` → `/trades/`, `/options` → `/trades`, `/pn
 expectations the same way (a test asserting `href="/options/41"` now asserts `/trades/41`).
 Record the file list as a ruling in the Progress log.
 
-- [ ] **Step 6: ThemeToggle and the More page**
+- [x] **Step 6: ThemeToggle and the More page**
 
 `web/components/shell/ThemeToggle.tsx`:
 
@@ -2030,12 +2030,12 @@ export default function MorePage() {
 }
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run`
 Expected: PASS, including the moved `app/trades/page.test.tsx` and `app/research/page.test.tsx`.
 
-- [ ] **Step 8: Gate and commit**
+- [x] **Step 8: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint

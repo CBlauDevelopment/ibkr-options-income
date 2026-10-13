@@ -30,7 +30,7 @@ export function ApprovalCard({
     <div className="rounded-md border border-border bg-surface px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <Link
-          href={`/options/${approval.id}`}
+          href={`/trades/${approval.id}`}
           className="flex items-baseline gap-2 rounded focus-visible:ring-focus hover:text-focus"
         >
           <span className="font-mono text-sm text-content">

@@ -3,12 +3,12 @@ import clsx from "clsx";
 
 const HREF: Record<string, string> = {
   research: "/",
-  options: "/options",
+  options: "/trades",
   portfolio: "/portfolio",
-  pnl: "/pnl",
+  pnl: "/activity",
   ledger: "/ledger",
   news: "/news",
-  universe: "/universe",
+  universe: "/research/universe",
   explain: "/explain",
 };
 

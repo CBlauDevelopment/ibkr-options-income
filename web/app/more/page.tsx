@@ -1,0 +1,50 @@
+"use client";
+
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+import { SystemStatusCard } from "@/components/shell/SystemStatusCard";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { Card } from "@/components/ui/Card";
+
+const LINKS = [
+  { href: "/research", label: "Research", sub: "Search, watchlist, sectors, universe" },
+  { href: "/news", label: "News", sub: "Feed, calendar and ticker briefs" },
+  { href: "/explain", label: "How it works", sub: "The pipeline in plain English" },
+  { href: "/ledger/import", label: "Import a statement", sub: "Upload an IBKR activity CSV" },
+];
+
+export default function MorePage() {
+  return (
+    <div className="mx-auto max-w-[720px] px-4 py-6 md:px-7">
+      <h1 className="text-2xl font-extrabold tracking-[-0.015em]">More</h1>
+
+      <Card className="mt-6">
+        <h2 className="text-[1.0625rem] font-bold">Theme</h2>
+        <p className="mt-1 text-sm text-muted">Light is the default. Follow OS switches with your device.</p>
+        <div className="mt-3">
+          <ThemeToggle />
+        </div>
+      </Card>
+
+      <Card className="mt-4" as="div">
+        <ul>
+          {LINKS.map((l) => (
+            <li key={l.href} className="border-t border-border first:border-t-0">
+              <Link href={l.href} className="flex items-center justify-between gap-3 py-3">
+                <span>
+                  <span className="block font-bold">{l.label}</span>
+                  <span className="block text-[0.8125rem] text-muted">{l.sub}</span>
+                </span>
+                <ChevronRight aria-hidden="true" size={18} className="text-muted" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      <section className="mt-4" aria-label="System status">
+        <SystemStatusCard />
+      </section>
+    </div>
+  );
+}
