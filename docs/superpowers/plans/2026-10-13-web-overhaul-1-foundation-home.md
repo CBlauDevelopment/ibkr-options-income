@@ -51,8 +51,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 |---|---|---|---|---|---|
 | **A entry checks** (baseline) | done | main a731d59 | pytest 3520+1 skip, vitest 496, tsc/lint/ruff/mypy green | 2026-10-13 | tsc baseline had 9 test-file errors; fixed first in 6273d87 on main at operator's choice |
 | 1 Tokens, fonts, theme | done | 323cd4f | vitest 508 (496+12), tsc 0, lint clean | 2026-10-13 | web/CLAUDE.md: also removed stale "Dark-only in P1." sentence and changed "focus is blue" to "focus is ink" (both contradicted the new invariants; plan listed only the bullets) |
-| 2 Primitives A | done | this commit (`feat(web): ui primitives - Button, Card, SegmentedControl, StatusWord, Meter`) | vitest 519 (508+11), tsc 0, lint clean | 2026-10-13 | none |
-| 3 Primitives B | not started | | | | |
+| 2 Primitives A | done | f7ccc23 | vitest 519 (508+11), tsc 0, lint clean | 2026-10-13 | none |
+| 3 Primitives B | done | this commit (`feat(web): Disclosure, Stub and Sheet primitives with a nested-dialog-safe focus trap`) | vitest 532 (519+13), tsc 0, lint clean | 2026-10-13 | `useFocusTrap` reads `onEscape` through a ref (plan listed it in the effect deps, so a parent re-rendering with an inline onClose, as polling Home will, re-ran the effect and pulled focus to the Close button); +1 test (RED then GREEN). The plan's "11 tests" is 12 from its own code, 13 with the ruling's test. Sheet shadow `rgba(0,0,0,0.18)` kept as written (DESIGN.md allows one ambient sheet shadow) |
 | 4 Strategy filter | not started | | | | |
 | **B entry checks** | not started | | | | |
 | 5 Routes and redirects | not started | | | | |
@@ -1137,7 +1137,7 @@ git commit -m "feat(web): ui primitives - Button, Card, SegmentedControl, Status
   - `useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean, onEscape: () => void)`
   - `Sheet({ open: boolean; onClose: () => void; title: string; children: ReactNode })`
 
-- [ ] **Step 1: Write the failing tests** — `web/components/ui/primitives-b.test.tsx`
+- [x] **Step 1: Write the failing tests** — `web/components/ui/primitives-b.test.tsx`
 
 ```tsx
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -1264,12 +1264,12 @@ describe("Sheet", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run components/ui/primitives-b.test.tsx`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `web/components/ui/Disclosure.tsx`:
 
@@ -1541,12 +1541,12 @@ order; it does not (the title row is first, then children). `useFocusTrap` focus
 focusable in DOM order, which is the Close button in the header. The test "moves focus inside on
 open" accepts any element inside the dialog.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run components/ui/primitives-b.test.tsx`
 Expected: PASS (11 tests).
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
