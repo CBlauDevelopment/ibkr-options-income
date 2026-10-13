@@ -1,21 +1,27 @@
 # web/ — Next.js research console
 
-Dark-only in P1. House law for this subtree; the dark token system in `app/globals.css`
+House law for this subtree; the token system in `app/globals.css`
 is the source of truth for every colour.
 
 ## Invariants
 
-- **Dark only.** A light theme later is a token-file change, not a refactor.
+- **Light by default, dark by choice.** `data-theme` on `<html>` is set before paint by
+  `THEME_INIT_SCRIPT` (`lib/theme.ts`); the preference (light / dark / system) lives in
+  `localStorage` key `ibkr-theme`. `web/DESIGN.md` is the visual authority.
 - **Semantic tokens only.** Never a raw palette class (`bg-white`, `bg-gray-800`) or a hex
   literal in a component. Consume colours through `bg-background`, `bg-surface`,
   `bg-elevated`, `text-content`, `text-muted`, `border-border`, `text-gain`, `text-loss`,
   `text-unknown`, `ring-focus`.
-- **IBM Plex Sans** for prose, **IBM Plex Mono** for tickers and numbers. Apply `.tabular`
-  to every numeric column so figures align.
+- **Hanken Grotesk** for everything; **Red Hat Mono** for stub and ledger figures. Apply
+  `.tabular` to every numeric column so figures align.
+- **Lime means act.** `bg-primary` only on primary actions, the pending-count badge, the pay
+  meter and the "Expires today" status word.
+- **No shadows** except the review sheet and the confirm dialog; elevation is tonal
+  (`background` → `surface` → `sunk`).
 - **Elevation by lightness, never border plus shadow stacked.** A surface change is a
   background change; a border sits on a lightness change, not on top of a shadow.
 - **State is never encoded by colour alone.** The unknown state carries texture (`.hatch`)
-  as well as `text-unknown`; selected never reads as "up" because focus is blue, not green.
+  as well as `text-unknown`; selected never reads as "up" because focus is ink, not green.
 - **Zero em dashes in UI copy.** Use a hyphen with spaces or rephrase.
 - **Banned words:** "seamless", "robust", "unlock", "elevate".
 - **`prefers-reduced-motion`** is respected globally (see `globals.css`).
