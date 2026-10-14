@@ -122,7 +122,7 @@ async def test_the_brief_parses_a_plan_or_reports_why_not() -> None:
     ok = await picker(CliResult('{"bias": "neutral", "summary": "calm"}', None, 20000)).brief(
         BRIEF_REQ
     )
-    assert ok.plan is not None and ok.plan.bias == "neutral" and ok.call.effort == "high"
+    assert ok.plan is not None and ok.plan.bias == "neutral" and ok.call.effort == "medium"
     bad = await picker(CliResult("nope", None, 20000)).brief(BRIEF_REQ)
     assert bad.plan is None and bad.call.error == "unparseable"
 

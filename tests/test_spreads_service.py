@@ -187,11 +187,28 @@ class FakeBroker:
 
 
 class FakeNotifier:
+    """Records posts (``sent``) and in-place edits (``edits``); ``messages`` is what each
+    message id shows now. ``seen`` = everything ever shown, posts and edits alike."""
+
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.edits: list[str] = []
+        self.messages: dict[int, str] = {}
 
-    async def send(self, text: str) -> None:
+    async def send(self, text: str) -> int:
         self.sent.append(text)
+        mid = len(self.messages) + 1
+        self.messages[mid] = text
+        return mid
+
+    async def edit(self, message_id: int, text: str) -> bool:
+        self.edits.append(text)
+        self.messages[message_id] = text
+        return True
+
+    @property
+    def seen(self) -> list[str]:
+        return [*self.sent, *self.edits]
 
 
 @pytest.fixture()
@@ -248,7 +265,7 @@ async def test_a_full_shadow_day_maps_enters_and_takes_profit(tmp_path, spreads_
     clock[0] = T1610
     await svc.tick()  # EOD summary once
     await svc.tick()
-    assert sum("trade(s)" in m for m in notifier.sent) == 1
+    assert sum("📊" in m for m in notifier.sent) == 1  # one EOD summary
 
 
 # Review C1 — the typical winner: the far-OTM long has no bid (ib_async NaN → None).
@@ -819,9 +836,13 @@ async def test_an_armed_check_with_nothing_to_sell_says_why_once_a_day(
     with caplog.at_level("INFO", logger="src.spreads.service"):
         await svc.tick()
     assert spreads_db.open_positions("shadow") == []
-    (msg,) = [m for m in notifier.sent if "put side armed but nothing to sell" in m]
-    assert "679/674" in msg and "$0.10" in msg and "$0.50" in msg
+    # 2026-10-14: the status goes on the day card (edited in place), not a new post.
+    card = notifier.messages[1]
+    assert "put side armed, no trade" in card
+    assert "679/674" in card and "$0.10" in card and "$0.50" in card
     assert "put" in caplog.text and "nothing to sell" in caplog.text
+    posts = len(notifier.sent)
     clock[0] = T1100
-    await svc.tick()  # still nothing: logged, but no second message today (one per side)
-    assert sum("nothing to sell" in m for m in notifier.sent) == 2
+    await svc.tick()  # still nothing: logged, the card's status refreshed, no new post
+    assert len(notifier.sent) == posts
+    assert "armed checks" in notifier.messages[1]

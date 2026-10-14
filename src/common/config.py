@@ -925,7 +925,7 @@ class SpreadsAiCfg(BaseModel):
 
     enabled: bool = False
     brief_model: str = "claude-opus-5-5"
-    brief_effort: EffortLevel = "high"
+    brief_effort: EffortLevel = "medium"  # Opus at medium for the day plan (2026-10-14)
     pick_model: str = "claude-opus-5-5"
     pick_effort: EffortLevel = "high"  # measured 2026-10-12: ~16 s for a pick-sized prompt
     # On cli_error (how a usage limit surfaces) a call retries once on this model, inside the
@@ -1158,7 +1158,9 @@ class NewsDigestCfg(BaseModel):
 
 
 class NewsLlmCfg(BaseModel):
-    backend: Literal["cli", "ollama", "cli_then_ollama"] = "cli_then_ollama"
+    backend: Literal["cli", "ollama", "cli_then_ollama"] = (
+        "cli"  # claude -p only (operator preference 2026-10-14)
+    )
     model: str = "claude-sonnet-5-5"
     ollama_model: str = ""  # empty = claude.ollama_model
     timeout_seconds: float = 120.0

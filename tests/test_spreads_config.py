@@ -148,13 +148,14 @@ def test_event_until_must_be_a_padded_time() -> None:
         SpreadsEventCfg(day="2026-08-28", until="9:30", label="Jackson Hole")
 
 
-def test_shipped_ai_block_is_off_with_opus_high() -> None:
+def test_shipped_ai_block_is_off_with_opus() -> None:
     sc = get_config().spreads
     ai = sc.ai
     assert ai.enabled is False
+    # The day plan runs Opus at medium (operator ruling 2026-10-14); the pick stays high.
     assert (ai.brief_model, ai.brief_effort, ai.pick_model, ai.pick_effort) == (
         "claude-opus-5-5",
-        "high",
+        "medium",
         "claude-opus-5-5",
         "high",
     )

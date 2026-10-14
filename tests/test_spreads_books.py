@@ -97,7 +97,7 @@ async def test_the_baseline_book_is_managed_and_sized_on_its_own(
     assert reason == "profit_take" and spreads_db.closed_results("shadow") == []
     assert svc.capital("baseline") == pytest.approx(100_000.0 + pnl)
     assert svc.capital() == pytest.approx(100_000.0)
-    assert any("[BASELINE] CLOSED b1-BL" in m for m in notifier.sent)
+    assert any("Closed</b> <code>b1-BL</code> <i>(baseline" in m for m in notifier.sent)
 
 
 async def test_the_eod_summary_compares_the_books(
@@ -107,7 +107,7 @@ async def test_the_eod_summary_compares_the_books(
     clock = [T1610]
     svc, _, notifier = make_books(tmp_path, clock)
     await svc.tick()
-    (eod,) = [m for m in notifier.sent if "trade(s)" in m]
+    (eod,) = [m for m in notifier.sent if "📊" in m]
     assert "Claude +$0.00 vs baseline +$0.00 today" in eod
 
 

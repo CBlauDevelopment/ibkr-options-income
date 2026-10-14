@@ -149,9 +149,9 @@ async def test_claude_takes_an_outer_strike_and_the_baseline_takes_its_own(
     )
     assert rec.market.vix == 17.0 and rec.snapshot.plan_bias == "neutral"
     assert picker.picks[0].plan == SpreadDayPlan(bias="neutral")  # the brief fed the pick
-    assert any("DAY PLAN" in m for m in notifier.sent)
+    assert any("<b>Plan</b>" in m for m in notifier.seen)
     assert any(
-        "Claude chose C (outer)" in m and "baseline: sold 679/674" in m for m in notifier.sent
+        "Claude chose C</b> (outer)" in m and "Baseline: sold 679/674" in m for m in notifier.sent
     )
 
 
@@ -165,7 +165,7 @@ async def test_a_skip_trades_nothing_but_the_baseline_still_trades(tmp_path, spr
     )
     (rec,) = spreads_db.picks()
     assert (rec.choice, rec.executed_letter) == ("skip", None)
-    assert any("Claude SKIPPED" in m for m in notifier.sent)
+    assert any("Claude skipped" in m for m in notifier.sent)
 
 
 async def test_an_off_menu_letter_falls_back_to_the_baseline_item(tmp_path, spreads_db) -> None:  # noqa: F811

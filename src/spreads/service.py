@@ -68,14 +68,18 @@ from src.spreads.gex import build_levels, expected_move, regime_at
 from src.spreads.manager import debit_to_close, evaluate_exit, intrinsic_debit, reconcile
 from src.spreads.menu import build_menu, round_trip_cost
 from src.spreads.notify import (
+    DayCard,
     SpreadsNotifier,
+    entry_card_line,
+    exit_card_line,
+    fmt_alert,
     fmt_books,
-    fmt_brief,
+    fmt_day_card,
     fmt_entry,
     fmt_eod,
     fmt_exit,
-    fmt_map,
     fmt_pick,
+    status_nothing_to_sell,
 )
 from src.spreads.pricing import ET, day_schedule
 from src.spreads.report import compute_stats
@@ -126,7 +130,9 @@ class Executor(Protocol):
 
 
 class Notifier(Protocol):
-    async def send(self, text: str) -> None: ...
+    async def send(self, text: str) -> int | None: ...  # Telegram HTML; the message id
+
+    async def edit(self, message_id: int, text: str) -> bool: ...
 
 
 class Picker(Protocol):
@@ -209,6 +215,7 @@ class SpreadsService:
         self._pending: _PendingPick | None = None
         self._brief_task: asyncio.Task[SpreadBriefResult] | None = None
         self._brief_day: date | None = None
+        self._card: DayCard | None = None  # the day's edited-in-place card (notify.py)
 
     @property
     def books(self) -> list[tuple[str, Executor]]:
@@ -358,7 +365,24 @@ class SpreadsService:
         if mark in self._alerted:
             return
         self._alerted.add(mark)
-        await self.notifier.send(text)
+        await self.notifier.send(fmt_alert(text))
+
+    async def _card_update(self, now: datetime, **changes: Any) -> None:
+        """Apply *changes* to today's day card and show it: the first update of an ET day posts
+        the card, later ones edit it in place (a refused edit posts a fresh one). Never raises."""
+        day = now.astimezone(ET).date()
+        try:
+            if self._card is None or self._card.day != day:
+                self._card = DayCard(day=day, mode=self.cfg.mode, underlying=self.cfg.underlying)
+            card = self._card
+            for k, v in changes.items():
+                setattr(card, k, v)
+            text = fmt_day_card(card)
+            if card.message_id is not None and await self.notifier.edit(card.message_id, text):
+                return
+            card.message_id = await self.notifier.send(text)
+        except Exception:
+            log.exception("spreads: day card update failed")
 
     async def _guard(self, phase: str, work: Awaitable[None]) -> None:
         try:
@@ -459,7 +483,7 @@ class SpreadsService:
             # The day's FIRST expected move, from spreads.db: a restart must not swap in the
             # smaller straddle it sees later in the day.
             tape.day_em = store.first_map_em(now.astimezone(ET).date())
-        await self.notifier.send(fmt_map(self.levels, self.cfg.mode))
+        await self._card_update(now, levels=self.levels)
 
     def _tape_for(self, now: datetime) -> SessionTape:
         today = now.astimezone(ET).date()
@@ -586,17 +610,18 @@ class SpreadsService:
         offered: set[str],
     ) -> None:
         """An armed check that found no strike to sell on a side says why: in the log every
-        time, on Telegram once per side per ET day (it can repeat every entry check)."""
+        time, and on the day card's status line (edited in place, 2026-10-14 — it used to post
+        a message per side per day)."""
+        statuses: list[str] = []
         for side in allowed.sides:
             if side in offered or side not in self.cfg.selection.sides:
                 continue
             why = why_nothing(side, chain, levels, self.cfg, now)
             log.info("spreads: %s armed (%s), nothing to sell — %s", side, allowed.reason, why)
-            await self.alert_once(
-                f"nothing_to_sell:{side}",
-                f"[{self.cfg.mode.upper()}] {side} side armed but nothing to sell — {why}. "
-                "Later checks today are logged only (logs/spreads.log).",
-            )
+            statuses.append(status_nothing_to_sell(side, why))
+        if statuses:
+            checks = self._card.checks + 1 if self._card is not None else 1
+            await self._card_update(now, status=" · ".join(statuses), status_at=now, checks=checks)
 
     async def _open_candidate(
         self,
@@ -656,7 +681,13 @@ class SpreadsService:
             episode_key=episode_key,
         )
         await self.notifier.send(fmt_entry(pos, mode, tags))
+        if mode == self.cfg.mode:
+            await self._card_trade(now, entry_card_line(pos), status=f"opened {pos.spread_id}")
         return pos, None
+
+    async def _card_trade(self, now: datetime, line: str, *, status: str) -> None:
+        trades = [*(self._card.trades if self._card is not None else []), line]
+        await self._card_update(now, trades=trades, status=status, status_at=now, checks=0)
 
     def _tape_stats(self, sides: list[SpreadSide], now: datetime) -> SpreadTapeStats:
         t = self.tape
@@ -771,7 +802,7 @@ class SpreadsService:
                 log.exception("spreads: the morning brief raised")
                 return
             store.record_day_plan(today, result, now)
-            await self.notifier.send(fmt_brief(result, self.cfg.mode))
+            await self._card_update(now, plan=result)
             return
         if self.levels is None or self.map_at is None:
             return
@@ -1021,8 +1052,10 @@ class SpreadsService:
                 pick_id, send_rejected=True, send_reasons=list(verdict.reasons), filled=False
             )
             await self.notifier.send(
-                f"[{self.cfg.mode.upper()}] pick {chosen.letter} not sent — the re-gate refused "
-                f"it: {', '.join(verdict.reasons)}"
+                fmt_alert(
+                    f"pick {chosen.letter} not sent — the re-gate refused it: "
+                    f"{', '.join(verdict.reasons)}"
+                )
             )
             return
         pos, why = await self._open_candidate(
@@ -1148,6 +1181,12 @@ class SpreadsService:
             await self.notifier.send(
                 fmt_exit(p.spread_id, decision.reason, result.price, realized, mode)
             )
+            if mode == self.cfg.mode:
+                await self._card_trade(
+                    now,
+                    exit_card_line(p.spread_id, decision.reason, realized),
+                    status=f"closed {p.spread_id}",
+                )
         force_close = day_schedule(self.cfg.schedule, now.astimezone(ET).date()).force_close
         if (
             mode != "baseline"
@@ -1179,6 +1218,8 @@ class SpreadsService:
                 store.realized_pnl_total("baseline"),
             )
         await self.notifier.send(text)
+        if self._card is not None and self._card.day == today:
+            await self._card_update(now, status="session over", status_at=now, checks=0)
         self.eod_sent_for = today
 
     async def _settle_expiring(self, mode: str, today: date, now: datetime) -> None:

@@ -105,7 +105,7 @@ backtest:
 ai:                           # Claude picks from the gate-approved menu (docs/superpowers/specs/2026-10-12-spreads-claude-picker-design.md)
   enabled: false              # false = today's behaviour exactly: the baseline pick only, no baseline book, no Claude calls
   brief_model: claude-opus-5-5
-  brief_effort: high          # 09:31 day plan: no deadline, the heavy synthesis
+  brief_effort: medium        # 09:31 day plan: Opus at medium (operator ruling 2026-10-14; was high)
   pick_model: claude-opus-5-5
   pick_effort: high           # measured 2026-10-12: ~16 s for a pick-sized prompt (Sonnet/high ~12 s)
   fallback_model: claude-sonnet-5-5  # on cli_error (e.g. an Opus usage limit) retry once on this model, within the same timeout; "" = no retry

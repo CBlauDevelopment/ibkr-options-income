@@ -1,14 +1,27 @@
 """Telegram output for the spreads system — its own thread, its own Bot, no src.notify import.
 
+2026-10-14 redesign (the thread was "clunky and cluttered": seven plain-text GEX-map posts a
+day, a day plan with every flag run together on one line, a "nothing to sell" post per side,
+and ``[PAPER]``/``[SPREADS]`` tags in front of everything):
+
+* **One day card per session**, sent at the first map and then *edited in place*: the levels,
+  Claude's plan as bullets, and a live status line (the last entry check). Map refreshes and
+  "nothing to sell" checks update the card instead of posting.
+* **Separate messages only for events**: an open, a close, a Claude pick, an alert, the EOD.
+* Telegram HTML, every dynamic string escaped (Claude's text included).
+
 Best effort: a send failure is logged and swallowed, never raised into trading code.
 """
 
 from __future__ import annotations
 
+import html
 import logging
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, datetime
 
 from telegram import Bot
+from telegram.error import BadRequest
 
 from src.common.config import Config
 from src.common.schemas import (
@@ -24,9 +37,21 @@ from src.spreads.pricing import ET
 
 log = logging.getLogger(__name__)
 
+_LIMIT = 4096
+_REGIME = {"positive": "🟢 positive gamma", "negative": "🔴 negative gamma"}
+_REASON = {
+    "profit_take": "profit take",
+    "stop_loss": "stop loss",
+    "strike_touch": "short strike touched",
+    "expire_worthless": "expired worthless",
+    "max_hold": "held too long",
+    "time_stop": "time stop",
+    "force_close": "time stop",
+}
 
-def _tag(mode: str) -> str:
-    return f"[{mode.upper()}]"
+
+def esc(s: object) -> str:
+    return html.escape(str(s), quote=False)
 
 
 def _money(v: float) -> str:
@@ -37,44 +62,141 @@ def _lvl(v: float | None) -> str:
     return "n/a" if v is None else f"{v:,.2f}"
 
 
-def fmt_map(levels: GexLevels, mode: str) -> str:
-    em = "n/a" if levels.expected_move is None else f"±{levels.expected_move:.2f}"
-    return (
-        f"{_tag(mode)} GEX map {levels.as_of.astimezone(ET):%H:%M} ET (levels in traded-underlying points)\n"
-        f"spot {levels.spot:,.2f} · regime {levels.regime} · expected move {em}\n"
-        f"put wall {_lvl(levels.put_wall)} · flip {_lvl(levels.flip)} · call wall {_lvl(levels.call_wall)}"
-    )
+def _book(mode: str) -> str:
+    """A book label only where it adds information: the simulated baseline book."""
+    return " <i>(baseline, simulated)</i>" if mode == "baseline" else ""
+
+
+def _reason(code: str) -> str:
+    return _REASON.get(code, code.replace("_", " "))
+
+
+# ---------------------------------------------------------------------------
+# The day card
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DayCard:
+    """Everything the day's one edited-in-place message shows."""
+
+    day: date
+    mode: str
+    underlying: str = "SPY"
+    levels: GexLevels | None = None
+    plan: SpreadBriefResult | None = None
+    status: str | None = None
+    status_at: datetime | None = None
+    checks: int = 0  # armed entry checks that found nothing to sell
+    trades: list[str] = field(default_factory=list)  # one short line per open/close today
+    message_id: int | None = None
+
+
+def fmt_day_card(card: DayCard) -> str:
+    head = f"🟦 <b>{esc(card.underlying)} 0DTE · {card.day:%a %d %b}</b> · {esc(card.mode.upper())}"
+    parts = [head]
+    lv = card.levels
+    if lv is not None:
+        em = "n/a" if lv.expected_move is None else f"±{lv.expected_move:.2f}"
+        parts += [
+            "",
+            f"<b>Levels</b> {lv.as_of.astimezone(ET):%H:%M} ET · spot {lv.spot:,.2f} · EM {em}",
+            f"put wall {_lvl(lv.put_wall)} · flip {_lvl(lv.flip)} · call wall {_lvl(lv.call_wall)}",
+            _REGIME.get(lv.regime, esc(lv.regime)),
+        ]
+    if card.plan is not None:
+        p = card.plan.plan
+        parts.append("")
+        if p is None:
+            err = card.plan.call.error or "no plan"
+            parts.append(f"<b>Plan</b> unavailable ({esc(err)}) — picks run without one")
+        else:
+            parts.append(f"<b>Plan</b> · bias {esc(p.bias)}")
+            if p.summary:
+                parts.append(f"<i>{esc(p.summary)}</i>")
+            if p.risk_flags:
+                parts.append("<b>Watch</b>")
+                parts += [f"• {esc(f)}" for f in p.risk_flags]
+            if p.skip_conditions:
+                parts.append("<b>Skip if</b>")
+                parts += [f"• {esc(c)}" for c in p.skip_conditions]
+            if p.preferred_distance:
+                parts.append(f"<b>Distance</b> {esc(p.preferred_distance)}")
+    if card.trades:
+        parts += ["", "<b>Trades</b>", *card.trades]
+    if card.status:
+        when = f"{card.status_at.astimezone(ET):%H:%M} ET · " if card.status_at else ""
+        extra = f" <i>({card.checks} armed checks)</i>" if card.checks > 1 else ""
+        parts += ["", f"<b>Status</b> {when}{esc(card.status)}{extra}"]
+    text = "\n".join(parts)
+    return text if len(text) <= _LIMIT else text[: _LIMIT - 1] + "…"
+
+
+def status_nothing_to_sell(side: str, why: str) -> str:
+    """``why_nothing`` text → the card's status line: the side and the deciding clause."""
+    tail = why.split(" — ", 1)[1] if " — " in why else why
+    return f"{side} side armed, no trade — {tail}"
+
+
+# ---------------------------------------------------------------------------
+# Event messages
+# ---------------------------------------------------------------------------
 
 
 def fmt_entry(pos: SpreadPosition, mode: str, context: SpreadEntryContext | None = None) -> str:
     risk = (pos.width - pos.entry_credit) * 100 * pos.contracts
-    line = (
-        f"{_tag(mode)} OPENED {pos.side} spread {pos.short_strike:g}/{pos.long_strike:g} "
-        f"×{pos.contracts} for {pos.entry_credit:.2f} credit · max loss ${risk:,.0f} · {pos.spread_id}"
+    lines = [
+        f"🟢 <b>Opened {esc(pos.side)} spread {pos.short_strike:g}/{pos.long_strike:g}</b> "
+        f"×{pos.contracts} @ {pos.entry_credit:.2f}{_book(mode)}",
+        f"max loss ${risk:,.0f}",
+    ]
+    if context is not None:
+        tags: list[str] = []
+        if context.trigger == "move" and context.move_em is not None:
+            move = "drop" if pos.side == "put" else "rise"
+            tags.append(f"after a {context.move_em:.2f}× expected-move {move}")
+        tags.append(
+            "⚠️ NEGATIVE GAMMA" if context.regime == "negative" else f"gamma {context.regime}"
+        )
+        if context.gap_day and context.gap_pct is not None:
+            tags.append(f"gap {context.gap_pct * 100:+.2f}%")
+        lines[1] += " · " + " · ".join(esc(t) for t in tags)
+    lines.append(f"<code>{esc(pos.spread_id)}</code>")
+    return "\n".join(lines)
+
+
+def entry_card_line(pos: SpreadPosition) -> str:
+    return (
+        f"🟢 {esc(pos.side)} {pos.short_strike:g}/{pos.long_strike:g} ×{pos.contracts} "
+        f"@ {pos.entry_credit:.2f}"
     )
-    if context is None:
-        return line
-    tags = ["NEGATIVE GAMMA" if context.regime == "negative" else f"gamma {context.regime}"]
-    if context.trigger == "move" and context.move_em is not None:
-        move = "drop" if pos.side == "put" else "rise"
-        tags.append(f"after a {context.move_em:.2f}× expected-move {move}")
-    if context.gap_day and context.gap_pct is not None:
-        tags.append(f"gap {context.gap_pct * 100:+.2f}%")
-    return line + "\n" + " · ".join(tags)
 
 
 def fmt_exit(
     spread_id: str, reason: str, debit: float | None, realized_usd: float | None, mode: str
 ) -> str:
     paid = "n/a" if debit is None else f"{debit:.2f}"
-    pnl = "pending settlement" if realized_usd is None else _money(realized_usd)
-    return f"{_tag(mode)} CLOSED {spread_id} · {reason} · debit {paid} · {pnl}"
+    if realized_usd is None:
+        icon, pnl = "⚪", "pending settlement"
+    else:
+        icon, pnl = ("✅" if realized_usd >= 0 else "🔴"), f"<b>{_money(realized_usd)}</b>"
+    return (
+        f"{icon} <b>Closed</b> <code>{esc(spread_id)}</code>{_book(mode)}\n"
+        f"{esc(_reason(reason))} · debit {paid} · {pnl}"
+    )
+
+
+def exit_card_line(spread_id: str, reason: str, realized_usd: float | None) -> str:
+    pnl = "pending" if realized_usd is None else _money(realized_usd)
+    return f"⏹ {esc(spread_id)} · {esc(_reason(reason))} · {pnl}"
 
 
 def fmt_eod(day: date, mode: str, trades: int, realized_usd: float, open_count: int) -> str:
+    still = f" · {open_count} still open" if open_count else ""
+    word = "trade" if trades == 1 else "trades"
     return (
-        f"{_tag(mode)} spreads {day:%Y-%m-%d}: {trades} trade(s) · realized {_money(realized_usd)}"
-        f" · {open_count} still open"
+        f"📊 <b>Spreads · {day:%a %d %b}</b> · {esc(mode.upper())}\n"
+        f"{trades} {word} · realised <b>{_money(realized_usd)}</b>{still}"
     )
 
 
@@ -82,32 +204,15 @@ def fmt_books(
     mode: str, main_today: float, base_today: float, main_total: float, base_total: float
 ) -> str:
     return (
-        f"{_tag(mode)} Claude {_money(main_today)} vs baseline {_money(base_today)} today"
-        f" · since start {_money(main_total)} vs {_money(base_total)}"
+        f"Claude {_money(main_today)} vs baseline {_money(base_today)} today · "
+        f"since start {_money(main_total)} vs {_money(base_total)}"
     )
 
 
-def fmt_brief(result: SpreadBriefResult, mode: str) -> str:
-    p = result.plan
-    if p is None:
-        return (
-            f"{_tag(mode)} DAY PLAN unavailable ({result.call.error or 'no plan'}) — "
-            "picks run without one"
-        )
-    return "\n".join(
-        [
-            f"{_tag(mode)} DAY PLAN · bias {p.bias}",
-            f"flags: {'; '.join(p.risk_flags) or 'none'}",
-            f"skip if: {'; '.join(p.skip_conditions) or 'none'}",
-            f"distance: {p.preferred_distance or 'n/a'}",
-            p.summary,
-        ]
-    )
-
-
-def _menu_item(i: SpreadMenuItem) -> str:
+def _menu_item(i: SpreadMenuItem, chosen: SpreadMenuItem | None) -> str:
     c = i.candidate
-    return f"{i.letter} {i.position} {c.short_strike:g}/{c.long_strike:g} {c.credit_mid:.2f}"
+    text = f"{esc(i.letter)} {c.short_strike:g}/{c.long_strike:g} {c.credit_mid:.2f}"
+    return f"<b>{text}</b>" if chosen is not None and i.letter == chosen.letter else text
 
 
 def fmt_pick(
@@ -119,29 +224,50 @@ def fmt_pick(
     mode: str,
 ) -> str:
     if fallback is not None:
-        what = (
-            f"picker failed ({fallback}) → baseline item {chosen.letter} "
+        head = (
+            f"⚙️ <b>Picker failed</b> ({esc(fallback)}) → baseline item {esc(chosen.letter)} "
             f"{chosen.candidate.short_strike:g}/{chosen.candidate.long_strike:g}"
             if chosen is not None
-            else f"picker failed ({fallback}) → no baseline item, no trade"
+            else f"⚙️ <b>Picker failed</b> ({esc(fallback)}) → no baseline item, no trade"
         )
+        lines = [head]
     elif chosen is None:
-        what = f"Claude SKIPPED — {pick.reason}"
+        lines = (
+            ["🧠 <b>Claude skipped</b>", f"<i>{esc(pick.reason)}</i>"]
+            if pick.reason
+            else ["🧠 <b>Claude skipped</b>"]
+        )
     else:
         c = chosen.candidate
-        what = (
-            f"Claude chose {chosen.letter} ({chosen.position}) {c.side} "
-            f"{c.short_strike:g}/{c.long_strike:g} ×{chosen.contracts} — {pick.reason}"
-        )
-    base = (
-        "baseline: no trade this episode"
+        lines = [
+            f"🧠 <b>Claude chose {esc(chosen.letter)}</b> ({esc(chosen.position)}) · "
+            f"{esc(c.side)} {c.short_strike:g}/{c.long_strike:g} ×{chosen.contracts}"
+        ]
+        if pick.reason:
+            lines.append(f"<i>{esc(pick.reason)}</i>")
+    lines.append("Menu: " + " · ".join(_menu_item(i, chosen) for i in menu))
+    lines.append(
+        "Baseline: no trade this episode"
         if baseline is None
-        else f"baseline: sold {baseline.short_strike:g}/{baseline.long_strike:g} "
-        f"×{baseline.contracts} at {baseline.entry_credit:.2f} (simulated)"
+        else f"Baseline: sold {baseline.short_strike:g}/{baseline.long_strike:g} "
+        f"×{baseline.contracts} @ {baseline.entry_credit:.2f} (simulated)"
     )
-    return "\n".join(
-        [f"{_tag(mode)} PICK · {what}", "menu: " + " · ".join(_menu_item(i) for i in menu), base]
-    )
+    return "\n".join(lines)
+
+
+def fmt_alert(text: str) -> str:
+    """A plain-text operator alert → escaped HTML with one icon instead of a bracket tag."""
+    for tag in ("[SPREADS] ", "[PAPER] ", "[SHADOW] ", "[LIVE] "):
+        if text.startswith(tag):
+            text = text[len(tag) :]
+            break
+    icon = "🚨" if "URGENT" in text else "⚠️"
+    return f"{icon} {esc(text)}"
+
+
+# ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
 
 
 class SpreadsNotifier:
@@ -160,14 +286,44 @@ class SpreadsNotifier:
         raw = (self.thread or "").strip()
         return int(raw) if raw.isdigit() else None
 
-    async def send(self, text: str) -> None:
+    async def send(self, text: str) -> int | None:
+        """Post *text* (Telegram HTML); the message id, or None when nothing was sent."""
         log.info("spreads notify: %s", text.splitlines()[0] if text else "")
         if not self.token or not self.chat_id:
-            return
+            return None
         try:
             async with Bot(token=self.token) as bot:
-                await bot.send_message(
-                    chat_id=self.chat_id, text=text, message_thread_id=self.thread_id
+                msg = await bot.send_message(
+                    chat_id=self.chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                    message_thread_id=self.thread_id,
+                    disable_web_page_preview=True,
                 )
+                return int(msg.message_id)
         except Exception:
             log.exception("spreads notify failed")
+            return None
+
+    async def edit(self, message_id: int, text: str) -> bool:
+        """Edit a sent message in place. True when it now shows *text*."""
+        if not self.token or not self.chat_id:
+            return True
+        try:
+            async with Bot(token=self.token) as bot:
+                await bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=message_id,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            return True
+        except BadRequest as exc:
+            if "not modified" in str(exc).lower():
+                return True
+            log.warning("spreads notify: edit of %s refused: %s", message_id, exc)
+            return False
+        except Exception:
+            log.exception("spreads notify edit failed")
+            return False
