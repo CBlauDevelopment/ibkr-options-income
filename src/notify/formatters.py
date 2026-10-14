@@ -21,6 +21,7 @@ from src.common.schemas import (
     BuyCandidate,
     ClaudeReview,
     EODSummary,
+    EODTrade,
     FundamentalStats,
     IdealZone,
     IVStats,
@@ -1776,67 +1777,119 @@ def format_startup(
     return "\n".join(parts)
 
 
+_EOD_TRADE_ICON = {
+    "opened": "🟢",
+    "closed": "🔴",
+    "rolled": "🔁",
+    "assigned": "📦",
+    "expired": "⚪",
+}
+_EOD_DECISION_WORD = {
+    "roll": "roll",
+    "assign": "let it assign",
+    "let_called_away": "let it be called away",
+    "close": "close",
+    "hold": "hold",
+}
+_EOD_WATCH_ICON = {"macro": "📅", "breach": "⚠️", "expiring": "⏳", "earnings": "📣"}
+_EOD_MAX_TRADE_LINES = 12
+
+
+def _eod_trade_line(t: EODTrade) -> str:
+    qty = f"×{t.contracts}" if t.contracts else ""
+    if t.action == "opened":
+        price = f" @ {t.price:.2f}" if t.price is not None else ""
+        body = f"Sold {t.label} {qty}{price}"
+    elif t.action == "assigned":
+        body = f"{t.label} {qty} · {t.reason or 'assigned'}"
+    elif t.action == "expired":
+        body = f"{t.label} {qty} expired worthless"
+    else:
+        verb = "Rolled" if t.action == "rolled" else "Bought back"
+        price = f" @ {t.price:.2f}" if t.price is not None else ""
+        why = f" · {t.reason}" if t.reason and t.action != "rolled" else ""
+        body = f"{verb} {t.label} {qty}{price}{why}"
+    if t.pnl is not None:
+        body += f" · {_pnl(t.pnl)}"
+    return f"{_EOD_TRADE_ICON.get(t.action, '•')} {_md(body)}"
+
+
 def format_eod_summary(summary: EODSummary, narrative: str | None) -> str:
-    """Build the EOD report Telegram MarkdownV2 message.
+    """Build the EOD report Telegram MarkdownV2 message (2026-10-14 rebuild).
 
-    The numeric block is a ``` code fence ``` so columns actually align in Telegram's proportional
-    body font (the old space-padding did not) and needs no per-character MarkdownV2 escaping. The
-    narrative is interpretation only — it must not restate these figures (see prompts/eod.py).
+    Four parts, all from deterministic facts: the account block (NLV and unrealised change
+    since the previous session's close), what happened today (every open, close, expiry,
+    assignment and roll decision), the day's biggest movers, and what is coming before the
+    next session (macro prints, shorts in the money or expiring, earnings). The narrative is
+    interpretation only and comes last.
     """
-    date_str = _md(summary.date.strftime("%b %d, %Y"))
-    nlv = summary.account.net_liquidation
-    bp = summary.account.buying_power
-    pct = (summary.unrealized_pnl_delta / nlv * 100) if nlv else 0.0
+    date_str = _md(summary.date.strftime("%a %d %b %Y"))
+    acct = summary.account
+    nlv = acct.net_liquidation
 
-    # Monospace metric block — literal text inside a code fence (no MarkdownV2 escaping needed).
+    def _chg(v: float | None, base: float | None) -> str:
+        if v is None:
+            return ""
+        pct = f" ({v / base * 100:+.2f}%)" if base else ""
+        return f"{_pnl(v)}{pct}"
+
+    nlv_base = nlv - summary.nlv_change if summary.nlv_change is not None else None
+    have_base = summary.baseline_date is not None
     metrics = [
-        f"Premium cashflow  {_pnl2(summary.realized_pnl)}",
+        f"NLV         {f'${nlv:,.0f}':>12}  {_chg(summary.nlv_change, nlv_base)}".rstrip(),
         (
-            f"Unrealized        {_pnl2(summary.unrealized_pnl)}"
-            f"  (Δ {_pnl2(summary.unrealized_pnl_delta)} / {pct:+.2f}% NLV)"
-        ),
-        f"Positions         {summary.open_positions} · Net Δ {summary.net_delta_exposure:+.2f}",
-        f"NLV ${nlv:,.0f} · BP ${bp:,.0f}",
+            f"Unrealised  {_pnl(summary.unrealized_pnl):>12}  "
+            + (f"Δ {_pnl(summary.unrealized_pnl_delta)}" if have_base else "")
+        ).rstrip(),
+        f"Premium     {_pnl(summary.realized_pnl):>12}  cashflow",
+        f"BP ${acct.buying_power:,.0f} · {summary.open_positions} positions"
+        f" · net Δ {summary.net_delta_exposure:+,.0f}",
     ]
-    parts: list[str] = [
-        f"*EOD Report — {date_str}*",
-        "",
-        "```",
-        *metrics,
-        "```",
-    ]
+    parts: list[str] = [f"*EOD · {date_str}*", "```", *metrics, "```"]
+    if not have_base:
+        parts.append(_md("No previous close on record — changes not shown."))
+    elif summary.next_session is not None and summary.baseline_date is not None:
+        from src.common.market_hours import previous_session
 
-    # Clarify the figure only when there was cashflow to clarify — on a flat $0 / no-fill day the
-    # disclaimer is pure noise (N13: it is option premium credits − debits, not a paired realized
-    # P&L; assignment stock-leg P&L is excluded).
-    if summary.realized_pnl != 0 or summary.fills_today > 0:
-        parts.append(_md("(premium cashflow = option credits − debits; excludes assignment P&L)"))
+        if summary.baseline_date < previous_session(summary.date):
+            parts.append(
+                _md(
+                    f"Changes since {summary.baseline_date:%a %d %b} (no report for the session after)."
+                )
+            )
 
-    if summary.fills_today > 0:
-        parts += ["", f"Fills today: {_md(str(summary.fills_today))}"]
+    parts += ["", "*Today*"]
+    if summary.trades:
+        shown = summary.trades[:_EOD_MAX_TRADE_LINES]
+        parts += [_eod_trade_line(t) for t in shown]
+        if len(summary.trades) > len(shown):
+            parts.append(_md(f"…and {len(summary.trades) - len(shown)} more"))
+    else:
+        parts.append(_md("No trades."))
+    for d in summary.decisions:
+        word = _EOD_DECISION_WORD.get(d.action, d.action)
+        detail = f" — {d.detail}" if d.detail else ""
+        parts.append(f"🧭 {_md(f'{d.label}: {word}{detail}')}")
 
-    if summary.top_movers:
-        driver_bits: list[str] = []
-        for s in summary.top_movers:
-            pnl = summary.mover_pnl.get(s)
-            driver_bits.append(f"{_md(s)} {_md(_pnl(pnl))}" if pnl is not None else _md(s))
-        parts.append(f"Drivers: {' · '.join(driver_bits)}")
+    if summary.mover_pnl:
+        bits = " · ".join(f"{_md(sym)} {_md(_pnl(v))}" for sym, v in summary.mover_pnl.items())
+        parts += ["", f"*Movers* {bits}"]
+
+    nxt = summary.next_session
+    head = f"Before {nxt:%a %d %b}" if nxt is not None else "Next session"
+    parts += ["", f"*{_md(head)}*"]
+    if summary.watch:
+        parts += [f"{_EOD_WATCH_ICON.get(w.kind, '•')} {_md(w.text)}" for w in summary.watch]
+    else:
+        parts.append(_md("Nothing scheduled, no shorts in the money or expiring this week."))
 
     if narrative:
-        parts += ["", f"_{_md(narrative)}_"]
-
-    if summary.tomorrow_watchlist:
-        if summary.watchlist_changed:
-            wl_str = " · ".join(_md(s) for s in summary.tomorrow_watchlist)
-            parts += ["", f"Tomorrow: {wl_str}"]
-        else:
-            n = len(summary.tomorrow_watchlist)
-            parts += ["", f"Tomorrow: {_md(str(n))} names \\(unchanged\\)"]
+        parts += ["", f"🧠 _{_md(narrative)}_"]
 
     text = "\n".join(parts)
     if len(text) > _MAX_MESSAGE_LEN:
         text = text[: _MAX_MESSAGE_LEN - 3] + "\\.\\.\\."
-    return text + "\n_Sources: IBKR \\(fills · positions\\)_"
+    return text + "\n_Sources: IBKR fills · positions · news calendar_"
 
 
 def format_fill_confirm(

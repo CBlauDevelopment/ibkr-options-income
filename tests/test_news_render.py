@@ -129,7 +129,8 @@ def test_split_never_cuts_inside_a_tag_and_keeps_tags_balanced(pad: int) -> None
     # an <a href> — Telegram rejected the chunk ("unclosed start tag") and the rest never went.
     # The padding walks the cut point across every offset of an item, tag included.
     item = (
-        "• Headline about a stock" + "!" * pad
+        "• Headline about a stock"
+        + "!" * pad
         + ' — <a href="https://example.com/a/very/long/path">Source</a>'
     )
     section = "<b>Movers</b>\n" + "\n".join([item] * 80)

@@ -55,11 +55,16 @@ def save_portfolio_snapshot(
         return None
 
 
-def load_latest_portfolio_snapshot() -> PortfolioSnapshot | None:
-    """The newest snapshot, or None when the table is empty. Never raises."""
+def load_latest_portfolio_snapshot(before: datetime | None = None) -> PortfolioSnapshot | None:
+    """The newest snapshot (captured strictly before *before*, if given), or None when there is
+    none. Never raises."""
     try:
         with session_scope() as s:
-            row = s.query(PortfolioSnapshotRow).order_by(PortfolioSnapshotRow.id.desc()).first()
+            q = s.query(PortfolioSnapshotRow)
+            if before is not None:
+                cutoff = before.astimezone(UTC).replace(tzinfo=None) if before.tzinfo else before
+                q = q.filter(PortfolioSnapshotRow.captured_at < cutoff)
+            row = q.order_by(PortfolioSnapshotRow.id.desc()).first()
             if row is None:
                 return None
             return _row_to_snapshot(row)

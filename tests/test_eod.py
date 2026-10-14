@@ -366,34 +366,139 @@ def test_compute_realized_pnl_empty(isolated_db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _load_yesterday_unrealized (DB test)
+# eod_facts.load_baseline (DB test)
 # ---------------------------------------------------------------------------
 
 
-def test_load_yesterday_unrealized_from_journal(isolated_db) -> None:
-    from src.orchestrator.eod_report import _load_yesterday_unrealized
+def test_baseline_is_the_previous_sessions_journal_row(isolated_db) -> None:
+    from src.orchestrator.eod_facts import load_baseline
     from src.storage.models import JournalRow
 
-    yesterday = date.today() - timedelta(days=1)
-    Session = isolated_db
-    with Session() as session:
+    with isolated_db() as session:
         session.add(
             JournalRow(
-                entry_date=yesterday,
+                entry_date=date(2026, 10, 9),  # Friday
                 unrealized_pnl=-235.0,
-                payload={},
+                payload={"eod_summary": {"account": {"net_liquidation": 1000.0}}},
             )
         )
         session.commit()
+    b = load_baseline(date(2026, 10, 12))  # Monday: the previous session is Friday
+    assert b is not None
+    assert b.as_of == date(2026, 10, 9)
+    assert b.unrealized == pytest.approx(-235.0) and b.nlv == pytest.approx(1000.0)
 
-    result = _load_yesterday_unrealized(date.today())
-    assert result == pytest.approx(-235.0)
+
+def test_baseline_falls_back_to_the_last_snapshot_when_an_eod_was_missed(isolated_db) -> None:
+    # 2026-10-12's EOD hung and was killed: no journal row for the Monday, so the Tuesday
+    # report compared against "yesterday" (calendar) = nothing and showed Δ = the whole
+    # unrealised figure. The last intraday snapshot before Tuesday is the better baseline.
+    from src.orchestrator.eod_facts import load_baseline
+    from src.storage.models import JournalRow, PortfolioSnapshotRow
+
+    pos = _make_stock_pos("AMD").model_dump(mode="json")
+    pos["unrealized_pnl"] = 500.0
+    with isolated_db() as session:
+        session.add(JournalRow(entry_date=date(2026, 10, 9), unrealized_pnl=-235.0, payload={}))
+        session.add(
+            PortfolioSnapshotRow(
+                captured_at=datetime(2026, 10, 12, 19, 45),  # 15:45 ET Monday, naive UTC
+                source="monitor",
+                account=_make_account(nlv=2000.0).model_dump(mode="json"),
+                positions=[pos],
+            )
+        )
+        session.commit()
+    b = load_baseline(date(2026, 10, 13))
+    assert b is not None
+    assert b.as_of == date(2026, 10, 12)
+    assert b.unrealized == pytest.approx(500.0) and b.nlv == pytest.approx(2000.0)
+    assert b.by_underlying == {"AMD": pytest.approx(500.0)}
 
 
-def test_load_yesterday_unrealized_no_row(isolated_db) -> None:
-    from src.orchestrator.eod_report import _load_yesterday_unrealized
+def test_baseline_none_without_history(isolated_db) -> None:
+    from src.orchestrator.eod_facts import load_baseline
 
-    assert _load_yesterday_unrealized(date.today()) == pytest.approx(0.0)
+    assert load_baseline(date(2026, 10, 13)) is None
+
+
+def test_movers_measure_the_change_since_the_baseline() -> None:
+    from src.orchestrator.eod_facts import Baseline, movers
+
+    pos = _make_stock_pos("AMD")  # unrealised 200 now
+    base = Baseline(as_of=date(2026, 10, 12), unrealized=0.0, nlv=None, by_underlying={"AMD": 150})
+    assert movers([pos], base) == {"AMD": pytest.approx(50.0)}
+
+
+def test_todays_trades_lists_opens_and_closes_with_pnl(isolated_db) -> None:
+    from src.orchestrator.eod_facts import todays_trades
+    from src.storage.models import CandidateRow, FillRow
+
+    with isolated_db() as session:
+        for cid, strike, exp in (
+            ("old", 130.0, date(2026, 10, 16)),
+            ("new", 100.0, date(2026, 11, 6)),
+        ):
+            session.add(
+                CandidateRow(
+                    candidate_id=cid,
+                    run_id="r",
+                    strategy="cash_secured_put",
+                    underlying="SOXL",
+                    right="P",
+                    strike=strike,
+                    expiry=exp,
+                    payload={},
+                )
+            )
+        # Opened last week, bought back today at the loss line; a fresh put sold today.
+        session.add(
+            FillRow(
+                order_id=1,
+                candidate_id="old",
+                action="SELL",
+                filled_qty=2,
+                avg_price=5.35,
+                filled_at=datetime(2026, 10, 8, 17, 50),
+            )
+        )
+        session.add(
+            FillRow(
+                order_id=2,
+                candidate_id="old",
+                action="BUY",
+                filled_qty=2,
+                avg_price=13.35,
+                close_reason="loss_exit",
+                filled_at=datetime(2026, 10, 13, 13, 34),
+            )
+        )
+        session.add(
+            FillRow(
+                order_id=3,
+                candidate_id="new",
+                action="SELL",
+                filled_qty=1,
+                avg_price=5.10,
+                filled_at=datetime(2026, 10, 13, 13, 52),
+            )
+        )
+        session.commit()
+    trades = todays_trades(date(2026, 10, 13))
+    by_action = {t.action: t for t in trades}
+    closed = by_action["closed"]
+    assert closed.label == "SOXL 130P Oct 16" and closed.reason == "loss exit"
+    assert closed.price == pytest.approx(13.35) and closed.pnl == pytest.approx(-1600.0)
+    opened = by_action["opened"]
+    assert opened.label == "SOXL 100P Nov 06" and opened.price == pytest.approx(5.10)
+
+
+def test_occ_label() -> None:
+    from src.orchestrator.eod_facts import occ_label
+
+    assert occ_label("TQQQ  261016P00078000") == "TQQQ 78P Oct 16"
+    assert occ_label("GOOGL 261023C00362500") == "GOOGL 362.5C Oct 23"
+    assert occ_label("weird") == "weird"
 
 
 # ---------------------------------------------------------------------------
@@ -439,30 +544,41 @@ def test_write_journal_narrative_none(isolated_db) -> None:
 def test_build_eod_prompt_contains_key_fields() -> None:
     from src.claude.prompts.eod import build_eod_prompt
 
-    summary = _make_eod_summary()
-    prompt = build_eod_prompt(summary)
-    assert str(summary.date) in prompt
-    assert "142.50" in prompt
-    assert "-320.00" in prompt or "320.00" in prompt
+    prompt = build_eod_prompt(_make_eod_summary())
+    assert "+$142" in prompt  # premium cashflow
+    assert "-$320" in prompt  # unrealised
     assert "narrative" in prompt
     assert "JSON" in prompt
 
 
-def test_build_eod_prompt_includes_watchlist() -> None:
+def test_build_eod_prompt_carries_the_days_facts() -> None:
+    # 2026-10-14: with totals alone the model guessed ("likely reflects new or rolled
+    # options"); the prompt now lists every trade, decision and upcoming item.
     from src.claude.prompts.eod import build_eod_prompt
+    from src.common.schemas import EODDecision, EODTrade, EODWatch
 
-    summary = _make_eod_summary(tomorrow_watchlist=["AAPL", "SPY"])
+    summary = _make_eod_summary(
+        trades=[
+            EODTrade(
+                action="closed",
+                label="SOXL 130P Oct 16",
+                underlying="SOXL",
+                contracts=2,
+                price=13.35,
+                pnl=-1603.7,
+                reason="loss exit",
+            )
+        ],
+        decisions=[EODDecision(label="TQQQ 78P Oct 16", action="roll", reason="credit_roll")],
+        watch=[EODWatch(kind="macro", text="Wed 08:30 ET: CPI m/m")],
+        top_movers=["NVDA"],
+        mover_pnl={"NVDA": 1200.0},
+    )
     prompt = build_eod_prompt(summary)
-    assert "AAPL" in prompt
-    assert "SPY" in prompt
-
-
-def test_build_eod_prompt_includes_top_movers() -> None:
-    from src.claude.prompts.eod import build_eod_prompt
-
-    summary = _make_eod_summary(top_movers=["NVDA", "MSFT"])
-    prompt = build_eod_prompt(summary)
-    assert "NVDA" in prompt
+    assert "SOXL 130P Oct 16" in prompt and "loss exit" in prompt and "-$1,604" in prompt
+    assert "TQQQ 78P Oct 16: roll" in prompt
+    assert "CPI m/m" in prompt
+    assert "NVDA: +$1,200" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -525,19 +641,8 @@ def test_parse_journal_with_markdown_fence() -> None:
 def test_format_eod_summary_contains_date() -> None:
     from src.notify.formatters import format_eod_summary
 
-    summary = _make_eod_summary()
-    text = format_eod_summary(summary, "Solid day.")
-    # MarkdownV2 escapes hyphens, so "2026-05-30" → "2026\-05\-30"
-    assert "2026" in text
-    assert "EOD Report" in text
-
-
-def test_format_eod_summary_contains_realized_pnl() -> None:
-    from src.notify.formatters import format_eod_summary
-
-    summary = _make_eod_summary(realized_pnl=142.50)
-    text = format_eod_summary(summary, None)
-    assert "142" in text
+    text = format_eod_summary(_make_eod_summary(date=date(2026, 10, 13)), "Solid day.")
+    assert "EOD · Tue 13 Oct 2026" in text
 
 
 def test_format_eod_summary_labels_figure_as_premium_cashflow() -> None:
@@ -545,40 +650,26 @@ def test_format_eod_summary_labels_figure_as_premium_cashflow() -> None:
     from src.notify.formatters import format_eod_summary
 
     text = format_eod_summary(_make_eod_summary(realized_pnl=142.50), None)
-    assert "Premium cashflow" in text
-    assert "excludes assignment" in text.lower()
+    assert "Premium" in text and "+$142" in text and "cashflow" in text
 
 
 def test_format_eod_summary_contains_narrative() -> None:
     from src.notify.formatters import format_eod_summary
 
-    summary = _make_eod_summary()
-    text = format_eod_summary(summary, "Two trades filled cleanly.")
+    text = format_eod_summary(_make_eod_summary(), "Two trades filled cleanly.")
     assert "Two trades filled cleanly" in text
 
 
 def test_format_eod_summary_no_narrative() -> None:
     from src.notify.formatters import format_eod_summary
 
-    summary = _make_eod_summary()
-    text = format_eod_summary(summary, None)
-    assert "Journal" not in text
-
-
-def test_format_eod_summary_contains_watchlist() -> None:
-    from src.notify.formatters import format_eod_summary
-
-    summary = _make_eod_summary(tomorrow_watchlist=["AAPL", "SPY", "NVDA"])
-    text = format_eod_summary(summary, None)
-    assert "NVDA" in text
+    assert "🧠" not in format_eod_summary(_make_eod_summary(), None)
 
 
 def test_format_eod_summary_truncated_gracefully() -> None:
     from src.notify.formatters import format_eod_summary
 
-    long_narrative = "A" * 5000
-    summary = _make_eod_summary()
-    text = format_eod_summary(summary, long_narrative)
+    text = format_eod_summary(_make_eod_summary(), "A" * 5000)
     # Body is truncated to _MAX_MESSAGE_LEN; source footer appended after, so allow overage.
     assert "\\.\\.\\." in text
     assert "Sources:" in text
@@ -587,26 +678,8 @@ def test_format_eod_summary_truncated_gracefully() -> None:
 def test_format_eod_summary_negative_realized_uses_minus() -> None:
     from src.notify.formatters import format_eod_summary
 
-    summary = _make_eod_summary(realized_pnl=-50.0)
-    text = format_eod_summary(summary, None)
-    assert "50" in text
-
-
-def test_format_eod_summary_disclaimer_suppressed_on_flat_day() -> None:
-    # No cashflow and no fills → the premium-cashflow disclaimer is noise; suppress it.
-    from src.notify.formatters import format_eod_summary
-
-    summary = _make_eod_summary(realized_pnl=0.0, fills_today=0)
-    text = format_eod_summary(summary, None)
-    assert "excludes assignment" not in text.lower()
-
-
-def test_format_eod_summary_disclaimer_shown_when_cashflow() -> None:
-    from src.notify.formatters import format_eod_summary
-
-    summary = _make_eod_summary(realized_pnl=142.50, fills_today=0)
-    text = format_eod_summary(summary, None)
-    assert "excludes assignment" in text.lower()
+    text = format_eod_summary(_make_eod_summary(realized_pnl=-50.0), None)
+    assert "-$50" in text
 
 
 def test_format_eod_summary_shows_nlv_and_buying_power() -> None:
@@ -618,33 +691,94 @@ def test_format_eod_summary_shows_nlv_and_buying_power() -> None:
     assert "1,000,000" in text
 
 
-def test_format_eod_summary_drivers_carry_pnl() -> None:
+def test_format_eod_summary_shows_change_since_baseline() -> None:
+    from src.notify.formatters import format_eod_summary
+
+    summary = _make_eod_summary(
+        date=date(2026, 10, 13),
+        baseline_date=date(2026, 10, 12),
+        nlv_change=5103.0,
+        unrealized_pnl_delta=6635.0,
+    )
+    text = format_eod_summary(summary, None)
+    assert "+$5,103" in text and "Δ +$6,635" in text
+    assert "Changes since" not in text  # the baseline IS the previous session
+
+
+def test_format_eod_summary_flags_a_stale_baseline() -> None:
+    from src.notify.formatters import format_eod_summary
+
+    summary = _make_eod_summary(
+        date=date(2026, 10, 13),
+        baseline_date=date(2026, 10, 9),
+        next_session=date(2026, 10, 14),
+    )
+    assert "Changes since Fri 09 Oct" in format_eod_summary(summary, None)
+
+
+def test_format_eod_summary_without_baseline_hides_the_change() -> None:
+    from src.notify.formatters import format_eod_summary
+
+    text = format_eod_summary(_make_eod_summary(baseline_date=None), None)
+    assert "Δ" not in text.split("```")[1].split("\n")[2]  # the unrealised row
+    assert "No previous close on record" in text
+
+
+def test_format_eod_summary_lists_trades_decisions_and_watch() -> None:
+    from src.common.schemas import EODDecision, EODTrade, EODWatch
+    from src.notify.formatters import format_eod_summary
+
+    summary = _make_eod_summary(
+        trades=[
+            EODTrade(
+                action="closed",
+                label="SOXL 130P Oct 16",
+                underlying="SOXL",
+                contracts=2,
+                price=13.35,
+                pnl=-1603.7,
+                reason="loss exit",
+            ),
+            EODTrade(
+                action="opened",
+                label="TQQQ 75P Oct 23",
+                underlying="TQQQ",
+                contracts=10,
+                price=1.41,
+            ),
+        ],
+        decisions=[
+            EODDecision(
+                label="TQQQ 78P Oct 16",
+                action="roll",
+                reason="credit_roll",
+                detail="Roll for $0.40.",
+            )
+        ],
+        watch=[EODWatch(kind="breach", text="TQQQ 78P Oct 16 ×1 in the money")],
+        next_session=date(2026, 10, 14),
+    )
+    text = format_eod_summary(summary, None)
+    assert "Bought back SOXL 130P Oct 16 ×2 @ 13\\.35 · loss exit · \\-$1,604" in text
+    assert "Sold TQQQ 75P Oct 23 ×10 @ 1\\.41" in text
+    assert "TQQQ 78P Oct 16: roll" in text
+    assert "*Before Wed 14 Oct*" in text and "⚠️ TQQQ 78P" in text
+
+
+def test_format_eod_summary_quiet_day() -> None:
+    from src.notify.formatters import format_eod_summary
+
+    text = format_eod_summary(_make_eod_summary(), None)
+    assert "No trades" in text
+    assert "Nothing scheduled" in text
+
+
+def test_format_eod_summary_movers_carry_pnl() -> None:
     from src.notify.formatters import format_eod_summary
 
     summary = _make_eod_summary(top_movers=["NVDA"], mover_pnl={"NVDA": -7672.0})
     text = format_eod_summary(summary, None)
-    assert "Drivers:" in text
-    assert "NVDA" in text
-    assert "7,672" in text  # P&L appears alongside the symbol
-
-
-def test_format_eod_summary_collapses_unchanged_watchlist() -> None:
-    from src.notify.formatters import format_eod_summary
-
-    wl = [f"SYM{i}" for i in range(37)]
-    summary = _make_eod_summary(tomorrow_watchlist=wl, watchlist_changed=False)
-    text = format_eod_summary(summary, None)
-    assert "37 names" in text
-    assert "unchanged" in text
-    assert "SYM0" not in text  # full list is NOT reprinted
-
-
-def test_format_eod_summary_full_watchlist_when_changed() -> None:
-    from src.notify.formatters import format_eod_summary
-
-    summary = _make_eod_summary(tomorrow_watchlist=["AAPL", "NVDA"], watchlist_changed=True)
-    text = format_eod_summary(summary, None)
-    assert "AAPL" in text and "NVDA" in text
+    assert "*Movers* NVDA \\-$7,672" in text
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +812,7 @@ async def test_send_eod_telegram_sends_message() -> None:
     call_kwargs = mock_bot.send_message.call_args.kwargs
     assert call_kwargs["chat_id"] == "123456"
     assert call_kwargs["parse_mode"] == "MarkdownV2"
-    assert "EOD Report" in call_kwargs["text"] or str(summary.date) in call_kwargs["text"]
+    assert "EOD ·" in call_kwargs["text"]
 
 
 @pytest.mark.asyncio

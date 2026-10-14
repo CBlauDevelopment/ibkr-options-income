@@ -8,6 +8,7 @@ storage/models.py persist them; everything in-flight uses these.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from datetime import date as _date  # for fields declared after a field named `date`
 from enum import StrEnum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -571,6 +572,34 @@ class RollReview(BaseModel):
         return "" if stripped.startswith("<") and stripped.endswith(">") else v
 
 
+class EODTrade(BaseModel):
+    """One thing that happened to a position today, for the EOD report (2026-10-14 rebuild)."""
+
+    action: Literal["opened", "closed", "rolled", "assigned", "expired"]
+    label: str  # "SOXL 130P 16 Oct"
+    underlying: str
+    contracts: int
+    price: float | None = None  # per share: the credit for an open, the debit for a close
+    pnl: float | None = None  # net realised $ for a close / expiry; None for an open
+    reason: str | None = None  # "loss exit", "profit take", "roll", …
+
+
+class EODDecision(BaseModel):
+    """A deterministic roll-policy decision sent today (``roll_alerts`` trigger roll_decision)."""
+
+    label: str
+    action: str  # RollAction value
+    reason: str
+    detail: str | None = None
+
+
+class EODWatch(BaseModel):
+    """A fact the operator should know before the next session opens."""
+
+    kind: Literal["macro", "breach", "expiring", "earnings"]
+    text: str
+
+
 class EODSummary(BaseModel):
     """End-of-day metrics passed to Claude + stored in JournalRow.payload."""
 
@@ -580,18 +609,29 @@ class EODSummary(BaseModel):
     # "premium cashflow" (N13). The field name is retained for JournalRow/back-compat.
     realized_pnl: float
     unrealized_pnl: float
-    unrealized_pnl_delta: float  # vs yesterday's journal entry
+    # vs the previous session's close (``baseline_date``); 0.0 with baseline_date None when no
+    # prior close is on record. Before 2026-10-14 this read the *calendar* day before, so every
+    # Monday and every day after a missed EOD showed the whole unrealised figure as the change.
+    unrealized_pnl_delta: float
     fills_today: int
     open_positions: int
     net_delta_exposure: float  # sum of delta * position * 100 across all options
     account: AccountSnapshot
-    top_movers: list[str] = Field(default_factory=list)  # underlyings with largest unrealized swing
-    # underlying → aggregated unrealized P&L, for the top_movers shown as "Drivers" in the report.
+    top_movers: list[str] = Field(default_factory=list)  # underlyings with the largest swing today
+    # underlying → change in unrealised P&L since baseline_date (since 2026-10-14; before that it
+    # was the lifetime unrealised figure, which is not what "today's drivers" means).
     mover_pnl: dict[str, float] = Field(default_factory=dict)
     tomorrow_watchlist: list[str] = Field(default_factory=list)
     # False when tomorrow's watchlist is identical to yesterday's — lets the report collapse the
     # (usually static) 30+ ticker list to a count instead of reprinting it every day.
     watchlist_changed: bool = True
+    # 2026-10-14 rebuild: the report is built from these facts rather than from totals.
+    baseline_date: _date | None = None  # the session the deltas are measured from
+    nlv_change: float | None = None  # NLV now − NLV at baseline_date's close
+    next_session: _date | None = None
+    trades: list[EODTrade] = Field(default_factory=list)
+    decisions: list[EODDecision] = Field(default_factory=list)
+    watch: list[EODWatch] = Field(default_factory=list)
 
 
 class BuyCandidate(BaseModel):

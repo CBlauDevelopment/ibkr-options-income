@@ -4,7 +4,7 @@ Steps:
   1. Connect to IBKR (clientId 11)
   2. Fetch positions + account snapshot
   3. Read today's fills for realized P&L
-  4. Read yesterday's JournalRow for unrealized delta baseline
+  4. Load the previous session's close as the delta baseline (eod_facts.load_baseline)
   5. Build EODSummary
   6. Call Claude for a narrative (best-effort; falls back gracefully)
   7. Write JournalRow to DB
@@ -28,8 +28,16 @@ from src.claude.eval.assignment import assigned_shorts
 from src.claude.eval.reconcile import reconcile
 from src.claude.runner import write_journal_narrative
 from src.common.config import get_config
+from src.common.market_hours import next_session as next_trading_session
 from src.common.market_hours import today_et
-from src.common.schemas import AccountSnapshot, EODSummary, PositionSnapshot
+from src.common.schemas import (
+    AccountSnapshot,
+    EODDecision,
+    EODSummary,
+    EODTrade,
+    EODWatch,
+    PositionSnapshot,
+)
 from src.common.universe import effective_universe
 from src.ibkr.connection import IBKRConnection, suppress_account_summary_on_reconnect
 from src.ibkr.portfolio import (
@@ -38,6 +46,15 @@ from src.ibkr.portfolio import (
     get_positions,
 )
 from src.notify.formatters import format_eod_summary
+from src.orchestrator.eod_facts import (
+    Baseline,
+    assignment_trades,
+    load_baseline,
+    movers,
+    todays_decisions,
+    todays_trades,
+    watch_items,
+)
 from src.storage.campaigns import mark_campaign_assigned
 from src.storage.db import init_db, session_scope
 from src.storage.models import FillRow, JournalRow
@@ -278,23 +295,19 @@ async def _append_daily_prices(symbols: list[str]) -> None:
     logger.info("EOD: appended %d new daily price bar(s) across %d symbols", inserted, len(symbols))
 
 
-def _load_yesterday_unrealized(today: date) -> float:
-    """Return the unrealized_pnl from yesterday's JournalRow, or 0.0 if none."""
-    yesterday = today - timedelta(days=1)
-    with session_scope() as session:
-        row = session.query(JournalRow).filter(JournalRow.entry_date == yesterday).first()
-        return float(row.unrealized_pnl or 0.0) if row else 0.0
-
-
 def _load_yesterday_watchlist(today: date) -> list[str] | None:
-    """Return yesterday's `tomorrow_watchlist` from its JournalRow, or None if unavailable.
+    """The most recent earlier JournalRow's `tomorrow_watchlist`, or None if unavailable.
 
     Used to decide whether to reprint the (usually static) watchlist in full or collapse it to a
     count. None means "no prior entry" → treat as changed so the full list is shown.
     """
-    yesterday = today - timedelta(days=1)
     with session_scope() as session:
-        row = session.query(JournalRow).filter(JournalRow.entry_date == yesterday).first()
+        row = (
+            session.query(JournalRow)
+            .filter(JournalRow.entry_date < today)
+            .order_by(JournalRow.entry_date.desc())
+            .first()
+        )
         if not row or not row.payload:
             return None
         wl = row.payload.get("eod_summary", {}).get("tomorrow_watchlist")
@@ -309,12 +322,24 @@ def _build_eod_summary(
     yesterday_unrealized: float,
     watchlist: list[str],
     watchlist_changed: bool = True,
+    *,
+    baseline: Baseline | None = None,
+    trades: list[EODTrade] | None = None,
+    decisions: list[EODDecision] | None = None,
+    watch: list[EODWatch] | None = None,
+    next_session: date | None = None,
 ) -> EODSummary:
-    """Compute EODSummary from live positions and DB history."""
+    """Compute EODSummary from live positions and DB history.
+
+    *baseline* (the previous session's close, ``eod_facts.load_baseline``) wins over the bare
+    *yesterday_unrealized* figure when given: it also carries the NLV and per-underlying marks
+    the day-change figures need.
+    """
     today = _today_et()
 
     unrealized_pnl = sum(p.unrealized_pnl or 0.0 for p in positions)
-    unrealized_delta = unrealized_pnl - yesterday_unrealized
+    base_unrealized = baseline.unrealized if baseline is not None else yesterday_unrealized
+    unrealized_delta = unrealized_pnl - base_unrealized
 
     # Net delta exposure across the full portfolio:
     #   Options: delta * contracts * 100 (position is contract count; negative = short)
@@ -322,18 +347,16 @@ def _build_eod_summary(
     net_delta = sum((p.delta or 0.0) * p.position * 100 for p in positions if p.sec_type == "OPT")
     net_delta += sum(p.position for p in positions if p.sec_type == "STK")
 
-    # Top movers / drivers: aggregate unrealized P&L by underlying across *all* sec_types (a stock
-    # leg can be the day's largest swing — e.g. an assigned/wheeled position — so options-only would
-    # leave the report's drivers line empty). Rank by absolute swing and keep the top 3.
-    agg_pnl: dict[str, float] = {}
-    for p in positions:
-        if p.unrealized_pnl is None:
-            continue
-        sym = p.underlying or p.symbol
-        agg_pnl[sym] = agg_pnl.get(sym, 0.0) + p.unrealized_pnl
-    ranked = sorted(agg_pnl.items(), key=lambda kv: abs(kv[1]), reverse=True)[:3]
-    top_movers_dedup = [sym for sym, _ in ranked]
-    mover_pnl = {sym: pnl for sym, pnl in ranked}
+    # Drivers: the held underlyings whose unrealised P&L moved most since the baseline, across
+    # every sec_type (a stock leg is often the day's biggest swing). Before 2026-10-14 this
+    # ranked lifetime unrealised P&L, so a long-held winner led "today's drivers" every day.
+    mover_pnl = movers(positions, baseline)
+    top_movers_dedup = list(mover_pnl)
+    nlv_change = (
+        account.net_liquidation - baseline.nlv
+        if baseline is not None and baseline.nlv is not None
+        else None
+    )
 
     return EODSummary(
         date=today,
@@ -348,6 +371,12 @@ def _build_eod_summary(
         mover_pnl=mover_pnl,
         tomorrow_watchlist=watchlist,
         watchlist_changed=watchlist_changed,
+        baseline_date=baseline.as_of if baseline is not None else None,
+        nlv_change=nlv_change,
+        next_session=next_session,
+        trades=list(trades or []),
+        decisions=list(decisions or []),
+        watch=list(watch or []),
     )
 
 
@@ -488,28 +517,45 @@ async def run() -> None:
     today = datetime.now(_ET).date()
     realized_pnl, fill_count, fill_ids = _compute_realized_pnl(today)
 
-    # 3. Load yesterday's baseline for unrealized delta.
-    yesterday_unrealized = _load_yesterday_unrealized(today)
+    # 3. Baseline: the previous session's close (journal row, else the last intraday snapshot
+    #    before today — a missed EOD no longer turns the change into the whole unrealised).
+    baseline = load_baseline(today)
 
-    # 4. Build the summary.
+    # 3b. Assignment auto-detection runs before the summary so the report can say so.
+    try:
+        assigned = assigned_shorts(positions, today)
+    except Exception:
+        logger.exception("EOD: assignment detection failed — continuing")
+        assigned = []
+
+    # 4. Build the summary from facts: trades, roll decisions, and what is coming.
     watchlist = list(effective_universe().get("watchlist", []))
     prev_watchlist = _load_yesterday_watchlist(today)
     watchlist_changed = prev_watchlist is None or prev_watchlist != watchlist
+    trades = todays_trades(today, since=baseline.as_of if baseline else None)
+    trades += assignment_trades(assigned)
     summary = _build_eod_summary(
         positions,
         account,
         realized_pnl,
         fill_count,
-        yesterday_unrealized,
+        0.0,
         watchlist,
         watchlist_changed,
+        baseline=baseline,
+        trades=trades,
+        decisions=todays_decisions(today),
+        watch=watch_items(positions, today, breach_delta=cfg.roll.trigger.breach_delta),
+        next_session=next_trading_session(today),
     )
     logger.info(
-        "EODSummary: realized=%.2f unrealized=%.2f delta=%.2f fills=%d",
+        "EODSummary: realized=%.2f unrealized=%.2f delta=%.2f (since %s) fills=%d trades=%d",
         summary.realized_pnl,
         summary.unrealized_pnl,
         summary.unrealized_pnl_delta,
+        summary.baseline_date,
         summary.fills_today,
+        len(summary.trades),
     )
 
     # 5. Call Claude for a narrative (non-blocking on failure).
@@ -524,7 +570,6 @@ async def run() -> None:
     #     positions (Phase 4) — a vanished short whose underlying stock moved ~100×contracts is
     #     assigned, not expired-worthless. Today's snapshot is then saved as tomorrow's baseline.
     try:
-        assigned = assigned_shorts(positions, today)
         reconcile(assigned_candidate_ids={sh.candidate_id for sh in assigned})
         # C6: roll the assignment through to the wheel campaign so adjusted cost basis is
         # maintained (put assignment) / the campaign is flagged assigned (call assignment).
