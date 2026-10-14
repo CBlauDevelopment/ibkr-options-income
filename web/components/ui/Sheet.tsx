@@ -41,7 +41,9 @@ export function Sheet({
         // Focusable (but not tabbable) so a click on non-focusable prose lands focus on the
         // panel rather than <body>, where Escape and the Tab trap would never hear it.
         tabIndex={-1}
-        className="animate-sheet-in relative outline-none max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-surface p-6 shadow-sheet motion-reduce:animate-none sm:h-full sm:max-h-none sm:w-[440px] sm:rounded-none sm:rounded-l-[24px]"
+        // A keyboard user whose focus is handed back to the panel sees an inset ring; a mouse click on
+        // prose shows none (:focus-visible), and the ring stays inside the sheet's own edge.
+        className="animate-sheet-in relative focus-visible:-outline-offset-4 max-h-[92vh] w-full overflow-y-auto rounded-t-[24px] bg-surface p-6 shadow-sheet motion-reduce:animate-none sm:h-full sm:max-h-none sm:w-[440px] sm:rounded-none sm:rounded-l-[24px]"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-2xl font-extrabold tracking-[-0.015em]">
