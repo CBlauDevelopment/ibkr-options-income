@@ -162,7 +162,7 @@ function BestWorstRow({
             type="button"
             onClick={() => onSelect(leg)}
             aria-label={`View ${contract} in the ledger`}
-            className="font-mono text-content underline decoration-dotted underline-offset-2 hover:text-focus"
+            className="font-mono text-content underline decoration-dotted underline-offset-2 hover:decoration-solid"
           >
             {contract}
           </button>

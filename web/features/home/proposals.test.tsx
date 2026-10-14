@@ -108,6 +108,14 @@ describe("NeedsYou", () => {
     expect(within(sheet).getByRole("button", { name: /Approve/ })).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Details" })).toHaveAttribute("href", "/trades/1");
   });
+  it("Review tells assistive tech that it opens a dialog", async () => {
+    renderWithQuery(<NeedsYou strategy="all" />, {
+      "/options/approvals": list(approval(1)),
+      "/options/controls": controls,
+    });
+    const card = await screen.findByRole("article", { name: "AAPL · Sell $180 put" });
+    expect(within(card).getByRole("button", { name: "Review" })).toHaveAttribute("aria-haspopup", "dialog");
+  });
   it("never invents a premium: an unknown one reads n/a, in the sentence and in every derived line", async () => {
     renderWithQuery(<NeedsYou strategy="all" />, {
       "/options/approvals": list(approval(1, { premium: null })),

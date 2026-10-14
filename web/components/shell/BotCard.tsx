@@ -22,7 +22,10 @@ export function BotCard() {
   if (isError && !data) {
     return <p className="rounded-xl bg-sunk p-2.5 text-[0.8125rem] text-muted">Bot status unavailable</p>;
   }
-  if (!data) return null;
+  if (!data) {
+    // Holds the card's place (rail foot, More) so nothing jumps when the controls answer.
+    return <div role="status" aria-busy="true" aria-label="Loading bot status" className="h-[59px] rounded-xl bg-sunk" />;
+  }
 
   // "Wheel halted": the web halt is the wheel's switch; credit spreads have their own.
   const state = `${data.halted ? "Wheel halted" : "Bot running"} · ${data.mode}`;
@@ -30,6 +33,7 @@ export function BotCard() {
     <>
       <button
         type="button"
+        aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         className="w-full rounded-xl bg-sunk p-2.5 text-left text-[0.8125rem] hover:bg-sunk-deep"
       >

@@ -26,7 +26,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       data-variant={variant}
       className={clsx(
         "inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-[18px]",
-        "text-[0.9375rem] font-bold transition-transform duration-[90ms] enabled:active:scale-[0.98]",
+        // DESIGN.md title type (17px, 700); the 0.98 press is motion, so reduced motion drops it.
+        "text-[1.0625rem] font-bold transition-transform duration-[90ms] motion-safe:enabled:active:scale-[0.98]",
         "disabled:cursor-default disabled:bg-sunk disabled:text-muted",
         VARIANT[variant],
         block && "w-full",

@@ -28,6 +28,8 @@
   /* Focus is ink, never lime or green, so "selected" can never read as "up". */
   --color-focus: #111410;
   --color-scrim: rgba(0, 0, 0, 0.5);
+  /* The one shadow in the system: the review sheet lifting off the page (DESIGN.md Elevation). */
+  --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.18);
 
   --color-primary: #a6eb6e; /* lime: primary actions only */
   --color-primary-deep: #8fdb55;
@@ -57,6 +59,8 @@
   --color-unknown: #8a9286;
   --color-focus: #eef1eb;
   --color-scrim: rgba(0, 0, 0, 0.6);
+  /* Dark elevation is lightness first; the shadow only separates the sheet from the scrim. */
+  --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.5);
 
   --color-primary: #a6eb6e;
   --color-primary-deep: #8fdb55;
@@ -89,6 +93,8 @@
   --color-flag: var(--color-flag);
   --color-on-flag: var(--color-on-flag);
 
+  --shadow-sheet: var(--shadow-sheet);
+
   --font-sans: var(--font-sans), system-ui, sans-serif;
   --font-mono: var(--font-mono), ui-monospace, monospace;
 }
@@ -116,9 +122,10 @@ body {
   );
 }
 
+/* Selection is an ink fill, like every other "selected" state: lime is kept for "act here". */
 ::selection {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--text-content);
+  color: var(--bg-background);
 }
 
 :focus-visible {

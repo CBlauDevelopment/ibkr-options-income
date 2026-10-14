@@ -32,8 +32,15 @@ describe("globals.css theme tokens", () => {
       "--color-unknown",
       "--color-focus",
       "--color-scrim",
+      "--shadow-sheet",
     ]) {
       expect(light).toContain(n);
     }
+  });
+});
+
+describe("globals.css browser chrome", () => {
+  it("never paints text selection lime: lime means act (DESIGN.md)", () => {
+    expect(block("::selection")).not.toContain("--color-primary");
   });
 });

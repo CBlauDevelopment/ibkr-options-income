@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ControlsResponse } from "@/components/options/types";
 import { renderWithQuery } from "@/lib/test-query";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+const path = vi.hoisted(() => ({ current: "/" }));
+vi.mock("next/navigation", () => ({ usePathname: () => path.current }));
 
 import { BotCard } from "./BotCard";
 import { BotSheet } from "./BotSheet";
@@ -35,6 +36,18 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("link")).toHaveLength(5);
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   });
+  it.each(["/research", "/research/universe", "/stock/AAPL", "/news", "/news/AAPL"])(
+    "marks More current on %s, which lives under More on a phone",
+    (p) => {
+      path.current = p;
+      try {
+        renderWithQuery(<TabBar />, {});
+        expect(screen.getByRole("link", { name: "More" })).toHaveAttribute("aria-current", "page");
+      } finally {
+        path.current = "/";
+      }
+    },
+  );
 });
 
 describe("BotCard", () => {
@@ -57,6 +70,14 @@ describe("BotCard", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Bot running/ }));
     expect(screen.getByRole("dialog", { name: "Bot controls" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Halt/ })).toBeInTheDocument();
+  });
+  it("tells assistive tech that it opens a dialog", async () => {
+    renderWithQuery(<BotCard />, { "/options/controls": controls() });
+    expect(await screen.findByRole("button", { name: /Bot running/ })).toHaveAttribute("aria-haspopup", "dialog");
+  });
+  it("holds its place with a labelled loading state until the controls answer", () => {
+    renderWithQuery(<BotCard />, { "/options/controls": new Promise(() => {}) });
+    expect(screen.getByRole("status", { name: "Loading bot status" })).toBeInTheDocument();
   });
   it("says the status is unavailable when the controls fetch fails", async () => {
     renderWithQuery(<BotCard />, {});

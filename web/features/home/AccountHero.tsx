@@ -77,9 +77,15 @@ export function AccountHero() {
           flat ? "text-muted" : f.delta! < 0 ? "text-loss" : "text-gain",
         )}
       >
-        {f.delta === null
-          ? `${UNKNOWN} ${f.caption}${lastValueFrom}`
-          : `${signedMoney(f.delta)} (${f.deltaPct === null ? UNKNOWN : `${Math.abs(f.deltaPct).toFixed(2)}%`}) ${f.caption}`}
+        {f.delta === null ? (
+          <>
+            {/* Unknown carries the hatch as well as the word (DESIGN.md Words First). */}
+            <span className="hatch">{UNKNOWN}</span>
+            {` ${f.caption}${lastValueFrom}`}
+          </>
+        ) : (
+          `${signedMoney(f.delta)} (${f.deltaPct === null ? UNKNOWN : `${Math.abs(f.deltaPct).toFixed(2)}%`}) ${f.caption}`
+        )}
       </div>
       {series.points.length === 0 ? (
         <p className="mt-6 text-sm text-muted">No account history yet.</p>
@@ -95,7 +101,7 @@ export function AccountHero() {
           setHover(null);
           setRange(r);
         }}
-        className="mt-2"
+        className="mt-2 max-md:flex max-md:w-full max-md:justify-between"
       />
     </section>
   );

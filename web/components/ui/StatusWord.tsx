@@ -14,7 +14,7 @@ export function StatusWord({ tone = "neutral", children }: { tone?: StatusTone; 
     <span
       data-tone={tone}
       className={clsx(
-        "inline-block whitespace-nowrap rounded-[6px] px-2 py-px text-xs font-bold tracking-[0.02em]",
+        "inline-block whitespace-nowrap rounded-[6px] px-2 py-px text-xs font-semibold tracking-[0.04em]",
         TONE[tone],
       )}
     >

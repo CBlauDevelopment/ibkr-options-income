@@ -74,7 +74,7 @@ export function WatchlistTable() {
                 <td className="py-2">
                   <Link
                     href={`/stock/${item.symbol}`}
-                    className="font-mono text-content hover:text-focus"
+                    className="font-mono text-content underline-offset-2 hover:underline"
                   >
                     {item.symbol}
                   </Link>

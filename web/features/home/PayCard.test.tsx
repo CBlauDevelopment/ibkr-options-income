@@ -56,7 +56,9 @@ describe("PayCard", () => {
   });
   it("never turns an unknown progress into 0% of a known target", async () => {
     renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({ progress_pct: null }) });
-    expect(await screen.findByText("n/a of target · 18 days left")).toBeInTheDocument();
+    const line = await screen.findByText(/of target · 18 days left/);
+    expect(line).toHaveTextContent("n/a of target · 18 days left");
+    expect(within(line).getByText("n/a")).toHaveClass("hatch");
     expect(screen.queryByText(/^0% of target/)).toBeNull();
   });
   it("marks commissions gross when some are missing", async () => {

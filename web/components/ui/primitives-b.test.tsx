@@ -224,4 +224,21 @@ describe("Sheet", () => {
     );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+  it("stays on screen, with its keys, when the element it opened from is hidden", () => {
+    // Home mounts the review sheet inside a column hidden below 1024px, and the bot sheet inside
+    // the rail, hidden below 768px: resizing across the breakpoint must not hide an open sheet
+    // or the confirmation inside it.
+    const onClose = vi.fn();
+    render(
+      <div hidden>
+        <Sheet open onClose={onClose} title="Review trade">
+          <button>Approve</button>
+        </Sheet>
+      </div>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Review trade" });
+    expect(dialog).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Approve" }), { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

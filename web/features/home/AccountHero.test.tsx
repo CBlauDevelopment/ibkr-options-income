@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithQuery, apiFetchMock } from "@/lib/test-query";
 
@@ -99,8 +99,10 @@ describe("AccountHero", () => {
     weekend.series = { ...weekend.series, change_today: null, change_today_pct: null };
     renderWithQuery(<AccountHero />, { "/portfolio/value": weekend });
     expect(await screen.findByText("$101,500.00")).toBeInTheDocument();
-    expect(screen.getByText(/n\/a today/)).toBeInTheDocument();
-    expect(screen.getByText(/last value Oct 13, 2026/)).toBeInTheDocument();
+    const line = screen.getByText(/last value Oct 13, 2026/);
+    expect(line).toHaveTextContent("n/a today · last value Oct 13, 2026");
+    // Unknown carries the hatch as well as the word, here as everywhere (DESIGN.md Words First).
+    expect(within(line).getByText("n/a")).toHaveClass("hatch");
   });
   describe("points the chart cannot take as they are", () => {
     // lightweight-charts wants strictly ascending whole-second times and throws on a tie.
@@ -183,6 +185,9 @@ describe("AccountHero", () => {
     empty.series = { ...empty.series, points: [], latest: null, change_today: null, change_today_pct: null };
     renderWithQuery(<AccountHero />, { "/portfolio/value": empty });
     expect(await screen.findByText("No account history yet.")).toBeInTheDocument();
-    expect(screen.getByText("n/a")).toBeInTheDocument();
+    // The value and the day's change are both unknown, and both say so with the hatch.
+    const unknowns = screen.getAllByText("n/a");
+    expect(unknowns).toHaveLength(2);
+    for (const u of unknowns) expect(u).toHaveClass("hatch");
   });
 });

@@ -3,10 +3,10 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV, activeKey } from "@/lib/nav";
+import { NAV, phoneActiveKey } from "@/lib/nav";
 
 export function TabBar() {
-  const current = activeKey(usePathname());
+  const current = phoneActiveKey(usePathname());
   return (
     <nav
       aria-label="Primary"

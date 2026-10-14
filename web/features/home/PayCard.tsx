@@ -71,11 +71,15 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
   const wholeUnknown = spreadsOut && pay.strategy === "spread";
   const net = wholeUnknown ? null : pay.net;
   const pace =
-    wholeUnknown || pay.target === null
-      ? `No target set · ${pay.days_left} days left`
-      : pay.progress_pct === null
-        ? `${UNKNOWN} of target · ${pay.days_left} days left`
-        : `${Math.round(Math.max(0, pay.progress_pct))}% of target · ${pay.days_left} days left`;
+    wholeUnknown || pay.target === null ? (
+      `No target set · ${pay.days_left} days left`
+    ) : pay.progress_pct === null ? (
+      <>
+        <span className="hatch">{UNKNOWN}</span> of target · {pay.days_left} days left
+      </>
+    ) : (
+      `${Math.round(Math.max(0, pay.progress_pct))}% of target · ${pay.days_left} days left`
+    );
 
   return (
     <Card className="mt-4">
@@ -84,8 +88,8 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
         summary={
           <span className="block">
             <span className="flex items-baseline justify-between gap-2.5">
-              <span className="text-base font-bold">{month} pay</span>
-              <span className="tabular font-mono font-semibold">
+              <span className="whitespace-nowrap text-[1.0625rem] font-bold">{month} pay</span>
+              <span className="tabular text-right font-mono font-semibold">
                 <span className={clsx(net === null && "hatch text-unknown")}>{formatStubValue(net, "signed-money")}</span>
                 {!wholeUnknown && pay.target !== null && (
                   <span className="ml-1 font-normal text-muted">of {formatMoneyCell(pay.target)}</span>

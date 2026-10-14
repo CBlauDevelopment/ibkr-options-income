@@ -91,7 +91,7 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
   return (
     <Card className="mt-4" aria-labelledby="positions-title">
       <div className="flex items-baseline justify-between">
-        <h2 id="positions-title" className="text-base font-bold">
+        <h2 id="positions-title" className="text-[1.0625rem] font-bold">
           Positions
         </h2>
         <span className="text-[0.8125rem] text-muted">Sorted by expiry</span>

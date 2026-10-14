@@ -24,7 +24,7 @@ export function ProposalsBanner({ strategy }: { strategy: StrategyFilter }) {
       <Link
         href="/trades"
         aria-label="Open Trades"
-        className="inline-flex min-h-11 flex-none items-center rounded-full bg-primary px-[18px] font-bold text-on-primary transition-transform duration-[90ms] hover:bg-primary-deep active:scale-[0.98]"
+        className="inline-flex min-h-11 flex-none items-center rounded-full bg-primary px-[18px] text-[1.0625rem] font-bold text-on-primary transition-transform duration-[90ms] hover:bg-primary-deep motion-safe:active:scale-[0.98]"
       >
         Open
       </Link>

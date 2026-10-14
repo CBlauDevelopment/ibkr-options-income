@@ -39,7 +39,8 @@ function StubLine({ line }: { line: StubLineData }) {
     </>
   );
   const rowClass = clsx(
-    "flex w-full justify-between gap-2.5 text-left",
+    // Each explained line is a button: at least 24px tall so stacked lines clear WCAG 2.5.8.
+    "flex min-h-6 w-full items-center justify-between gap-2.5 text-left",
     line.total && "mt-1 border-t border-border pt-1.5 font-semibold",
   );
   if (!line.explain) return <div className={rowClass}>{row}</div>;
@@ -61,7 +62,7 @@ export function Stub({ lines, label }: { lines: StubLineData[]; label: string })
     <div
       role="group"
       aria-label={label}
-      className="tabular mt-3 grid gap-0.5 border-t-2 border-dashed border-perforation pt-2.5 font-mono text-[0.84375rem]"
+      className="tabular mt-3 grid border-t-2 border-dashed border-perforation pt-2 font-mono text-[0.84375rem] font-medium"
     >
       {lines.map((l) => (
         <StubLine key={l.label} line={l} />

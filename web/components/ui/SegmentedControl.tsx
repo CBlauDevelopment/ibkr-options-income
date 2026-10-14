@@ -9,10 +9,11 @@ export type SegmentOption<T extends string> = {
 
 type Appearance = "track" | "chips" | "quiet";
 
+// Row gaps below 768px leave room for each row's 44px hit areas when the control wraps.
 const TRACK: Record<Appearance, string> = {
-  track: "rounded-full bg-surface p-1",
-  chips: "",
-  quiet: "",
+  track: "rounded-full bg-surface p-1 max-md:gap-y-2.5",
+  chips: "max-md:gap-y-5",
+  quiet: "max-md:gap-y-5",
 };
 
 const BUTTON: Record<Appearance, string> = {
@@ -57,7 +58,11 @@ export function SegmentedControl<T extends string>({
             aria-pressed={on}
             onClick={() => onChange(o.value)}
             className={clsx(
-              "rounded-full font-semibold",
+              "relative rounded-full font-semibold",
+              // Phones: the pill stays compact (DESIGN.md range-chip / strategy-switch) but its hit
+              // area is a centred 44px-tall, at-least-44px-wide box, the phone touch-target floor.
+              "max-md:before:absolute max-md:before:left-1/2 max-md:before:top-1/2 max-md:before:h-11",
+              "max-md:before:w-full max-md:before:min-w-11 max-md:before:-translate-x-1/2 max-md:before:-translate-y-1/2",
               BUTTON[appearance],
               // Selected is an ink fill - never lime, never green - so it cannot read as "up".
               on ? "bg-content text-background" : UNSELECTED[appearance],

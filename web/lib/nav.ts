@@ -22,6 +22,16 @@ export const NAV: NavItem[] = [
   { key: "more", label: "More", href: "/more", match: ["/more", "/explain"], icon: Ellipsis, phone: true },
 ];
 
+/**
+ * The phone tab bar's current tab: Research and News have no tab of their own on a phone (they
+ * are reached through More), so their pages mark More current rather than nothing.
+ */
+export function phoneActiveKey(pathname: string): string | null {
+  const key = activeKey(pathname);
+  const item = NAV.find((n) => n.key === key);
+  return item && !item.phone ? "more" : key;
+}
+
 export function activeKey(pathname: string): string | null {
   let best: { key: string; len: number } | null = null;
   for (const item of NAV) {

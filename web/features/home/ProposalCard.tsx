@@ -59,13 +59,19 @@ export function ProposalCard({
       <ProposalBody approval={approval} />
       <div className="mt-3.5 flex gap-2">
         {/* aria-describedby gives a screen reader the trade without changing the button's name. */}
-        <Button variant="primary" block aria-describedby={titleId} onClick={() => onReview(approval)}>
+        <Button
+          variant="primary"
+          block
+          aria-haspopup="dialog"
+          aria-describedby={titleId}
+          onClick={() => onReview(approval)}
+        >
           Review
         </Button>
         <Link
           href={`/trades/${approval.id}`}
           aria-describedby={titleId}
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-sunk px-[18px] text-[0.9375rem] font-bold text-content transition-transform duration-[90ms] hover:bg-sunk-deep active:scale-[0.98]"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-sunk px-[18px] text-[1.0625rem] font-bold text-content transition-transform duration-[90ms] hover:bg-sunk-deep motion-safe:active:scale-[0.98]"
         >
           Details
         </Link>
