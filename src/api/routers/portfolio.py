@@ -22,9 +22,11 @@ Shared conventions set by Task 2.1, followed by every route here:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
@@ -33,6 +35,7 @@ from src.api.deps import OwnerUser, TradingDb
 from src.api.models.common import Source, Sourced
 from src.api.models.portfolio import (
     AccountBlock,
+    AccountValueResponse,
     CalendarDay,
     CalendarEntry,
     CalendarResponse,
@@ -49,7 +52,8 @@ from src.api.models.portfolio import (
 from src.api.portfolio_source import read_portfolio
 from src.common.assignment_risk import assignment_risk_thresholds, is_assignment_risk
 from src.common.config import get_config
-from src.common.schemas import OptionRight, PositionSnapshot
+from src.common.schemas import AccountValueRange, OptionRight, PositionSnapshot
+from src.reporting.account_value import account_value_series
 from src.storage.campaigns import prior_legs_premium, whole_position_basis
 from src.storage.models import CampaignRow, CandidateRow
 
@@ -656,3 +660,35 @@ def _option_legs(
             )
         )
     return legs
+
+
+# ---------------------------------------------------------------------------
+# Web overhaul Part 1, Task 7 — GET /portfolio/value
+# ---------------------------------------------------------------------------
+
+
+def _session_factory(db: TradingDb):
+    """`src/reporting` takes a session factory; yield the request's read-only session."""
+
+    @contextmanager
+    def _factory() -> Iterator[TradingDb]:
+        yield db
+
+    return _factory
+
+
+@router.get("/value", response_model=AccountValueResponse)
+def portfolio_value(
+    user: OwnerUser,  # noqa: ARG001
+    db: TradingDb,
+    # Annotated, not `= Query(...)`: ruff B008 cannot see through the `AccountValueRange`
+    # alias (see ledger.py `sort`); the alias keeps the builtin `range` unshadowed.
+    range_: Annotated[AccountValueRange, Query(alias="range")] = "1m",
+) -> AccountValueResponse:
+    """Account value over `range` for the Home hero. Computes nothing itself: a thin render
+    of `account_value_series`. No history is a 200 with no points, never zeros."""
+    now = datetime.now(UTC)
+    return AccountValueResponse(
+        as_of=now,
+        series=account_value_series(_session_factory(db), range_, now=now),
+    )

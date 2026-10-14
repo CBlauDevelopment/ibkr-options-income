@@ -57,8 +57,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | **B entry checks** | done | main..HEAD = 5 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67) | vitest 548, tsc/lint green, B3-B6 pass | 2026-10-13 | B1 counts five commits, not four (Section A's review fix pass, f1e5a67) |
 | 5 Routes and redirects | done | 8fab3c3 | vitest 552 (548+4), tsc 0, lint clean | 2026-10-13 | Step 5 link rewrite touched navigation links only: `app/trades/[approvalId]/page.tsx`, `components/options/{ApprovalCard,ApprovalDetail,AssessedRow,ShortsRow}.tsx`, `components/shell/RailSection.tsx`; tests `components/options/AssessedRow.test.tsx` (1 href) and `ShortsTable.test.tsx` (2 hrefs). The grep's other hits are API paths (`apiFetch("/options/...")`, `/pnl/...`, `/universe`, `lib/api-types.ts`, `lib/commands.ts`) and code comments; they stay, since rewriting them would break the API calls. More test fixture uses `rows: []` (SystemStatusCard's real body), as Step 1 directs |
 | 6 Shell | done | 429511f; Section B review fix pass in one extra commit after it | vitest 565 (552+4 nav+10 shell+1 More-2 ControlsStrip; Rail's 3 replaced 3), tsc 0, lint clean; after the review fix pass vitest 571 (565+6), tsc 0, lint clean, scratch-copy `next build` green; `next build` green (15 routes); real browser: 307s, five pages render, halt / RESUME / rung change from the bot sheet against a mock API | 2026-10-13 | `HaltedBanner` also says "No new orders will be queued or transmitted; profit-take closes still run": Step 1's copied ControlsStrip wording assertion failed against the plan's banner (RED then GREEN). `ControlsStrip.test.tsx`: dropped the `halted-banner` null check and the two banner tests (the null-time case is now `shell.test` "omits the time"; the banner omits the time instead of saying "unknown time", and `HaltControl` still says it). `text-on-flag` on sunk measured 6.95/10.17 (hover 6.19/8.90): kept. Build gate run in a scratch copy of `web/` (node_modules symlinked) because the operator's own `next dev` on :3000 shares `web/.next`. HaltControl, AutonomyControl, ConfirmAction and DecideControls (via ApprovalCard.test) tests unchanged and green. **Section B review fix pass (one extra commit `fix(web): scope halt copy to the wheel, drain warning in the sheet, dialog keys over the sheet, Universe and Ledger links`), so the later entry-check commit counts shift by a further +1: C1 expects 8 commits on `main..HEAD`, D1 11, E1 15.** I1: the plan's banner text "Trading is halted" is amended to "Wheel trading is halted" plus "No new CSP or covered-call orders will be queued or sent. Credit spreads have their own halt and are not stopped by this one." (the profit-take clause is dropped); the bot card's halted state reads "Wheel halted · paper" (the web halt is the wheel's `system_settings` switch; the spreads service honours only its own halt file). I2: the plan's `BotSheet` code is amended to render the "not draining" warning above the controls, through `DrainWarning`, now exported from `ControlsStrip.tsx` and shared by both surfaces. I3: `useFocusTrap` hands Escape (unstopped) and Tab (into the nested dialog) to a nested `[role=dialog]` while one is open, even with focus on the panel. I4: More also links Universe (`/research/universe`) and Ledger (`/ledger`) |
-| **C entry checks** | not started | | | | |
-| 7 Account value API | not started | | | | |
+| **C entry checks** | done | main..HEAD = 8 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67 8fab3c3 429511f d055ef4) | pytest 3520+1 skip, vitest 571, tsc/lint/ruff/mypy green, build green, fences 50, C1-C5 pass | 2026-10-14 | C1 counts eight commits, not six (Section A and Section B review fix passes, +2); C2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`) |
+| 7 Account value API | done | (this commit; Task 8's commit records the hash) | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
 | 8 Spreads read API | not started | | | | |
 | 9 Monthly pay API | not started | | | | |
 | **D entry checks** | not started | | | | |
@@ -2581,13 +2581,13 @@ still writes exactly one table; nothing new is reachable from engine, execution 
 
 **Entry checks (run before Task 7):**
 
-- [ ] **C1. Section B landed.** `git log --oneline main..HEAD` shows six commits; Tasks 5–6 are ticked.
-- [ ] **C2. Web gate and production build green.**
+- [x] **C1. Section B landed.** `git log --oneline main..HEAD` shows six commits; Tasks 5–6 are ticked.
+- [x] **C2. Web gate and production build green.**
   `cd web && npx vitest run && npx tsc --noEmit && npm run lint && npm run build`. This is the first
   `next build` since routes moved; a build failure here is Section B's to fix.
-- [ ] **C3. The safety controls survived the move.** These pass unchanged from baseline:
+- [x] **C3. The safety controls survived the move.** These pass unchanged from baseline:
   `cd web && npx vitest run components/options/HaltControl components/options/AutonomyControl components/options/DecideControls components/options/ConfirmAction`.
-- [ ] **C4. Python gate green, fences green, OpenAPI current.**
+- [x] **C4. Python gate green, fences green, OpenAPI current.**
 
   ```bash
   python -m pytest -q && ruff check . && mypy src
@@ -2596,7 +2596,7 @@ still writes exactly one table; nothing new is reachable from engine, execution 
   ```
 
   The pytest count equals the A2 baseline (Sections A–B touched no Python).
-- [ ] **C5. The fixtures this section relies on exist.** `grep -nE "^def (db|api_db|client|seed_leg|seed_journal_day|seed_portfolio_snapshot)\b|^def _account_dict" tests/conftest.py`
+- [x] **C5. The fixtures this section relies on exist.** `grep -nE "^def (db|api_db|client|seed_leg|seed_journal_day|seed_portfolio_snapshot)\b|^def _account_dict" tests/conftest.py`
   lists all seven names. A missing one means the task's tests must be adapted first: record the
   ruling.
 
@@ -2622,7 +2622,7 @@ still writes exactly one table; nothing new is reachable from engine, execution 
   - `month_start_value(session, first_day: date) -> float | None`
   - `GET /portfolio/value?range=1m` → `AccountValueResponse(as_of, series)`
 
-- [ ] **Step 1: Write the failing builder tests** — `tests/test_reporting_account_value.py`
+- [x] **Step 1: Write the failing builder tests** — `tests/test_reporting_account_value.py`
 
 ```python
 """Account value over time: daily from the journal, intraday from portfolio snapshots."""
@@ -2719,12 +2719,12 @@ Check `tests/conftest.py`'s `db` fixture yields a session factory usable as `wit
 that `_account_dict` is importable (it is a module-level function at line 121). If the `db`
 fixture's name or shape differs, adapt the two helpers above to it and record the ruling.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `python -m pytest tests/test_reporting_account_value.py -q`
 Expected: FAIL (`ModuleNotFoundError: src.reporting.account_value`).
 
-- [ ] **Step 3: Add the schemas** — append to `src/common/schemas.py` after `class EquityCurve`
+- [x] **Step 3: Add the schemas** — append to `src/common/schemas.py` after `class EquityCurve`
 
 ```python
 AccountValueRange = Literal["1d", "1w", "1m", "3m", "ytd", "all"]
@@ -2754,7 +2754,7 @@ class AccountValueSeries(BaseModel):
 
 (`Literal`, `datetime`, `BaseModel`, `Field` are already imported in `schemas.py`; confirm.)
 
-- [ ] **Step 4: Implement `src/reporting/account_value.py`**
+- [x] **Step 4: Implement `src/reporting/account_value.py`**
 
 ```python
 """Account value over time — read-only, like the rest of src/reporting/.
@@ -2888,12 +2888,12 @@ def month_start_value(session: _SessionFactory, first_day: date) -> float | None
     return None
 ```
 
-- [ ] **Step 5: Run the builder tests**
+- [x] **Step 5: Run the builder tests**
 
 Run: `python -m pytest tests/test_reporting_account_value.py -q`
 Expected: PASS (6 tests).
 
-- [ ] **Step 6: Write the failing route test** — `tests/test_api_portfolio_value.py`
+- [x] **Step 6: Write the failing route test** — `tests/test_api_portfolio_value.py`
 
 ```python
 """GET /portfolio/value — the Home hero's series. Empty is empty, never zero."""
@@ -2940,12 +2940,12 @@ def test_it_requires_the_owner(client) -> None:
 (`yesterday` may fall on a weekend or be "today" in ET near midnight; the assertions above do not
 depend on `previous_close`, so they hold either way.)
 
-- [ ] **Step 7: Run to verify failure**
+- [x] **Step 7: Run to verify failure**
 
 Run: `python -m pytest tests/test_api_portfolio_value.py -q`
 Expected: FAIL (404 on `/portfolio/value`).
 
-- [ ] **Step 8: Add the model and route**
+- [x] **Step 8: Add the model and route**
 
 `src/api/models/portfolio.py` — append:
 
@@ -2992,7 +2992,7 @@ def portfolio_value(
     )
 ```
 
-- [ ] **Step 9: Run tests, regenerate OpenAPI, gate, commit**
+- [x] **Step 9: Run tests, regenerate OpenAPI, gate, commit**
 
 ```bash
 python -m pytest tests/test_reporting_account_value.py tests/test_api_portfolio_value.py -q

@@ -873,6 +873,31 @@ class EquityCurve(BaseModel):
     starts_at: date | None = None
 
 
+AccountValueRange = Literal["1d", "1w", "1m", "3m", "ytd", "all"]
+
+
+class AccountValuePoint(BaseModel):
+    at: datetime
+    value: float
+
+
+class AccountValueSeries(BaseModel):
+    """Account value (net liquidation) over a range, for the Home hero chart.
+
+    Daily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read
+    intraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).
+    Every figure is None when unknown - never 0.0.
+    """
+
+    range: AccountValueRange
+    points: list[AccountValuePoint] = Field(default_factory=list)
+    latest: float | None = None
+    latest_at: datetime | None = None
+    previous_close: float | None = None
+    change_today: float | None = None
+    change_today_pct: float | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Trade ledger — whole-account broker truth
 # (docs/superpowers/specs/2026-10-04-trade-ledger-design.md). Read by src/ledger/,

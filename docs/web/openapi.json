@@ -1260,6 +1260,60 @@
         ]
       }
     },
+    "/portfolio/value": {
+      "get": {
+        "summary": "Portfolio Value",
+        "description": "Account value over `range` for the Home hero. Computes nothing itself: a thin render\nof `account_value_series`. No history is a 200 with no points, never zeros.",
+        "operationId": "portfolio_value_portfolio_value_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1d",
+                "1w",
+                "1m",
+                "3m",
+                "ytd",
+                "all"
+              ],
+              "type": "string",
+              "default": "1m",
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountValueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pnl/ledger": {
       "get": {
         "summary": "Pnl Ledger",
@@ -3134,6 +3188,128 @@
           "excess_liquidity"
         ],
         "title": "AccountBlock"
+      },
+      "AccountValuePoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "value"
+        ],
+        "title": "AccountValuePoint"
+      },
+      "AccountValueResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "series": {
+            "$ref": "#/components/schemas/AccountValueSeries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "series"
+        ],
+        "title": "AccountValueResponse"
+      },
+      "AccountValueSeries": {
+        "properties": {
+          "range": {
+            "type": "string",
+            "enum": [
+              "1d",
+              "1w",
+              "1m",
+              "3m",
+              "ytd",
+              "all"
+            ],
+            "title": "Range"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/AccountValuePoint"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "latest_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest At"
+          },
+          "previous_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Close"
+          },
+          "change_today": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Today"
+          },
+          "change_today_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Today Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "range"
+        ],
+        "title": "AccountValueSeries",
+        "description": "Account value (net liquidation) over a range, for the Home hero chart.\n\nDaily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read\nintraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).\nEvery figure is None when unknown - never 0.0."
       },
       "AlternativeStrike": {
         "properties": {
