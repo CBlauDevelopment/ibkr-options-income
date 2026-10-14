@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -120,22 +121,92 @@ def render_card(p: CardPayload) -> RenderedMessage:
     return RenderedMessage(text=text, preview_url=p.preview_url, show_above=False)
 
 
+_TAG = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*>")
+
+
+def _open_after(text: str, stack: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The (name, opening tag) stack still open after *text*, starting from *stack*."""
+    out = list(stack)
+    for m in _TAG.finditer(text):
+        name = m.group(2).lower()
+        if m.group(1):
+            for i in range(len(out) - 1, -1, -1):
+                if out[i][0] == name:
+                    del out[i:]
+                    break
+        else:
+            out.append((name, m.group(0)))
+    return out
+
+
+def _closers(stack: list[tuple[str, str]]) -> str:
+    return "".join(f"</{name}>" for name, _ in reversed(stack))
+
+
+def _safe_cut(s: str, n: int) -> int:
+    """Largest cut <= n that lands neither inside a tag nor inside an HTML entity."""
+    cut = min(n, len(s))
+    lt = s.rfind("<", 0, cut)
+    if lt > s.rfind(">", 0, cut):
+        cut = lt
+    amp = s.rfind("&", 0, cut)
+    if amp != -1 and ";" not in s[amp:cut]:
+        cut = amp
+    return cut if cut > 0 else min(n, len(s))
+
+
+def _units(text: str, limit: int) -> list[tuple[str, str]]:
+    """(separator, piece) pairs, each piece small enough to fit a chunk on its own.
+
+    Paragraphs first, then lines, then words; a single word longer than the limit is sliced at
+    a point that is outside any tag or entity. Separators are kept so the pieces rejoin exactly.
+    """
+    out: list[tuple[str, str]] = []
+    budget = max(limit // 2, 1)  # room left for the tags a chunk must close and reopen
+    for bi, block in enumerate(text.split("\n\n")):
+        sep = "" if bi == 0 else "\n\n"
+        if len(block) <= budget:
+            out.append((sep, block))
+            continue
+        for li, line in enumerate(block.split("\n")):
+            lsep = sep if li == 0 else "\n"
+            if len(line) <= budget:
+                out.append((lsep, line))
+                continue
+            rest, first = line, True
+            while rest:
+                cut = len(rest) if len(rest) <= budget else _safe_cut(rest, budget)
+                if cut < len(rest):
+                    space = rest.rfind(" ", 0, cut)
+                    if space > 0 and _safe_cut(rest, space) == space:
+                        cut = space
+                out.append((lsep if first else "", rest[:cut]))
+                rest, first = rest[cut:], False
+    return out
+
+
 def split_message(text: str, limit: int = LIMIT) -> list[str]:
+    """Split HTML *text* into Telegram-sized chunks, every chunk well-formed on its own.
+
+    Cuts prefer paragraph, then line, then word boundaries and never land inside a tag or an
+    entity. A tag still open at a cut is closed at the end of its chunk and reopened at the
+    start of the next (2026-10-13: a hard slice inside an ``<a href>`` made Telegram reject a
+    whole close digest after its header).
+    """
     parts: list[str] = []
+    stack: list[tuple[str, str]] = []  # tags open at the start of the current chunk
+    prefix = ""
     cur = ""
-    for block in text.split("\n\n"):
-        while len(block) > limit:
-            if cur:
-                parts.append(cur)
-                cur = ""
-            parts.append(block[:limit])
-            block = block[limit:]
-        candidate = f"{cur}\n\n{block}" if cur else block
-        if len(candidate) > limit:
-            parts.append(cur)
-            cur = block
+    for sep, piece in _units(text, limit):
+        candidate = f"{cur}{sep}{piece}" if cur else piece
+        if cur and len(prefix + candidate + _closers(_open_after(candidate, stack))) > limit:
+            end = _open_after(cur, stack)
+            parts.append(prefix + cur + _closers(end))
+            stack = end
+            prefix = "".join(tag for _, tag in stack)
+            cur = piece
         else:
             cur = candidate
     if cur:
-        parts.append(cur)
+        parts.append(prefix + cur + _closers(_open_after(cur, stack)))
     return parts

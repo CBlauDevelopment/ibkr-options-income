@@ -121,3 +121,39 @@ def test_naive_when_is_read_as_utc_not_local(monkeypatch: pytest.MonkeyPatch) ->
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+@pytest.mark.parametrize("pad", range(0, 90, 7))
+def test_split_never_cuts_inside_a_tag_and_keeps_tags_balanced(pad: int) -> None:
+    # 2026-10-13 close digest: one section ran past 4096 chars and the hard slice landed inside
+    # an <a href> — Telegram rejected the chunk ("unclosed start tag") and the rest never went.
+    # The padding walks the cut point across every offset of an item, tag included.
+    item = (
+        "• Headline about a stock" + "!" * pad
+        + ' — <a href="https://example.com/a/very/long/path">Source</a>'
+    )
+    section = "<b>Movers</b>\n" + "\n".join([item] * 80)
+    text = "\n\n".join(["📰 <b>Close</b> · 16:30", section])
+    parts = split_message(text, 4096)
+    assert len(parts) >= 2
+    for p in parts:
+        assert len(p) <= 4096
+        assert p.count("<a ") == p.count("</a>")
+        assert p.count("<b>") == p.count("</b>")
+    # Nothing lost: every item made it into some chunk.
+    assert sum(p.count("Source</a>") for p in parts) == 80
+
+
+def test_split_rebalances_a_tag_spanning_the_cut() -> None:
+    text = "<pre>" + "\n".join(["row " + "x" * 50] * 120) + "</pre>"
+    parts = split_message(text, 1000)
+    assert len(parts) > 1
+    for p in parts:
+        assert len(p) <= 1000
+        assert p.startswith("<pre>") and p.endswith("</pre>")
+
+
+def test_split_does_not_cut_an_entity() -> None:
+    text = ("a &amp; b " * 600).strip()
+    for p in split_message(text, 1000):
+        assert not p.endswith("&") and not p.endswith("&amp") and "&am " not in p
