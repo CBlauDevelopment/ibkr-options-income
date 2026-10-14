@@ -67,8 +67,10 @@ The authenticated user's identity and role.
 
 ## `GET /nav`
 
-The navigation manifest that drives the web app's left rail. Lists every section with an
+The navigation manifest that used to drive the web app's left rail. Lists every section with an
 `available` flag; unavailable sections render disabled with their `note` as the reason.
+**No longer read by the web** since web overhaul Part 1 (the rail and tab bar come from
+`web/lib/nav.ts`); the route and its test are removed in Part 4.
 
 **Response — `NavResponse`:**
 
@@ -1025,6 +1027,38 @@ Degradation behaviour: the `none` rung returns `days: []` with
 `CalendarDay`: `{ as_of, expiry, dte, entries: CalendarEntry[] }`.
 `CalendarEntry`: `{ as_of, symbol, underlying, right, strike, contracts, short, moneyness: "itm"|"atm"|"otm"|null, consequence: "assigned"|"called_away"|"expires_worthless"|"unknown", assignment_risk }`.
 
+### `GET /portfolio/value` (web overhaul Part 1)
+
+Account value (net liquidation) over a range, for the Home hero's number and scrubbable chart.
+A thin render over `src/reporting/account_value.py::account_value_series`: the route computes
+nothing itself. Owner-only; reads through the `mode=ro` trading engine; never reaches IBKR.
+
+| Param | Type | Notes |
+|---|---|---|
+| `range` | `1d` \| `1w` \| `1m` \| `3m` \| `ytd` \| `all` | default `1m` |
+
+Two sources, one shape: `1d`/`1w` plot the intraday `portfolio_snapshots` rows (every ~15
+minutes, 30-day retention) inside the window; `1m`/`3m`/`ytd`/`all` plot one point per EOD
+journal close, at that day's 16:00 New York time. The rules:
+
+- **Unknown is `null`, never `0`.** A net liquidation of `0` or less (IBKR's account summary
+  can come back without its NetLiquidation tag, and `0.0` is what gets stored then) is
+  unknown: it is never a point, never `latest`, never `previous_close` and never a month-start
+  value. With no known value at all, `latest` is `null` and `points` is `[]`.
+- **A journal close counts only once its 16:00 ET is past.** A row for today written early is
+  not yet a close: it neither plots nor competes with a live snapshot.
+- **`latest` is the newer of the newest known snapshot and the newest close, compared as
+  instants.** After the close the official close leads; a monitor that stopped days ago never
+  does. Every range ends on `latest` when it is newer than its last point.
+- **`previous_close` is the close before the New York day `latest` belongs to**, and
+  **`change_today` / `change_today_pct` are `null` unless that day is today** (a weekend,
+  or before today's first snapshot): the day's change is unknown then, never `0`.
+
+**Response — `AccountValueResponse`:** `{ as_of, series: AccountValueSeries }`.
+`AccountValueSeries`: `{ range, points: AccountValuePoint[], latest: float | null, latest_at: datetime | null, previous_close: float | null, change_today: float | null, change_today_pct: float | null }`.
+`AccountValuePoint`: `{ at, value }` (strictly by time; the web client also folds two points in
+one second into one before charting).
+
 ---
 
 ## P&L (P4 Milestone 5)
@@ -1079,7 +1113,11 @@ assignment reading as a leg that ended for no reason.
 
 **Response — `LedgerResponse`:** `{ as_of, filters, campaigns: CampaignPnl[], marks_as_of, n_legs }`.
 `CampaignPnl`: `{ campaign_id, symbol, status, opened_date, closed_date, legs: PnlLeg[], option_realized, option_unrealized, stock_realized, stock_unrealized, assigned, adjusted_cost_basis, total_net }`.
-`PnlLeg`: `{ candidate_id, campaign_id, symbol, underlying, strategy, right, strike, expiry, contracts, opened_at, closed_at, credit, debit, commissions, commissions_complete, net_pnl, unrealized_pnl, days_held, roc_pct, annualized_pct, outcome, is_live }`.
+`PnlLeg`: `{ candidate_id, campaign_id, symbol, underlying, strategy, right, strike, expiry, contracts, opened_at, closed_at, credit, debit, commissions, commissions_complete, open_commissions?, net_pnl, unrealized_pnl, days_held, roc_pct, annualized_pct, outcome, is_live }`.
+`open_commissions` (web overhaul Part 1, additive and optional) is the part of `commissions`
+paid on the leg's SELL fills, so `GET /pnl/month` can charge each side in the month it was
+paid; `null` when no split is known. Every other `PnlLeg` field, and the reconciler's
+`fill_economics` / `classify_outcome`, are unchanged by it.
 
 `net_pnl` is `null` while a leg is open — never `0.0`. An open leg has a mark, not a
 result. `unrealized_pnl` is filled from the snapshot only for open legs; a closed leg's
@@ -1165,6 +1203,69 @@ sentence on the page, and not the UI's to paraphrase.
 closed rows in the window, never `0.0`, matching every other rate in this phase. With no
 closed trades, the response is the report's own empty case (`n_closed: 0` plus its own
 "nothing to correlate yet" note) — never a `404` or a hand-written empty message. Owner-only.
+
+### `GET /pnl/month` (web overhaul Part 1)
+
+One month's options income as a pay stub, for Home's collapsible "October pay" card. A thin
+render over `src/reporting/pay.py::build_month_pay`, from the same `PnlLeg` list every P&L route
+reads, plus the book's own spread positions from `data/spreads.db` (read through
+`src/api/spreads_db.py`, never `src.spreads`). Owner-only; never reaches IBKR.
+
+| Param | Type | Notes |
+|---|---|---|
+| `month` | `YYYY-MM` | default: the current New York month |
+| `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all`; a roll counts under the side it rolls (put roll = `csp`) |
+| `book` | `paper` \| `live` | default: the running mode (a pay figure across paper and live means nothing, as with `/pnl/summary`) |
+
+The attribution rule, every date read in New York time:
+
+- **Premium counts in the month the leg was SOLD** (opened); **buybacks count in the month they
+  were BOUGHT** (closed). An expired or assigned leg closes on its expiry date.
+- **Commissions are charged by side, once each:** the sell-side commission
+  (`PnlLeg.open_commissions`) in the month the leg opened, the rest in the month it closed. A
+  leg with no known split charges all of its commissions to the open month, so no commission
+  is ever counted in two months and a past month's stub never changes after the fact.
+- Spreads count only positions whose `mode` equals the book (shadow and baseline are
+  simulations): entry credit and entry commission in the month opened, the closed contracts'
+  exit debit and exit commission in the month closed.
+- `net = premium_collected − bought_back − commissions`.
+- **`target` is `web.monthly_income_target_pct` of `month_start_value`**, the last known
+  journal close before the month's first day. Either unknown makes `target_pct` / `target` /
+  `progress_pct` `null` (the card says "No target set"), never `0`.
+- `commissions_complete` is `false` when any counted leg lacks a commission (the figure is a
+  lower bound).
+- **`spreads_available`** is `false` only when a spreads book is in scope (`strategy` `all` or
+  `spread`) and `data/spreads.db` could not be read (absent, not a database, locked, or no
+  `spread_positions` table): the response's spread figures are then missing, not zero, and the
+  card says so instead of showing `$0` or the wheel's total as the whole month. A wheel-only
+  strategy never reads the file and is always `true`.
+
+**Response — `MonthPayResponse`:** `{ as_of, book, pay: MonthPay, spreads_available }`.
+`MonthPay`: `{ month, strategy, premium_collected, bought_back, commissions, commissions_complete, net, n_opened, n_closed, month_start_value: float | null, target_pct: float | null, target: float | null, progress_pct: float | null, days_left }`.
+
+## Spreads (web overhaul Part 1)
+
+### `GET /spreads/positions`
+
+The daily credit-spreads book, read-only, for Home's positions card. `src/api/` may not import
+`src.spreads` (the spreads fence), so `src/api/spreads_db.py` opens `data/spreads.db` itself
+with SQLite `mode=ro` and plain SQL. Owner-only; writes nothing; never reaches IBKR.
+
+| Param | Type | Notes |
+|---|---|---|
+| `status` | `open` \| `closed` \| `all` | default `open`; `open` includes `expiring` (still held, settling today) |
+| `mode` | `paper` \| `shadow` \| `baseline` | default `paper` |
+| `limit` | int | default 50, 1 to 500; newest first by `opened_at` |
+
+- **`available: false` with no positions** when the file does not exist yet (a fresh install)
+  or cannot be read (not a SQLite database, unopenable): a `200`, never a `500`, and never an
+  "empty book" claim. An old file without the `spread_positions` table reads as an empty book.
+- `realized_pnl_usd` and `exit_debit` are `null` while a spread is open, never `0`.
+- `opened_at` / `closed_at` are served as UTC with an offset.
+
+**Response — `SpreadPositionsResponse`:** `{ as_of, available, underlying, mode, positions: SpreadPositionOut[] }`.
+`SpreadPositionOut`: `{ as_of, spread_id, mode, side: "put"|"call", expiry, short_strike, long_strike, width, contracts_opened, contracts, entry_credit, entry_commission, opened_at, status, exit_debit, exit_commission, exit_reason, closed_at, realized_pnl_usd }`
+(`contracts` is what is still open; credits and debits are per share).
 
 ## News (news thread, spec §7.6)
 

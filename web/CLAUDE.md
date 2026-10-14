@@ -78,28 +78,41 @@ third name is a separate decision with its own reason.
 | `npm run lint` | ESLint (next/core-web-vitals) |
 | `npm run test` | Vitest (jsdom) |
 | `npm run gen:api` | Regenerate `lib/api-types.ts` from the live `/openapi.json` (API must be up) |
+| `npx openapi-typescript ../docs/web/openapi.json -o lib/api-types.ts` | The same, offline, from the committed contract (`tests/test_openapi_current.py` keeps that file current) |
 
 ## Layout
 
 ```
 app/                App Router pages and the root layout
-  globals.css       The dark token system (source of truth for colour)
-  layout.tsx        Fonts, <Rail/>, <Providers/>. The root row is `h-screen
-                    overflow-hidden`, not `min-h-screen` — Rail and `<main/>`
-                    each own their own `overflow-y-auto` instead of the whole
-                    document scrolling as one, so the left rail stays pinned
-                    in place (2026-09-23), and `Rail.tsx` (2026-09-23) is itself now `flex flex-col`: the nav list keeps its own
-                    `overflow-y-auto` inside a `flex-1` wrapper, with `<SystemStatusCard/>` below it as a
-                    sibling, outside the scroll area, so the status card stays visible regardless of nav-list
-                    length while a page's own content scrolls
-                    underneath it.
-  page.tsx          Landing page: a header row with the page title and a visible
+  globals.css       The payslip token system, light (`:root`) and dark
+                    (`[data-theme="dark"]`), the source of truth for colour; the old
+                    semantic names are re-pointed, plus `--shadow-sheet`, `.hatch`,
+                    `.tabular`, the ink `::selection` and the sheet keyframe
+  layout.tsx        Fonts (Hanken Grotesk, Red Hat Mono via next/font),
+                    THEME_INIT_SCRIPT in <head> (no theme flash), <Providers/>, then
+                    the shell: <Rail/> (from 768px) beside a column holding
+                    <HaltedBanner/> and <main/>, and <TabBar/> (phones). The root row
+                    is `h-dvh overflow-hidden`: Rail and `<main/>` each own their own
+                    scroll, so the rail stays pinned while a page scrolls.
+  page.tsx          Home (web overhaul Part 1): <HomePage/> (features/home/) inside a
+                    Suspense boundary (the strategy switcher reads `?strategy=` through
+                    useSearchParams). The old landing page moved to research/.
+  trades/           The options console, moved from options/ (Part 1, Task 5; `/options`
+                    redirects here with a 307). Described under options/ below.
+  activity/         The P&L console, moved from pnl/ (`/pnl` redirects here). Described
+                    under pnl/ below.
+  more/             More: the bot card (opens Bot controls), the theme toggle (Light /
+                    Dark / Follow OS), links to Research, Universe, News, Ledger, How it
+                    works and statement import, and <SystemStatusCard/> (system health
+                    lives here now, not in the rail).
+  research/         Research, the old landing page (moved from app/page.tsx): a header
+                    row with the page title and a visible
                     search-bar button (opens the same <CommandPalette/> ⌘K does — the
                     page owns `searchOpen` state and passes it as controlled
                     `open`/`onOpenChange` props), then WatchlistTable, then SectorGrid
                     (ordered by IV rank). A client component because the watchlist and
                     sector grid use react-query.
-  universe/         Universe page: react-query on GET /universe (M7: `lists[]`, one
+  research/universe/  (moved from universe/; `/universe` redirects here) Universe page: react-query on GET /universe (M7: `lists[]`, one
                     UniverseListOut per section, replacing the old flat per-list
                     arrays), renders each list through <UniverseList/>. Writable since
                     M7 Task 7.5 (`editable: true`): would_own and watchlist accept add
@@ -115,7 +128,8 @@ app/                App Router pages and the root layout
                     is NOT gated behind a Section's state — it fetches its own data
                     from GET /research/{symbol}/bars independently, so a technicals
                     outage must not hide it too
-  options/          Options console (P2 M2 + M3 + M4 Task 4.3). <ControlsStrip/> at
+  options/          (MOVED to trades/ in web overhaul Part 1; the text below describes it)
+                    Options console (P2 M2 + M3 + M4 Task 4.3). <ControlsStrip/> at
                     the top (mode, autonomy rung, halt state, drain health), then a
                     tab bar for Approvals / Submitted / Decided / Assessed /
                     Orders / Fills / Shorts. The Approvals tab renders <ApprovalsList/> (cards linking
@@ -173,7 +187,7 @@ app/                App Router pages and the root layout
                     than pending-only; each row renders through the same
                     <DecideControls/>, which already renders a decided approval's
                     `Decision: …` line instead of controls.
-  options/[approvalId]/  Approval detail: <ApprovalDetailCard/> with the five review
+  options/[approvalId]/  (MOVED to trades/[approvalId]/) Approval detail: <ApprovalDetailCard/> with the five review
                     fields as labelled sections (<ReviewPanel/>), the ideal zone bar
                     (<IdealZoneBar/>), humanised gate reasons, the alternatives
                     table, a Fills section (rendered only when `detail.fills` is
@@ -198,7 +212,7 @@ app/                App Router pages and the root layout
                     neither field (`{as_of, campaigns}` only), so <CampaignsPanel/>
                     reads neither. <RefreshControl/> mounts in the header and fires
                     `POST /commands` with kind "refresh" - one click, no dialog.
-  pnl/              P&L console (P4 M5 Tasks 5.4-5.6; P3-P4 M6 Task 6.2 adds the
+  pnl/              (MOVED to activity/) P&L console (P4 M5 Tasks 5.4-5.6; P3-P4 M6 Task 6.2 adds the
                     System tab). <PnlShell/> mounts <SummaryPanel/> (the pnl one,
                     not the portfolio one) and <EquityChart/> above a tab bar
                     (Ledger / Equity curve / System) that never remounts them. The
@@ -263,7 +277,27 @@ app/                App Router pages and the root layout
                     the one place every other piece (tab bar, pipeline map, ties-into
                     chips) reads labels from so they can't drift apart.
 components/
-  shell/            Rail, RailSection, SystemStatusCard (react-query on GET /system/status,
+  ui/               Web overhaul Part 1: the data-free payslip primitives (web/DESIGN.md
+                    Components). Button (primary lime / secondary / quiet, fully round,
+                    17px/700, 0.98 press only under motion-safe), Card (white on paper, no
+                    border, no shadow), SegmentedControl (track / chips / quiet; selected
+                    is an ink fill with aria-pressed, never lime; below 768px each pill gets
+                    a centred 44px hit area), StatusWord (neutral / flag / today), Meter
+                    (unknown is hatched, never 0%), Disclosure (a real button with
+                    aria-expanded; the whole pressed-sage block is the target; the panel
+                    appears in place), Stub (the perforated sum; each explained line is a
+                    button at least 24px tall; unknown is n/a + hatch) and Sheet (bottom
+                    sheet on phones, right sheet from 640px, portaled to <body>, focus
+                    trapped by lib/useFocusTrap.ts, which hands Escape and Tab to a nested
+                    ConfirmAction; the only shadow besides the confirm dialog).
+  shell/            Web overhaul Part 1: Rail (desktop, from 768px: the lib/nav.ts
+                    destinations, the lime pending-count badge on Trades, BotCard at its
+                    foot), TabBar (phones: five tabs; Research and News mark More
+                    current), BotCard (running or halted in words, mode, rung, the
+                    not-draining line; aria-haspopup; a loading block) and BotSheet (the
+                    unchanged HaltControl and AutonomyControl, with the DrainWarning above
+                    them), HaltedBanner (global; wheel-scoped wording), ThemeToggle. And
+                    from before: SystemStatusCard (now mounted on More; react-query on GET /system/status,
                     `refetchInterval` 20s; renders one row per system with a state dot -
                     `bg-gain` for ok, a `border-loss` outline for down, `.hatch` texture
                     for both degraded and unknown, per this app's tri-tone rule - and,
@@ -738,6 +772,29 @@ components/
                     `rounded-full border-focus/40 text-focus` chips). Every `SourceRefs`
                     file path is a real path checked against the tree at write time, not a
                     guess.
+features/
+  home/             Web overhaul Part 1: the Home page. HomePage (strategy switcher with
+                    pending counts, then AccountHero, ProposalsBanner below 1024px, PayCard,
+                    PositionsCard; the NeedsYou column from 1024px; renders the bare page
+                    until hydration is over, because the rail's approvals query shares its
+                    key), AccountHero + HeroChart + hero.ts (GET /portfolio/value: the
+                    number, the signed day change or "n/a today · last value <date>", a
+                    lightweight-charts line that never animates in, scrubbable by pointer
+                    and by keyboard as a slider, one point per second), PayCard (GET
+                    /pnl/month: a Disclosure whose summary is net vs target and the lime
+                    meter, whose panel is the month's Stub; spreads unavailable is said,
+                    never shown as $0), PositionsCard + positions.ts (GET
+                    /portfolio/positions and GET /spreads/positions?status=open: rows with
+                    status words from API fields only, chips per kind, a Delayed word on
+                    a stale snapshot, unreadable spreads stated, never "none open"),
+                    ProposalCard + proposal.ts + WhyDisclosure (Claude's review collapsed
+                    and labelled, above the stub; Review opens the sheet, Details links to
+                    /trades/{id}; the card decides nothing), ReviewSheet (the trade, then
+                    the unchanged DecideControls inside the Sheet: ConfirmAction, the LIVE
+                    second confirmation and the receipt; polls the approval's status and
+                    says when it was decided elsewhere or expired), NeedsYou +
+                    usePendingApprovals, ProposalsBanner, types.ts (hand-written mirrors
+                    of the three new API models).
 lib/
   api.ts            apiFetch + ApiError
   api-types.ts      Generated from /openapi.json by `npm run gen:api`
@@ -764,6 +821,19 @@ lib/
                     private window, cleared site data, or a browser that
                     blocks storage access must not break the decide flow, only
                     its reload-survival.
+  theme.ts          ThemePref (light / dark / system), parse/resolve/read/write with
+                    every storage access wrapped, applyTheme, and THEME_INIT_SCRIPT (runs
+                    before paint; also re-applies "follow OS" app-wide on an OS flip)
+  useThemePref.ts   The theme toggle's hook (hydration-safe: server and first client
+                    render agree, then the stored preference)
+  useFocusTrap.ts   The Sheet's focus trap (nested-dialog safe; onEscape through a ref;
+                    puts focus back on the panel when a focused control leaves the page)
+  nav.ts            NAV (the seven destinations, which five sit on the phone tab bar),
+                    activeKey and phoneActiveKey
+  strategy.ts       StrategyKind / StrategyFilter, labels and eyebrows, kindOf (a roll
+                    files under the side it rolls; unknown strategies only under All),
+                    parseStrategyFilter (a junk value is All)
+  useStrategyFilter.ts  The `?strategy=` URL state (router.replace, scroll kept)
   receipt.ts        receiptState, the receipt state machine (spec §9.2) — a
                     pure function, tested exhaustively in receipt.test.ts
   format.ts         formatMoney (compact $391.0B/$1.3M, "n/a" for unknown, "$0"

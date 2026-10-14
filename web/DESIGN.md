@@ -6,6 +6,7 @@ colors:
   primary: "#a6eb6e"
   primary-deep: "#8fdb55"
   on-primary: "#111410"
+  on-primary-dark: "#0f110f"
   ground: "#f2f4ef"
   surface: "#ffffff"
   sunk: "#e6eadf"
@@ -23,6 +24,7 @@ colors:
   ground-dark: "#0f110f"
   surface-dark: "#191c19"
   sunk-dark: "#232723"
+  sunk-deep-dark: "#2c312c"
   ink-dark: "#eef1eb"
   ink-muted-dark: "#a3aa9f"
   control-edge-dark: "#7d8579"
@@ -56,6 +58,11 @@ typography:
     fontFamily: "Hanken Grotesk, system-ui, sans-serif"
     fontSize: 0.875rem
     fontWeight: 400
+    lineHeight: 1.5
+  control:
+    fontFamily: "Hanken Grotesk, system-ui, sans-serif"
+    fontSize: 0.84375rem
+    fontWeight: 600
     lineHeight: 1.5
   label:
     fontFamily: "Hanken Grotesk, system-ui, sans-serif"
@@ -103,6 +110,13 @@ components:
   button-secondary-hover:
     backgroundColor: "{colors.sunk-deep}"
     textColor: "{colors.ink}"
+  button-quiet:
+    textColor: "{colors.ink}"
+    typography: "{typography.title}"
+    rounded: "{rounded.full}"
+    padding: 11px 18px
+  button-quiet-hover:
+    backgroundColor: "{colors.sunk}"
   card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
@@ -132,7 +146,7 @@ components:
   strategy-switch:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink-muted}"
-    typography: "{typography.title}"
+    typography: "{typography.control}"
     rounded: "{rounded.full}"
     padding: 4px
   strategy-switch-selected:
@@ -146,6 +160,21 @@ components:
   range-chip-selected:
     backgroundColor: "{colors.ink}"
     textColor: "{colors.ground}"
+  filter-chip:
+    backgroundColor: "{colors.sunk}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.label}"
+    rounded: "{rounded.full}"
+    padding: 4px 11px
+  filter-chip-selected:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.ground}"
+  meter:
+    backgroundColor: "{colors.sunk}"
+    rounded: "{rounded.full}"
+    height: 8px
+  meter-fill:
+    backgroundColor: "{colors.primary}"
   rail:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink-muted}"
@@ -161,8 +190,18 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.sheet}"
     padding: 24px
+  bot-card:
+    backgroundColor: "{colors.sunk}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: 10px
+  halted-banner:
+    backgroundColor: "{colors.flag}"
+    textColor: "{colors.on-flag}"
+    typography: "{typography.body}"
 ---
-<!-- da-vinci schema=1 status=draft updated=2026-10-13 -->
+<!-- da-vinci schema=1 status=draft updated=2026-10-14 -->
 # Design System: IBKR Income
 
 ## Overview
@@ -196,15 +235,18 @@ role.
 - **Pressed sage** (`sunk`, `sunk-deep` / `sunk-dark`): fills *inside* a card: the Why disclosure,
   secondary buttons, unselected chips, the meter track.
 - **Ink** (`ink` / `ink-dark`): text, the hero chart line, the selected chip fill, the focus ring.
-  **Muted ink** (`ink-muted` / `ink-muted-dark`) for labels and secondary lines (6.1:1 and up on
-  every ground it meets).
-- **Lime** (`primary`, hover `primary-deep`, label `on-primary`): primary buttons, the pending-count
-  badge, the pay meter fill, and the one "Expires today" status. Nothing decorative.
+  **Muted ink** (`ink-muted` / `ink-muted-dark`) for labels and secondary lines (6.1:1 on paper,
+  6.8:1 on white, 5.5:1 on pressed sage; 6.4:1 and up in dark).
+- **Lime** (`primary`, hover `primary-deep`, label `on-primary`): primary buttons (Review, and the
+  phone's proposals banner Open), the pending-count badge, the pay meter fill, and the one "Expires
+  today" status. Nothing decorative: text selection is an ink fill, never lime.
 - **Gain / Loss** (`gain`, `loss` and dark twins): signed money only, always paired with a `+`/`−`
   sign or the words "open P&L", never as the only signal.
 - **Flag amber** (`flag` with `on-flag`): warnings that need attention without being a loss,
   such as "Assignment likely", a degraded data source, or a stale quote.
 - **Unknown** (`unknown` / `unknown-dark`): the hatch texture behind "n/a". Unknown is never zero.
+  As text the grey passes AA on white (4.76:1) but is AA-large only on paper (4.30:1) and pressed
+  sage (3.90:1): small "n/a" sits on a white card or takes muted ink, with the hatch either way.
 - **Control edge** (`control-edge`): input and checkbox borders (3.6:1 on paper, 4.0:1 on white).
   **Hairline** and **perforation** are decorative separators only and never the sole boundary of a
   control.
@@ -218,16 +260,17 @@ word, unknown carries texture and "n/a", selected carries an ink fill. This keep
 
 ## Typography
 
-**Hanken Grotesk** carries everything: display and headings at 800 (900 for the hero number on large
-screens), titles at 700, UI and body at 400 to 600. Its default figures are tabular (verified: "1111"
+**Hanken Grotesk** carries everything: display and headings at 800 (the hero number included, at
+every size), titles at 700, UI and body at 400 to 600. Its default figures are tabular (verified: "1111"
 and "0000" set at equal width), so money columns align without a second face. **Red Hat Mono** is
 the stub voice: every perforated sum, the ledger, and fill prices, where the typewriter cadence says
 "this is arithmetic".
 
 Scale (fixed rem, ratio about 1.2, no fluid headings on these Operate surfaces): display 46px for
 the hero number (38px on phones), headline 24px for page titles, title 17px for card titles and
-buttons, body 14px, label 12px semibold with slight tracking for eyebrows, chips and status words,
-figure 13.5px mono. Prose (the Explain pages, Claude's review text, news explanations) keeps a 65 to
+buttons, body 14px, control 13.5px semibold for the strategy switcher and the theme toggle (four
+segments at 17px do not fit a 390px phone), label 12px semibold with slight tracking for eyebrows,
+chips and status words, figure 13.5px mono at 500. Prose (the Explain pages, Claude's review text, news explanations) keeps a 65 to
 75 character measure; tables may run wider.
 
 Replaces IBM Plex Sans and Mono, which `web/CLAUDE.md` currently names. That file changes with
@@ -243,7 +286,11 @@ More) takes its place. Everything is one column, in this order on Home: strategy
 proposals banner, October pay, positions.
 
 Spacing runs on a 4px base (2, 4, 8, 12, 16, 24, 32, 48). Cards pad 16 to 18px; card stacks gap
-16px; sections inside a page gap 24px. Touch targets are at least 44px on phones. DENSITY 5: rows
+16px; sections inside a page gap 24px. Touch targets are at least 44px on phones: compact pills
+(the strategy switcher, range and filter chips, the theme toggle) keep their look and carry a
+centred 44px hit area below 768px, with row gaps wide enough that wrapped rows never overlap, and
+the range chips spread across the phone's width. The one exception is a stub line (24px, WCAG
+2.5.8 AA): a 44px line would break the payslip's arithmetic rhythm. DENSITY 5: rows
 are compact (about 11px vertical padding), but every card shows one idea, and anything secondary
 sits behind a disclosure.
 
@@ -257,7 +304,8 @@ Tonal layering only: paper ground, white surface, pressed-sage fills inside. No 
 cards, buttons or rows, and never a border plus a shadow on one element. A hairline separates rows
 inside a card. The single exception is the review **sheet** and the confirm dialog, which rise over
 a black scrim at 50% (light) or 60% (dark). The sheet carries one soft ambient shadow so it reads as
-lifted off the page beneath.
+lifted off the page beneath: the `--shadow-sheet` token (`0 -8px 40px` black at 18% light, 50%
+dark, where lightness does the lifting and the shadow only separates the sheet from the scrim).
 
 ## Shapes
 
@@ -274,17 +322,26 @@ one consequence-first sentence. Below it, the **Why this trade** disclosure (Cla
 collapsed by default, sitting *above* the stub; it carries For, Against and If challenged lines and
 is labelled as Claude's view), then the stub, then Review (primary, opens the review sheet) and
 Details (secondary, the full approval page). Approve and reject happen only inside the sheet,
-behind the existing confirmation, so the card itself never decides anything in one tap. States:
-pending, submitted (receipt replaces buttons), decided (decision line replaces buttons), stale data
-(flag word on the eyebrow row).
+behind the existing confirmation, so the card itself never decides anything in one tap. Review says
+it opens a dialog (`aria-haspopup`). States: loading (a labelled block), empty ("Nothing needs you
+right now."), error (a sentence that names the retry), pending, submitted (the receipt replaces the
+buttons), decided (the decision line replaces them), and decided elsewhere or expired (a flag
+sentence in the review sheet, from the approval's own status, which the open sheet polls). There is
+no "stale data" state: the API carries no stale signal for a proposal, and its premium is the
+frozen scan quote, which the card never presents as a live price.
 
 **Stub**: the perforation, then two to four `figure` lines, then a total line with a hairline above.
-Each line is a button that toggles a one-sentence explanation beneath it. Unknown inputs render
+Each line is a button (at least 24px tall) that toggles a one-sentence explanation beneath it. Unknown inputs render
 "n/a" with hatch; a total built on an unknown says so in words instead of summing.
 
-**October pay card** (Home): collapsible. Closed, it shows the title, net so far against target,
-the lime meter, and "71% of target · 18 days left". Open, it shows the month's stub. The target is
-`web.monthly_income_target_pct` of the month-start account value.
+**October pay card** (Home): collapsible. Closed, it shows the title (never wrapped; "of $target"
+may drop under the figure on a phone), net so far against target, the lime meter, and "71% of
+target · 18 days left". Open, it shows the month's stub. The target is
+`web.monthly_income_target_pct` of the month-start account value; with none it says "No target
+set" and the meter is hatched. An unknown progress reads "n/a of target" (hatched n/a). When the
+spreads book cannot be read, a flag word "Spreads unavailable" and a sentence say so: a
+spreads-only month shows n/a, never $0, and an all-strategies month says its total leaves spreads
+out.
 
 **Strategy switcher**: a segmented control on a white pill track, one button per kind of trade:
 All, CSPs, CCs, Credit spreads, each with its live count. It sits at the very top of Home and
@@ -294,31 +351,73 @@ positions. The account-value hero stays account-wide, because account value cann
 strategy honestly. The choice is kept in the URL (`?strategy=csp`), so a link or reload keeps it.
 The Positions card carries the same tabs as smaller chips, plus Shares.
 
+**Account hero** (Home): "Account value", the number (display, 38px on phones, 46px from 768px),
+then today's signed change in words ("+$1,234.50 (0.50%) today"; a genuine zero is neutral ink; an
+unknown change reads "n/a today · last value <date>", hatched n/a), then the line chart (ink, no
+fill, never animated in) and the range chips. The chart scrubs by pointer and, as a slider, by
+keyboard (arrows, Home, End); the number follows the scrub. Loading is a hero-shaped skeleton.
+
+**Positions card** (Home): the title, "Sorted by expiry", filter chips (All, CSPs, CCs, Credit
+spreads, Shares, each with its count), then position rows. A delayed portfolio snapshot shows a
+flag word "Delayed" and its age; an unreadable spreads book is said in words ("Credit spreads are
+unavailable right now."), never shown as "none open".
+
 **Position row**: ticker and contract bold, then a status word, then a muted sub-line (expiry,
 coverage, % of premium kept); value right-aligned with its label beneath ("sold for", "open P&L").
 Status words: Expires today (lime); Assignment likely and In the money (flag); At the money and
 Out of the money (sunk). They come only from fields the API returns (expiry, assignment risk,
 moneyness). A position with none of those known shows no status word rather than a guessed one.
 
-**Review sheet**: a bottom sheet on phones, a right-side sheet on desktop. One step at a time:
+**Needs you** (Home, from 1024px): a right column of proposal cards under "Needs you · N
+proposals". Below 1024px it becomes the **proposals banner**: one card, "2 proposals need you",
+the first names, and a lime Open that goes to Trades.
+
+**Review sheet**: a bottom sheet on phones, a right-side sheet on desktop, portaled to the page so
+a resize across a breakpoint never hides it. One step at a time:
 (1) the trade, its stub and Why, with Approve; (2) the existing confirmation (exact contract and
 count); (3) in live mode only, the separate LIVE confirmation. Then the command receipt in place.
-Focus is trapped, Escape closes, and focus returns to the trigger.
+Focus is trapped, Escape closes, and focus returns to the trigger; when the focused control leaves
+the page (a confirmed decision disables Approve), focus goes back to the sheet, which shows an
+inset ink ring only to keyboard users. **Exception (2026-10-14):** Approve, Reject and both
+confirmations are the existing protected safety components (`DecideControls`, `ConfirmAction`),
+which keep their legacy bordered `rounded-sm` buttons, so Approve in the sheet is not lime and not
+round. Restyling them is a separate, reviewed change to safety files; until then the sheet's own
+type and spacing frame them.
 
-**Bot card** (rail foot): running or halted in words, mode (paper or live), the autonomy rung,
-and a flag line when the trading service is not draining commands. It opens the Bot sheet: Halt is one tap; Resume needs the typed word RESUME;
-rung changes confirm first. Halted state also shows a full-width banner on every page.
+**Bot card** (rail foot; on phones, on More): running or halted in words ("Bot running · paper",
+"Wheel halted · paper"), mode (paper or live), the autonomy rung, and a flag line when the trading
+service is not draining commands; a labelled loading block holds its place. It opens the Bot sheet
+(`aria-haspopup`): Halt is one tap; Resume needs the typed word RESUME; rung changes confirm first;
+the not-draining warning sits above the controls. The same exception as the review sheet applies:
+`HaltControl` and `AutonomyControl` keep their legacy bordered Halt and native rung select. Halted
+state also shows a full-width flag banner on every page, worded for the wheel ("Wheel trading is
+halted"), since credit spreads have their own halt.
+
+**Rail and tab bar**: the 200px white rail lists the seven destinations with an ink-on-sage
+current row and the lime pending count on Trades; the phone tab bar (64px, white, hairline above)
+holds Home, Trades, Portfolio, Activity and More, and marks More current on Research, Universe,
+stock and News pages, which a phone reaches through More.
+
+**More**: the bot card, the theme toggle (Light, Dark, Follow OS, on the strategy-switch track),
+links to Research, Universe, News, Ledger, How it works and statement import, and system status.
 
 **Disclosure**: a summary row with a round chevron chip that rotates 180°, `aria-expanded` on a
-real button or native `details`, focus ring in ink.
+real button, focus ring in ink. The whole pressed-sage block is the button (at least 44px tall);
+the panel appears in place beneath it.
 
-**Buttons**: primary lime, secondary pressed sage, both fully round. Hover deepens one step;
-focus-visible draws a 2px ink ring at 3px offset; pressed scales to 0.98; disabled drops to muted
-ink on sunk with no lime; loading keeps the label and adds "…" (no spinner when the wait is a
+**Buttons**: primary lime, secondary pressed sage, quiet (no fill, sage on hover, e.g. the sheet's
+44px Close), all fully round, 17px title type. Hover deepens one step;
+focus-visible draws a 2px ink ring at 3px offset; pressed scales to 0.98 when motion is allowed;
+disabled drops to muted ink on sunk with no lime; loading keeps the label and adds "…" (no spinner when the wait is a
 command poll, since the receipt already states progress).
 
 **Range chips** (1D 1W 1M 3M YTD All): selected is an ink fill, never lime or green, so selected
 never reads as "up".
+
+**Status word**: label type on a 6px-rounded fill: neutral (muted on sage), flag (amber), today
+(lime, "Expires today" only).
+
+**Meter**: an 8px sage track with a lime fill; unknown is the hatched track with no fill, never 0%.
 
 ## Do's and Don'ts
 
@@ -341,9 +440,10 @@ never reads as "up".
 
 MOTION 2. Only touched things move: disclosures (the chevron rotates 180ms ease-out; the panel
 appears in place, with no height animation),
-sheets (slide in 240ms ease-out, out 180ms), button press (scale 0.98, 90ms). Exits are faster than
-entrances. Charts never animate their data in; scrubbing updates the hero number instantly. Under
-`prefers-reduced-motion` every transition is removed and sheets appear in place.
+sheets (slide in 240ms ease-out; they close immediately for now, see Open Decisions), button press
+(scale 0.98, 90ms). Exits are faster than entrances. Charts never animate their data in; scrubbing updates the hero number instantly. Under
+`prefers-reduced-motion` every transition is removed, the press scale is dropped, and sheets appear
+in place.
 
 ## Brief
 
@@ -402,8 +502,8 @@ halt, typed RESUME, the second LIVE confirmation); stable URLs (`/options/[id]`,
 Operate. Dials as the project default.
 - **THESIS:** the account as a payslip: value on top, this month's earnings as a stub, then what
   you hold. Refuses the brokerage home where account value is the only number.
-- **OWN-WORLD:** sage paper, white cards, ink hero line, perforated stubs, lime only on Review and
-  the pay meter.
+- **OWN-WORLD:** sage paper, white cards, ink hero line, perforated stubs, lime only on Review (and
+  the phone banner's Open), the pay meter, the pending count and "Expires today".
 - **STORY:** you see what the account is worth, whether this month's income is on pace, what needs
   you, and which positions need watching, in that order of glance.
 - **FIRST VIEWPORT:** desktop: the strategy switcher (All, CSPs, CCs, Credit spreads) across the
@@ -459,12 +559,28 @@ sibling keys; re-run the check after edits.
   "No target set" until it is).
 - **Product name in the shell:** "IBKR Income" is inferred; confirm or rename.
 - **Logo and favicon:** none exist; a wordmark set in Hanken Grotesk 800 is the interim.
-- **Icons:** lucide-react inferred; confirm.
-- **Spreads data:** needs a new read-only `/spreads` API over `data/spreads.db`; the endpoint shape
-  is settled in the implementation plan.
+- **Icons:** lucide-react, as built; confirm.
+- **Sheet exit:** a 180ms slide out. The sheet closes immediately today because the review sheet
+  unmounts with its approval; adding the exit means keeping the approval through it.
+- **The decide controls' look:** a lime, round primary Approve (and round Reject, Halt and dialog
+  buttons) needs a reviewed restyle of the protected `DecideControls`, `ConfirmAction`,
+  `HaltControl` and `AutonomyControl`.
+- **The unknown grey:** darkening `unknown` to about `#61685d` (4.72:1 on pressed sage, 5.20:1 on
+  paper) would let small "n/a" sit anywhere; until then the legacy pages carry small n/a below AA
+  on paper and sage (Parts 2-4 restyle them).
 
 ## Decision Log
 
+- 2026-10-14: Reconciled to the Part 1 build (web overhaul Task 14 Step 7), awaiting the
+  operator's ratification: added the `control` type token (13.5px/600, the strategy switcher and
+  theme toggle; 17px does not fit four segments at 390px) and the tokens `on-primary-dark`,
+  `sunk-deep-dark`, `button-quiet`, `filter-chip`, `meter`, `bot-card`, `halted-banner`; the hero
+  is 800 at every size; recorded the 44px phone hit areas and the 24px stub-line exception, the
+  `--shadow-sheet` token, the legacy decide and bot controls as an exception inside the sheets, the
+  proposal card's real states (no "stale data" state: the API has no stale signal), the account
+  hero, positions card, needs-you column and banner, rail, tab bar and More; lime on the phone
+  banner's Open; ink text selection; the sheet's immediate close (180ms exit moved to Open
+  Decisions); spreads data resolved by `GET /spreads/positions`.
 - 2026-10-13: Added the strategy switcher (All, CSPs, CCs, Credit spreads) at the top of Home and
   Trades, plus the same tabs on the Positions card, at the user's request. It scopes everything
   below the hero; the hero stays account-wide.
