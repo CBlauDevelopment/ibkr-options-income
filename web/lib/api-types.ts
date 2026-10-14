@@ -1157,13 +1157,16 @@ export interface components {
          * AccountValueSeries
          * @description Account value (net liquidation) over a range, for the Home hero chart.
          *
-         *     Daily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read
-         *     intraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).
-         *     `latest` is the newer of the newest snapshot and the newest close (a journal day is a close
-         *     from its 16:00 ET), and every range ends on it. `previous_close` is the close before the
-         *     New York day `latest` belongs to; `change_today` is None unless that day is today (weekends,
-         *     before the day's first snapshot). A net liquidation of 0 or less is unknown. Every figure is
-         *     None when unknown - never 0.0.
+         *     1d/1w plot the intraday portfolio snapshots inside the window (retention:
+         *     `storage.portfolio_snapshot_retention_days`); 1m/3m/ytd/all plot one point per EOD journal
+         *     close, at that day's 16:00 ET. `latest` is the newer of the newest known snapshot and the
+         *     newest close, compared as instants (a journal day is a close only once its 16:00 ET has
+         *     passed), so it can be a close. 1m/3m/ytd/all end on `latest` when it is newer than their
+         *     last close; 1d/1w end on it only when `latest_at` falls inside the window. Points ascend in
+         *     time but not strictly: snapshot rows sharing a `captured_at` both appear.
+         *     `previous_close` is the close before the New York day `latest` belongs to; `change_today`
+         *     is None unless that day is today (weekends, before the day's first snapshot). A net
+         *     liquidation of 0 or less is unknown. Every figure is None when unknown - never 0.0.
          */
         AccountValueSeries: {
             /**
@@ -2828,10 +2831,16 @@ export interface components {
          * MonthPay
          * @description One month's options income as a pay stub (web Home, DESIGN.md "October pay").
          *
-         *     `premium_collected` counts credit on legs SOLD in the month; `bought_back` counts debit on
-         *     legs BOUGHT BACK in the month; a leg touching the month contributes all its commissions
-         *     once. Months are New York calendar months. `target` is None - never 0.0 - when there is no
-         *     target percentage or no month-start account value.
+         *     Months are New York calendar months. `premium_collected` counts credit on legs SOLD in the
+         *     month; `bought_back` counts debit on legs BOUGHT BACK in the month (an expired or assigned
+         *     leg closes on its expiry date). Commissions are charged by side, once each: the sell-side
+         *     commission (`PnlLeg.open_commissions`) in the month the leg was opened, the rest in the
+         *     month it closed; a leg with no known split charges all of them to the month it opened.
+         *     When `strategy` is "all" or "spread" the figures include the book's spread positions: entry
+         *     credit and entry commission in the month opened, the exit debit and exit commission in the
+         *     month the spread finally closed. `target_pct` echoes the setting; `target` and
+         *     `progress_pct` are None - never 0.0 - when there is no target percentage or no month-start
+         *     account value.
          */
         MonthPay: {
             /**
