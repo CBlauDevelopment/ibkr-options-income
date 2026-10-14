@@ -559,6 +559,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/portfolio/value": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Portfolio Value
+         * @description Account value over `range` for the Home hero. Computes nothing itself: a thin render
+         *     of `account_value_series`. No history is a 200 with no points, never zeros.
+         */
+        get: operations["portfolio_value_portfolio_value_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pnl/ledger": {
         parameters: {
             query?: never;
@@ -683,6 +704,28 @@ export interface paths {
          *     under `src/api/` can write either or even name the scoring config by filename.
          */
         get: operations["pnl_system_pnl_system_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pnl/month": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Month
+         * @description The month's pay stub. `book` defaults to the running mode: a pay figure across paper
+         *     and live is not a number that means anything (same rule as /pnl/summary). Spreads count
+         *     only positions whose mode equals the book; shadow and baseline are simulations.
+         */
+        get: operations["pnl_month_pnl_month_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -895,6 +938,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/spreads/positions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Spread Positions */
+        get: operations["spread_positions_spreads_positions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/universe": {
         parameters: {
             query?: never;
@@ -1073,6 +1133,56 @@ export interface components {
             buying_power: components["schemas"]["Sourced_float_"];
             maintenance_margin: components["schemas"]["Sourced_float_"];
             excess_liquidity: components["schemas"]["Sourced_float_"];
+        };
+        /** AccountValuePoint */
+        AccountValuePoint: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Value */
+            value: number;
+        };
+        /** AccountValueResponse */
+        AccountValueResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            series: components["schemas"]["AccountValueSeries"];
+        };
+        /**
+         * AccountValueSeries
+         * @description Account value (net liquidation) over a range, for the Home hero chart.
+         *
+         *     Daily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read
+         *     intraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).
+         *     `latest` is the newer of the newest snapshot and the newest close (a journal day is a close
+         *     from its 16:00 ET), and every range ends on it. `previous_close` is the close before the
+         *     New York day `latest` belongs to; `change_today` is None unless that day is today (weekends,
+         *     before the day's first snapshot). A net liquidation of 0 or less is unknown. Every figure is
+         *     None when unknown - never 0.0.
+         */
+        AccountValueSeries: {
+            /**
+             * Range
+             * @enum {string}
+             */
+            range: "1d" | "1w" | "1m" | "3m" | "ytd" | "all";
+            /** Points */
+            points?: components["schemas"]["AccountValuePoint"][];
+            /** Latest */
+            latest?: number | null;
+            /** Latest At */
+            latest_at?: string | null;
+            /** Previous Close */
+            previous_close?: number | null;
+            /** Change Today */
+            change_today?: number | null;
+            /** Change Today Pct */
+            change_today_pct?: number | null;
         };
         /**
          * AlternativeStrike
@@ -2714,6 +2824,67 @@ export interface components {
             /** Role */
             role: string;
         };
+        /**
+         * MonthPay
+         * @description One month's options income as a pay stub (web Home, DESIGN.md "October pay").
+         *
+         *     `premium_collected` counts credit on legs SOLD in the month; `bought_back` counts debit on
+         *     legs BOUGHT BACK in the month; a leg touching the month contributes all its commissions
+         *     once. Months are New York calendar months. `target` is None - never 0.0 - when there is no
+         *     target percentage or no month-start account value.
+         */
+        MonthPay: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "all" | "csp" | "cc" | "spread";
+            /** Premium Collected */
+            premium_collected: number;
+            /** Bought Back */
+            bought_back: number;
+            /** Commissions */
+            commissions: number;
+            /** Commissions Complete */
+            commissions_complete: boolean;
+            /** Net */
+            net: number;
+            /** N Opened */
+            n_opened: number;
+            /** N Closed */
+            n_closed: number;
+            /** Month Start Value */
+            month_start_value?: number | null;
+            /** Target Pct */
+            target_pct?: number | null;
+            /** Target */
+            target?: number | null;
+            /** Progress Pct */
+            progress_pct?: number | null;
+            /** Days Left */
+            days_left: number;
+        };
+        /** MonthPayResponse */
+        MonthPayResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            pay: components["schemas"]["MonthPay"];
+            /** Spreads Available */
+            spreads_available: boolean;
+        };
         /** NavResponse */
         NavResponse: {
             /**
@@ -3164,6 +3335,8 @@ export interface components {
             commissions: number;
             /** Commissions Complete */
             commissions_complete: boolean;
+            /** Open Commissions */
+            open_commissions?: number | null;
             /** Net Pnl */
             net_pnl?: number | null;
             /** Unrealized Pnl */
@@ -3599,6 +3772,75 @@ export interface components {
              * @default false
              */
             stale: boolean;
+        };
+        /** SpreadPositionOut */
+        SpreadPositionOut: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Spread Id */
+            spread_id: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "put" | "call";
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Short Strike */
+            short_strike: number;
+            /** Long Strike */
+            long_strike: number;
+            /** Width */
+            width: number;
+            /** Contracts Opened */
+            contracts_opened: number;
+            /** Contracts */
+            contracts: number;
+            /** Entry Credit */
+            entry_credit: number;
+            /** Entry Commission */
+            entry_commission: number;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Status */
+            status: string;
+            /** Exit Debit */
+            exit_debit?: number | null;
+            /** Exit Commission */
+            exit_commission?: number | null;
+            /** Exit Reason */
+            exit_reason?: string | null;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Realized Pnl Usd */
+            realized_pnl_usd?: number | null;
+        };
+        /** SpreadPositionsResponse */
+        SpreadPositionsResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Available */
+            available: boolean;
+            /** Underlying */
+            underlying: string;
+            /** Mode */
+            mode: string;
+            /** Positions */
+            positions?: components["schemas"]["SpreadPositionOut"][];
         };
         /** StockLeg */
         StockLeg: {
@@ -4657,6 +4899,37 @@ export interface operations {
             };
         };
     };
+    portfolio_value_portfolio_value_get: {
+        parameters: {
+            query?: {
+                range?: "1d" | "1w" | "1m" | "3m" | "ytd" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountValueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pnl_ledger_pnl_ledger_get: {
         parameters: {
             query?: {
@@ -4819,6 +5092,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemPerformanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_month_pnl_month_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                strategy?: "all" | "csp" | "cc" | "spread";
+                book?: ("paper" | "live") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthPayResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5173,6 +5479,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NewsStatusResponse"];
+                };
+            };
+        };
+    };
+    spread_positions_spreads_positions_get: {
+        parameters: {
+            query?: {
+                status?: "open" | "closed" | "all";
+                mode?: "paper" | "shadow" | "baseline";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadPositionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
