@@ -4,11 +4,12 @@ import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { StatusWord } from "@/components/ui/StatusWord";
 import { apiFetch } from "@/lib/api";
 import { UNKNOWN } from "@/lib/format";
 import { formatMoneyCell } from "@/lib/money";
 import { HeroChart } from "./HeroChart";
-import { formatDay, heroFigures } from "./hero";
+import { formatDay, heroDelay, heroFigures } from "./hero";
 import type { AccountValueResponse, RangeKey } from "./types";
 
 const RANGES: { value: RangeKey; label: string }[] = [
@@ -27,7 +28,8 @@ function signedMoney(v: number): string {
   return `${v > 0 ? "+" : MINUS}${formatMoneyCell(Math.abs(v))}`;
 }
 
-export function AccountHero() {
+/** `now` is injectable for tests; the page passes nothing and each render reads the clock. */
+export function AccountHero({ now }: { now?: Date } = {}) {
   const [range, setRange] = useState<RangeKey>("1m");
   const [hover, setHover] = useState<number | null>(null);
   const { data, isError } = useQuery({
@@ -60,9 +62,20 @@ export function AccountHero() {
     f.value !== null && f.delta === null && hover === null && series.latest_at
       ? ` · last value ${formatDay(series.latest_at)}`
       : "";
+  // A degraded source says so in words (DESIGN.md flag amber): the positions card's Delayed
+  // rule, in market hours only, so a legitimate last close is never flagged.
+  const delay = heroDelay(series, now ?? new Date());
   return (
     <section aria-label="Account value">
-      <div className="text-[0.8125rem] text-muted">Account value</div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted">
+        <span>Account value</span>
+        {delay !== null && (
+          <>
+            <StatusWord tone="flag">Delayed</StatusWord>
+            <span>{delay}</span>
+          </>
+        )}
+      </div>
       <div
         className={clsx(
           "tabular mt-0.5 text-[2.375rem] font-extrabold leading-[1.05] tracking-[-0.025em] md:text-[2.875rem]",

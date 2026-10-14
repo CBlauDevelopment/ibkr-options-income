@@ -1238,7 +1238,9 @@ The attribution rule, every date read in New York time:
 - **`target` is `web.monthly_income_target_pct` of `month_start_value`**, the last known
   journal close before the month's first day. `target_pct` echoes the setting as configured
   (`null` when unset); when either the setting or `month_start_value` is unknown, `target` and
-  `progress_pct` are `null` (the card says "No target set"), never `0`.
+  `progress_pct` are `null`, never `0`. The card tells the two apart: no setting says "No target
+  set"; a setting with no `month_start_value` (the first month after install, a journal gap)
+  says "Target n/a · needs the month's opening account value".
 - `commissions_complete` is `false` when any counted leg lacks a commission (the figure is a
   lower bound).
 - **`spreads_available`** is `false` only when a spreads book is in scope (`strategy` `all` or

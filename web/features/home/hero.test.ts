@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chartPoints, heroFigures } from "./hero";
+import { chartPoints, heroDelay, heroFigures } from "./hero";
 import type { AccountValueSeries } from "./types";
 
 const series: AccountValueSeries = {
@@ -61,5 +61,43 @@ describe("chartPoints", () => {
       { time: at("2026-10-13T14:00:00Z"), value: 2, index: 1 },
     ]);
     expect(chartPoints([])).toEqual([]);
+  });
+});
+
+// Final review m5: the hero showed an 11:00 snapshot as today's change at 15:00 with no age,
+// while the positions card below flagged the same snapshot table "Delayed". Same rule as that
+// card (older than 30 minutes), but only in market hours: after the close and at weekends the
+// headline is the last close, which is right, not degraded. Times are New York time, from `now`.
+describe("heroDelay", () => {
+  const at = (latest_at: string | null, latest: number | null = 101_500) => ({ ...series, latest, latest_at });
+  it("gives the age of a headline older than 30 minutes during market hours", () => {
+    // Tue Oct 13 2026, EDT: the monitor stopped at 11:00, it is now 15:00.
+    expect(heroDelay(at("2026-10-13T15:00:00Z"), new Date("2026-10-13T19:00:00Z"))).toBe("4h ago");
+  });
+  it("does not flag a fresh headline", () => {
+    expect(heroDelay(at("2026-10-13T18:50:00Z"), new Date("2026-10-13T19:00:00Z"))).toBeNull();
+    expect(heroDelay(at("2026-10-13T18:30:00Z"), new Date("2026-10-13T19:00:00Z"))).toBeNull();
+  });
+  it("does not flag the last close after 16:00 New York time", () => {
+    expect(heroDelay(at("2026-10-13T20:00:00Z"), new Date("2026-10-13T23:00:00Z"))).toBeNull();
+    // Still the evening in New York while it is already the next morning in Singapore.
+    expect(heroDelay(at("2026-10-13T20:00:00Z"), new Date("2026-10-14T01:30:00Z"))).toBeNull();
+  });
+  it("does not flag Friday's close at a weekend", () => {
+    expect(heroDelay(at("2026-10-16T20:00:00Z"), new Date("2026-10-17T16:00:00Z"))).toBeNull();
+    expect(heroDelay(at("2026-10-16T20:00:00Z"), new Date("2026-10-18T19:00:00Z"))).toBeNull();
+  });
+  it("reads market hours in New York time on both sides of the clock change", () => {
+    // Tue Nov 3 2026 is EST (UTC-5): 14:20Z is 09:20, before the open; 15:00Z is 10:00.
+    expect(heroDelay(at("2026-11-02T21:00:00Z"), new Date("2026-11-03T14:20:00Z"))).toBeNull();
+    expect(heroDelay(at("2026-11-02T21:00:00Z"), new Date("2026-11-03T15:00:00Z"))).toBe("18h ago");
+    // 20:30Z is 15:30 EST, still open; under EDT arithmetic it would read 16:30, closed.
+    expect(heroDelay(at("2026-11-03T15:00:00Z"), new Date("2026-11-03T20:30:00Z"))).toBe("5h ago");
+  });
+  it("never flags an unknown or unreadable headline", () => {
+    const now = new Date("2026-10-13T19:00:00Z");
+    expect(heroDelay(at(null), now)).toBeNull();
+    expect(heroDelay(at("not a time"), now)).toBeNull();
+    expect(heroDelay(at("2026-10-13T15:00:00Z", null), now)).toBeNull();
   });
 });

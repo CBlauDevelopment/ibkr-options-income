@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { UNKNOWN } from "@/lib/format";
 import { formatMoneyCell, isStale } from "@/lib/money";
 import { STRATEGY_LABEL, type StrategyFilter } from "@/lib/strategy";
-import { buildPositionRows, type PositionRow } from "./positions";
+import { FRESH_FOR_MINUTES, buildPositionRows, type PositionRow } from "./positions";
 import type { SpreadPositionsResponse } from "./types";
 
 type PositionsFilter = StrategyFilter | "shares";
@@ -27,9 +27,6 @@ const EMPTY: Record<PositionsFilter, string> = {
   spread: "No credit spreads open.",
   shares: "No shares held.",
 };
-
-/** Same threshold as PositionsPanel / SummaryPanel: twice the snapshot interval. */
-const FRESH_FOR_MINUTES = 30;
 
 function matches(row: PositionRow, f: PositionsFilter): boolean {
   return f === "all" || row.kind === f;

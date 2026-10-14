@@ -36,11 +36,11 @@ export function freshnessText(asOf: string | null | undefined): string {
   return relativeAge(asOf) || "not captured";
 }
 
-/** True when as_of is older than the threshold the API's `stale` flag uses. */
-export function isStale(asOf: string | null | undefined, freshForMinutes: number): boolean {
+/** True when as_of is older than the threshold the API's `stale` flag uses. `now` is epoch ms. */
+export function isStale(asOf: string | null | undefined, freshForMinutes: number, now: number = Date.now()): boolean {
   if (!asOf) return true;
   const then = new Date(asOf).getTime();
   if (Number.isNaN(then)) return true;
-  const ageMinutes = (Date.now() - then) / 60000;
+  const ageMinutes = (now - then) / 60000;
   return ageMinutes > freshForMinutes;
 }

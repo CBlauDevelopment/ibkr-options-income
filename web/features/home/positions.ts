@@ -2,6 +2,13 @@ import type { StatusTone } from "@/components/ui/StatusWord";
 import type { PositionGroupData } from "@/components/portfolio/types";
 import type { SpreadPosition } from "./types";
 
+/**
+ * When a portfolio snapshot reads as Delayed on Home: twice the monitor's 15-minute snapshot
+ * interval, the same threshold as PositionsPanel / SummaryPanel. The positions card and the
+ * account hero both use it, so the two never disagree about the same snapshot table.
+ */
+export const FRESH_FOR_MINUTES = 30;
+
 export type PositionKind = "csp" | "cc" | "spread" | "shares" | "other";
 
 export type PositionRow = {

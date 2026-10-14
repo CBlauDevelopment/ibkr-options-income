@@ -70,15 +70,25 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
   const spreadsOut = data.spreads_available === false && (pay.strategy === "all" || pay.strategy === "spread");
   const wholeUnknown = spreadsOut && pay.strategy === "spread";
   const net = wholeUnknown ? null : pay.net;
+  // An unread spread-only month keeps its target (it comes from the account value, not the
+  // spreads book); only the progress against it is unknown.
+  const progress = wholeUnknown ? null : pay.progress_pct;
+  const daysLeft = `${pay.days_left} ${pay.days_left === 1 ? "day" : "days"} left`;
   const pace =
-    wholeUnknown || pay.target === null ? (
-      `No target set · ${pay.days_left} days left`
-    ) : pay.progress_pct === null ? (
+    pay.target_pct === null ? (
+      `No target set · ${daysLeft}`
+    ) : pay.target === null ? (
+      // The setting is there; the account value at the month's start is not (the first month
+      // after install, or a journal gap), so the target cannot be worked out.
       <>
-        <span className="hatch">{UNKNOWN}</span> of target · {pay.days_left} days left
+        Target <span className="hatch">{UNKNOWN}</span> · needs the month's opening account value · {daysLeft}
+      </>
+    ) : progress === null ? (
+      <>
+        <span className="hatch">{UNKNOWN}</span> of target · {daysLeft}
       </>
     ) : (
-      `${Math.round(Math.max(0, pay.progress_pct))}% of target · ${pay.days_left} days left`
+      `${Math.round(Math.max(0, progress))}% of target · ${daysLeft}`
     );
 
   return (
@@ -95,7 +105,7 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
                 <span className={clsx("whitespace-nowrap", net === null && "hatch text-unknown")}>
                   {formatStubValue(net, "signed-money")}
                 </span>
-                {!wholeUnknown && pay.target !== null && (
+                {pay.target !== null && (
                   <>
                     {" "}
                     <span className="whitespace-nowrap font-normal text-muted">of {formatMoneyCell(pay.target)}</span>
@@ -104,7 +114,7 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
               </span>
             </span>
             <span className="mt-2.5 block">
-              <Meter value={net} max={wholeUnknown ? null : pay.target} label={`${month} target`} />
+              <Meter value={net} max={pay.target} label={`${month} target`} />
             </span>
             <span className="mt-1.5 block text-[0.8125rem] text-muted">{pace}</span>
           </span>

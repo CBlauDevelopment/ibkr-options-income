@@ -473,7 +473,9 @@ line are information-only alerts.
 
 `web.monthly_income_target_pct` (shipped `null`) is Home's monthly income target, as a percent of
 the account's month-start net liquidation value (`1.0` = 1% a month, accepted above 0 and up to
-20); the pay card's meter fills toward it, and with `null` the card says "No target set". It is a
+20); the pay card's meter fills toward it, and with `null` the card says "No target set". Set, but
+with no recorded account value from before the month began (the first month after install), the
+card says "Target n/a · needs the month's opening account value" until the next month. It is a
 display setting only: nothing in the trading path reads it.
 
 ## 6. Set up the daemons

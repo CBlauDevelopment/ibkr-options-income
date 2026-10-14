@@ -1172,11 +1172,13 @@ reskinned without an edit. The structure it added:
   Portfolio, Activity, More; Research and News mark More current), `BotCard` + `BotSheet` (running or
   halted in words, mode, autonomy rung, the not-draining warning; the sheet holds the unchanged
   `HaltControl` and `AutonomyControl`: one-tap halt, typed RESUME, confirmed rung changes),
-  `HaltedBanner` (global, wheel-scoped wording), `ThemeToggle`; `SystemStatusCard` now lives on More.
+  `HaltedBanner` (global, wheel-scoped wording; says an order approved while halted is held and may
+  still go out after a resume), `ThemeToggle`; `SystemStatusCard` now lives on More.
 - **`features/home/`** — the Home page (`HomePage`): the strategy switcher (`?strategy=`, through
   `lib/strategy.ts` + `lib/useStrategyFilter.ts`), `AccountHero` + `HeroChart` (account value over
   `GET /portfolio/value`, a scrubbable and keyboard-operable lightweight-charts line with range
-  chips), `PayCard` (the month's collapsible pay stub over `GET /pnl/month`, the lime meter against
+  chips; in market hours a headline older than 30 minutes carries a "Delayed" flag word and its
+  age, the positions card's rule, from `features/home/positions.ts::FRESH_FOR_MINUTES`), `PayCard` (the month's collapsible pay stub over `GET /pnl/month`, the lime meter against
   `web.monthly_income_target_pct`), `PositionsCard` (wheel positions from `GET /portfolio/positions`
   and spreads from `GET /spreads/positions`, with status words), and on desktop the `NeedsYou`
   column of `ProposalCard`s (Claude's review collapsed in `WhyDisclosure` above the stub) whose Review

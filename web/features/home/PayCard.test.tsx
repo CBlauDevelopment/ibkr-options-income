@@ -54,6 +54,31 @@ describe("PayCard", () => {
     expect(await screen.findByText("No target set · 18 days left")).toBeInTheDocument();
     expect(screen.queryByText(/of \$0/)).toBeNull();
   });
+  // Final review m4: the setting can be set while the month-start account value is unknown
+  // (the first month after install, a journal gap). "No target set" would read as a config that
+  // did not load; the target is unknown, and the card says why.
+  it("says the target needs the month's opening value when the setting is set but that value is unknown", async () => {
+    renderWithQuery(<PayCard strategy="all" />, {
+      "/pnl/month": pay({ month_start_value: null, target: null, progress_pct: null }),
+    });
+    const line = await screen.findByText(/needs the month's opening account value/);
+    expect(line).toHaveTextContent("Target n/a · needs the month's opening account value · 18 days left");
+    expect(within(line).getByText("n/a")).toHaveClass("hatch");
+    expect(screen.queryByText(/No target set/)).toBeNull();
+    expect(screen.queryByText(/of \$0/)).toBeNull();
+    expect(screen.queryByText(/0% of target/)).toBeNull();
+    expect(screen.getByRole("progressbar", { name: "October target" })).not.toHaveAttribute("aria-valuenow");
+  });
+  it("says 1 day left, not 1 days left", async () => {
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({ days_left: 1 }) });
+    expect(await screen.findByText("71% of target · 1 day left")).toBeInTheDocument();
+  });
+  it("says 1 day left when no target is set", async () => {
+    renderWithQuery(<PayCard strategy="all" />, {
+      "/pnl/month": pay({ target: null, target_pct: null, progress_pct: null, days_left: 1 }),
+    });
+    expect(await screen.findByText("No target set · 1 day left")).toBeInTheDocument();
+  });
   it("never turns an unknown progress into 0% of a known target", async () => {
     renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({ progress_pct: null }) });
     const line = await screen.findByText(/of target · 18 days left/);
@@ -95,13 +120,30 @@ describe("PayCard", () => {
       });
       expect(await screen.findByText(/Spread income is unavailable/)).toBeInTheDocument();
       const toggle = screen.getByRole("button", { name: /October pay/ });
-      expect(within(toggle).getByText("n/a")).toBeInTheDocument();
+      // The net and the progress are unknown (two n/a), the target is not.
+      expect(within(toggle).getAllByText("n/a")).toHaveLength(2);
       expect(within(toggle).getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
       expect(screen.queryByText("$0")).toBeNull();
       fireEvent.click(toggle);
       const stub = screen.getByRole("group", { name: "October pay stub" });
       expect(within(stub).getAllByText("n/a")).toHaveLength(4);
       expect(screen.queryByText("$0")).toBeNull();
+    });
+    // Final review m4 (Section D M2): the spread-only month's income is unknown, but the
+    // target is set and known, so the card must not say "No target set".
+    it("keeps a known target for an unreadable spread-only month and says the progress is unknown", async () => {
+      renderWithQuery(<PayCard strategy="spread" />, {
+        "/pnl/month": pay(
+          { strategy: "spread", premium_collected: 0, bought_back: 0, commissions: 0, net: 0, n_opened: 0, n_closed: 0 },
+          false,
+        ),
+      });
+      const line = await screen.findByText(/of target · 18 days left/);
+      expect(line).toHaveTextContent("n/a of target · 18 days left");
+      expect(within(line).getByText("n/a")).toHaveClass("hatch");
+      expect(screen.getByText("of $2,000.00")).toBeInTheDocument();
+      expect(screen.queryByText(/No target set/)).toBeNull();
+      expect(screen.queryByText(/^0% of target/)).toBeNull();
     });
     it("stays quiet for a wheel strategy, which never needs the spreads book", async () => {
       renderWithQuery(<PayCard strategy="csp" />, { "/pnl/month": pay({ strategy: "csp" }, false) });

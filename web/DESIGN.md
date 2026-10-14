@@ -343,11 +343,13 @@ Each line is a button (at least 24px tall) that toggles a one-sentence explanati
 **October pay card** (Home): collapsible. Closed, it shows the title (never wrapped; on a narrow
 phone the whole figure drops below the title, and "of $target" never splits from its amount), net so far against target, the lime meter, and "71% of
 target · 18 days left". Open, it shows the month's stub. The target is
-`web.monthly_income_target_pct` of the month-start account value; with none it says "No target
-set" and the meter is hatched. An unknown progress reads "n/a of target" (hatched n/a). When the
-spreads book cannot be read, a flag word "Spreads unavailable" and a sentence say so: a
-spreads-only month shows n/a, never $0, and an all-strategies month says its total leaves spreads
-out.
+`web.monthly_income_target_pct` of the month-start account value; without the setting it says
+"No target set", and with the setting but no month-start value (the first month after install, a
+journal gap) "Target n/a · needs the month's opening account value" (hatched n/a); either way the
+meter is hatched. An unknown progress reads "n/a of target" (hatched n/a). One day left reads "1
+day left". When the spreads book cannot be read, a flag word "Spreads unavailable" and a sentence
+say so: a spreads-only month shows n/a, never $0, keeps its target and reads "n/a of target", and
+an all-strategies month says its total leaves spreads out.
 
 **Strategy switcher**: a segmented control on a white pill track, one button per kind of trade:
 All, CSPs, CCs, Credit spreads, each with its live count. It sits at the very top of Home and
@@ -364,6 +366,9 @@ fill, never animated in) and the range chips, with a muted "Chart by TradingView
 of the chip row: the chart library's licence asks for a link, and its own logo is off so nothing
 sits on the line. The chart scrubs by pointer and, as a slider, by
 keyboard (arrows, Home, End); the number follows the scrub. Loading is a hero-shaped skeleton.
+In market hours (09:30-16:00 New York time, weekdays) a headline older than 30 minutes, the
+positions card's rule, shows the flag word "Delayed" and its age beside "Account value"; a last
+close after 16:00 or at a weekend is the right headline and is never flagged.
 
 **Positions card** (Home): the title, "Sorted by expiry", filter chips (All, CSPs, CCs, Credit
 spreads, Shares, each with its count), then position rows. A delayed portfolio snapshot shows a

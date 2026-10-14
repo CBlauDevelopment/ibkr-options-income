@@ -123,10 +123,23 @@ describe("HaltedBanner", () => {
       }),
     });
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("No new CSP or covered-call orders will be queued or sent");
+    expect(alert).toHaveTextContent("No new CSP or covered-call orders are sent while halted");
     expect(alert).toHaveTextContent("Credit spreads have their own halt");
     expect(alert).not.toHaveTextContent(/No new orders will be queued/);
     expect(alert).not.toHaveTextContent(/profit-take/i);
+  });
+  // Final review m3: approving while halted still queues the order (neither _process_button
+  // nor the command drain checks the halt); process_queued_orders holds it, and it can be
+  // sent after a resume inside the approval's time limit. The banner must not say otherwise.
+  it("never claims an approval made while halted is not queued", async () => {
+    renderWithQuery(<HaltedBanner />, {
+      "/options/controls": controls({ halted: true, halt_reason: "manual", halted_at: "2026-10-13T14:05:00Z" }),
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent(/queued or sent/);
+    expect(alert).toHaveTextContent("An order approved now is held, and may still go out after you resume.");
+    expect(alert).toHaveTextContent(/Open Bot controls to resume\.$/);
+    expect(alert.textContent).not.toMatch(/[\u2014\u2013]/);
   });
 });
 

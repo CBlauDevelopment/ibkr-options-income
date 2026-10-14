@@ -193,6 +193,50 @@ describe("AccountHero", () => {
     expect(link).toHaveAttribute("href", "https://www.tradingview.com/");
     expect(chart.options.at(-1)?.layout?.attributionLogo).toBe(false);
   });
+  // Final review m5: a stale headline during market hours carries the positions card's flag
+  // word and its age; a legitimate last close (after 16:00 ET, a weekend) does not.
+  describe("the Delayed flag", () => {
+    const stale = () => {
+      const b = body("1d");
+      b.series = { ...b.series, latest_at: "2026-10-13T15:00:00Z" }; // 11:00 ET, Tue Oct 13
+      return b;
+    };
+    it("flags a headline older than 30 minutes during market hours, with its age, in words", async () => {
+      renderWithQuery(<AccountHero now={new Date("2026-10-13T19:00:00Z")} />, { "/portfolio/value": stale() });
+      const word = await screen.findByText("Delayed");
+      expect(word).toHaveAttribute("data-tone", "flag");
+      expect(word).toHaveClass("bg-flag", "text-on-flag");
+      expect(screen.getByText("4h ago")).toBeInTheDocument();
+      // The value itself stays: the flag says how old it is, it does not hide it.
+      expect(screen.getByText("$101,500.00")).toBeInTheDocument();
+    });
+    it("does not flag a fresh headline", async () => {
+      renderWithQuery(<AccountHero now={new Date("2026-10-13T15:10:00Z")} />, { "/portfolio/value": stale() });
+      await screen.findByText("$101,500.00");
+      expect(screen.queryByText("Delayed")).toBeNull();
+    });
+    it("does not flag the last close after 16:00 New York time", async () => {
+      const close = body("1d");
+      close.series = { ...close.series, latest_at: "2026-10-13T20:00:00Z" };
+      renderWithQuery(<AccountHero now={new Date("2026-10-13T23:30:00Z")} />, { "/portfolio/value": close });
+      await screen.findByText("$101,500.00");
+      expect(screen.queryByText("Delayed")).toBeNull();
+    });
+    it("does not flag Friday's close at a weekend", async () => {
+      const friday = body("1d");
+      friday.series = { ...friday.series, latest_at: "2026-10-16T20:00:00Z", change_today: null, change_today_pct: null };
+      renderWithQuery(<AccountHero now={new Date("2026-10-17T16:00:00Z")} />, { "/portfolio/value": friday });
+      await screen.findByText("$101,500.00");
+      expect(screen.queryByText("Delayed")).toBeNull();
+    });
+    it("renders without a flag when the headline time is unknown", async () => {
+      const unknown = body("1d");
+      unknown.series = { ...unknown.series, latest_at: null };
+      renderWithQuery(<AccountHero now={new Date("2026-10-13T19:00:00Z")} />, { "/portfolio/value": unknown });
+      expect(await screen.findByText("$101,500.00")).toBeInTheDocument();
+      expect(screen.queryByText("Delayed")).toBeNull();
+    });
+  });
   it("says there is no history yet instead of drawing an empty frame", async () => {
     const empty = body("1m");
     empty.series = { ...empty.series, points: [], latest: null, change_today: null, change_today_pct: null };

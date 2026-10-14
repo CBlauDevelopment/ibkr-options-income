@@ -1,5 +1,6 @@
-import { formatDateTime } from "@/lib/format";
-import { formatMoneyCell } from "@/lib/money";
+import { formatDateTime, relativeAge } from "@/lib/format";
+import { formatMoneyCell, isStale } from "@/lib/money";
+import { FRESH_FOR_MINUTES } from "./positions";
 import type { AccountValuePoint, AccountValueSeries } from "./types";
 
 const DATE_ONLY = new Intl.DateTimeFormat("en-US", {
@@ -67,4 +68,34 @@ export function heroFigures(
     deltaPct: base ? (delta / base) * 100 : null,
     caption: intraday ? formatDateTime(p.at) : formatDay(p.at),
   };
+}
+
+const NY_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Monday to Friday, 09:30 to 16:00 New York time. The web does not know market holidays. */
+export function inMarketHours(now: Date): boolean {
+  const part = (type: string) => NY_CLOCK.formatToParts(now).find((p) => p.type === type)?.value;
+  if (part("weekday") === "Sat" || part("weekday") === "Sun") return false;
+  const minutes = Number(part("hour")) * 60 + Number(part("minute"));
+  return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
+/**
+ * The headline's age ("4h ago") when the hero should flag it Delayed, else null. The rule is the
+ * positions card's (older than FRESH_FOR_MINUTES, read from the same snapshot table), applied
+ * only in market hours: the monitor snapshots every ~15 minutes while the market is open, and
+ * after the close or at a weekend the headline is the last close, which is right, not degraded.
+ * An unknown or unreadable headline is never flagged; it already reads n/a.
+ */
+export function heroDelay(series: AccountValueSeries, now: Date): string | null {
+  const at = series.latest_at;
+  if (series.latest === null || !at || Number.isNaN(Date.parse(at))) return null;
+  if (!inMarketHours(now) || !isStale(at, FRESH_FOR_MINUTES, now.getTime())) return null;
+  return relativeAge(at, now.getTime());
 }

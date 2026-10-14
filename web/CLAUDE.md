@@ -779,11 +779,16 @@ features/
                     until hydration is over, because the rail's approvals query shares its
                     key), AccountHero + HeroChart + hero.ts (GET /portfolio/value: the
                     number, the signed day change or "n/a today · last value <date>", a
-                    lightweight-charts line that never animates in, scrubbable by pointer
-                    and by keyboard as a slider, one point per second), PayCard (GET
+                    "Delayed" word and age on a headline older than 30 minutes in New York
+                    market hours (heroDelay: the positions card's FRESH_FOR_MINUTES, `now`
+                    injectable), a lightweight-charts line that never animates in,
+                    scrubbable by pointer and by keyboard as a slider, one point per
+                    second), PayCard (GET
                     /pnl/month: a Disclosure whose summary is net vs target and the lime
-                    meter, whose panel is the month's Stub; spreads unavailable is said,
-                    never shown as $0), PositionsCard + positions.ts (GET
+                    meter, whose panel is the month's Stub; "No target set" only without
+                    the setting, "Target n/a · needs the month's opening account value"
+                    without a month-start value; spreads unavailable is said, never shown
+                    as $0), PositionsCard + positions.ts (GET
                     /portfolio/positions and GET /spreads/positions?status=open: rows with
                     status words from API fields only, chips per kind, a Delayed word on
                     a stale snapshot, unreadable spreads stated, never "none open"),

@@ -388,10 +388,14 @@ ratifies the Task 14 reconcile).
   five-tab bar on phones). Old URLs redirect with a 307 (`/options` → `/trades`, `/options/:id` →
   `/trades/:id`, `/pnl` → `/activity`, `/universe` → `/research/universe`). The bot card (rail foot,
   More on phones) opens Bot controls: one-tap halt, typed RESUME, confirmed rung changes, unchanged.
-  A halted wheel shows a global banner. **`GET /nav` is no longer read by the web** (removed in
+  A halted wheel shows a global banner, which says an order approved while halted is held and may
+  still go out after a resume (neither approval path reads the halt; `process_queued_orders` holds
+  the order and re-gates it if its approval has not expired). **`GET /nav` is no longer read by the web** (removed in
   Part 4).
 - **Home (`/`).** Strategy switcher (`?strategy=`), the account-value hero with a scrubbable,
-  keyboard-operable chart and range chips, the collapsible month's pay stub against
+  keyboard-operable chart and range chips (a "Delayed" flag word and the age when, in market
+  hours, its headline is older than the positions card's 30 minutes; market holidays and early
+  closes are not known to the web, so a holiday, or a half-day's afternoon, reads as delayed), the collapsible month's pay stub against
   `web.monthly_income_target_pct`, positions with status words (wheel and spreads), and on desktop
   the "Needs you" proposal cards whose Review opens the review sheet: the existing
   `DecideControls` → `ConfirmAction` flow, LIVE second confirmation included.
