@@ -421,9 +421,10 @@ test.
   only on desktop (the "Needs you" column is from 1024px).
 - The sheet closes instantly (no 180ms exit; an open decision in `web/DESIGN.md`).
 - Legacy pages (Trades, Portfolio, Activity, Research, News, Ledger, Explain) keep their old layouts
-  under the new tokens until Parts 2-4; about 30 legacy files still set small `n/a` text in the
-  unknown grey on paper or pressed sage (4.30:1 / 3.90:1, AA-large only). Desktop system health
-  (monitor, research worker, providers) now lives on More, not in the rail.
+  under the new tokens until Parts 2-4; about 30 of them set small `n/a` text in the unknown grey,
+  which the operator darkened to `#61685d` on 2026-10-14 (5.20:1 on paper, 4.72:1 on pressed sage,
+  AA) so it no longer waits on that restyle. Desktop system health (monitor, research worker,
+  providers) now lives on More, not in the rail.
 - Deferred review minors worth knowing: `?month=0000-01` on `/pnl/month` answers 500, not 422; a
   corrupt timestamp or NULL credit row in `data/spreads.db` answers 500; partly closed spreads reach
   the pay stub only at their final close, and `/pnl/month` reads at most 5,000 spread rows; the

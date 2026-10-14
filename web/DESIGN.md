@@ -20,7 +20,7 @@ colors:
   loss: "#c8322f"
   flag: "#fff1d6"
   on-flag: "#6b4500"
-  unknown: "#6e7569"
+  unknown: "#61685d"
   ground-dark: "#0f110f"
   surface-dark: "#191c19"
   sunk-dark: "#232723"
@@ -250,8 +250,10 @@ role.
 - **Flag amber** (`flag` with `on-flag`): warnings that need attention without being a loss,
   such as "Assignment likely", a degraded data source, or a stale quote.
 - **Unknown** (`unknown` / `unknown-dark`): the hatch texture behind "n/a". Unknown is never zero.
-  As text the grey passes AA on white (4.76:1) but is AA-large only on paper (4.30:1) and pressed
-  sage (3.90:1): small "n/a" sits on a white card or takes muted ink, with the hatch either way.
+  As text the grey passes AA anywhere small "n/a" sits: 5.76:1 on white, 5.20:1 on paper and
+  4.72:1 on pressed sage (dark: 5.35:1 on the card, 5.90:1 on the page, 4.72:1 on the pressed
+  fill). Only the hover fill (`sunk-deep`) falls to AA-large (4.21:1 light, 4.13:1 dark), and a
+  hover is transient. The hatch carries the state either way.
 - **Control edge** (`control-edge`): input and checkbox borders (3.6:1 on paper, 4.0:1 on white).
   **Hairline** and **perforation** are decorative separators only and never the sole boundary of a
   control.
@@ -578,12 +580,17 @@ sibling keys; re-run the check after edits.
 - **The decide controls' look:** a lime, round primary Approve (and round Reject, Halt and dialog
   buttons) needs a reviewed restyle of the protected `DecideControls`, `ConfirmAction`,
   `HaltControl` and `AutonomyControl`.
-- **The unknown grey:** darkening `unknown` to about `#61685d` (4.72:1 on pressed sage, 5.20:1 on
-  paper) would let small "n/a" sit anywhere; until then the legacy pages carry small n/a below AA
-  on paper and sage (Parts 2-4 restyle them).
+- **The unknown grey: RESOLVED 2026-10-14.** The light `unknown` is now `#61685d` (4.72:1 on
+  pressed sage, 5.20:1 on paper, 5.76:1 on white), so small "n/a" passes AA anywhere, including the
+  legacy pages that Parts 2-4 have yet to restyle.
 
 ## Decision Log
 
+- 2026-10-14: The operator darkened the light `unknown` token from `#6e7569` to `#61685d`
+  (5.20:1 on paper, 4.72:1 on pressed sage, 5.76:1 on white, up from 4.30, 3.90 and 4.76), so small
+  "n/a" text passes AA on every surface, including about 30 legacy files that set it on paper or
+  sage. The dark twin `#8a9286` is unchanged (4.72:1 or better on the page, card and pressed fill).
+  The `.hatch` stripes read slightly stronger in light. Resolves the "unknown grey" open decision.
 - 2026-10-14: Section E review: added the `caption` type step (13px, the size every secondary
   line and the bot card already use; the `bot-card` token said 14px); the pay figure drops below
   its title as a whole on a narrow phone, never splitting "of" from its amount; the chart's

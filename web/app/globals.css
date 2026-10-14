@@ -24,7 +24,7 @@
 
   --color-gain: #187a42;
   --color-loss: #c8322f;
-  --color-unknown: #6e7569;
+  --color-unknown: #61685d; /* AA for small text on paper, card and pressed sage */
   /* Focus is ink, never lime or green, so "selected" can never read as "up". */
   --color-focus: #111410;
   --color-scrim: rgba(0, 0, 0, 0.5);
