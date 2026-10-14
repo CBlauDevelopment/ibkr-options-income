@@ -472,6 +472,15 @@ sent without a tap (the card says *Auto-approved*); on any other rung it waits f
 21/7-day timers, delta drift, IV spike, assignment risk and the non-leveraged loss line are
 information-only alerts.
 
+### `config/settings.yaml` — the `web:` block
+
+`web.monthly_income_target_pct` (shipped `null`) is Home's monthly income target, as a percent of
+the account's month-start net liquidation value (`1.0` = 1% a month, accepted above 0 and up to
+20); the pay card's meter fills toward it, and with `null` the card says "No target set". Set, but
+with no recorded account value from before the month began (the first month after install), the
+card says "Target n/a · needs the month's opening account value" until the next month. It is a
+display setting only: nothing in the trading path reads it.
+
 ## 6. Set up the daemons
 
 Two processes must stay running during market hours:
@@ -754,8 +763,8 @@ search the symbol directory.
 
 ### Using the options console
 
-`/options` (once the API and `web/` are both running) lets you act on what the trading system
-proposed, from a browser instead of Telegram. Every action is an **intent**: the console submits
+`/trades` (once the API and `web/` are both running; the old `/options` URL redirects there) lets
+you act on what the trading system proposed, from a browser instead of Telegram. Every action is an **intent**: the console submits
 it to `POST /commands`, the running `approval_service` process drains and applies it on its own
 schedule (typically within a few seconds), and the console polls the intent to a terminal state
 and renders a `CommandReceipt` — nothing on the page ever claims an action succeeded before the
@@ -764,11 +773,11 @@ the same second `[CONFIRM LIVE]` step execution has always required.
 
 | Action | Where | What it does |
 |---|---|---|
-| Approve / Reject | `/options`, per pending approval | The exact `_process_button` mutation Telegram's ✅/❌ buttons perform — the web is a second front door onto the same order path, never a second path. |
-| Promote | `/options` → Assessed tab, per gate-passed-but-not-yet-approved contract | Re-prices and re-gates the contract fresh (a stored score never gets promoted on trust) and, only if it still clears the Rules Engine, raises a PENDING approval for you to approve above. |
-| Propose a roll | `/options` → Shorts tab, per open short | Runs the roll policy for that position (the same decision the monitor makes on a breach). A `roll` decision raises a PENDING approval — it does **not** execute the roll; you still approve it separately. Any other decision (assign, let called away, close, hold) comes back as `no_qualifying_roll` with the decision and its reason. |
-| Halt / Resume / Autonomy | `/options` controls strip | The same kill switch and autonomy ladder as `/halt`, `/resume`, `/autonomy` in Telegram — one flag, one rung, read by every consumer. Halt is one click, no confirmation; Resume requires typing the word RESUME. |
-| Add/remove `would_own` or `watchlist` | `/universe` | Edits the scan universe without touching `config/universe.yaml` by hand. Adding a symbol to `would_own` means the system may start selling cash-secured puts on it and you may be assigned its shares — the console shows that consequence in a confirmation before submitting. `watchlist` is reporting-only and applies immediately. `sectors` and every other list stay file-only; they are not editable from the browser at all. |
+| Approve / Reject | `/trades`, per pending approval; or Home's proposal cards → Review (desktop) | The exact `_process_button` mutation Telegram's ✅/❌ buttons perform — the web is a second front door onto the same order path, never a second path. |
+| Promote | `/trades` → Assessed tab, per gate-passed-but-not-yet-approved contract | Re-prices and re-gates the contract fresh (a stored score never gets promoted on trust) and, only if it still clears the Rules Engine, raises a PENDING approval for you to approve above. |
+| Propose a roll | `/trades` → Shorts tab, per open short | Runs the roll policy for that position (the same decision the monitor makes on a breach). A `roll` decision raises a PENDING approval — it does **not** execute the roll; you still approve it separately. Any other decision (assign, let called away, close, hold) comes back as `no_qualifying_roll` with the decision and its reason. |
+| Halt / Resume / Autonomy | `/trades` controls strip, or Bot controls (the bot card at the foot of the rail; on a phone, under More) | The same kill switch and autonomy ladder as `/halt`, `/resume`, `/autonomy` in Telegram — one flag, one rung, read by every consumer. Halt is one click, no confirmation; Resume requires typing the word RESUME. |
+| Add/remove `would_own` or `watchlist` | `/research/universe` (the old `/universe` URL redirects) | Edits the scan universe without touching `config/universe.yaml` by hand. Adding a symbol to `would_own` means the system may start selling cash-secured puts on it and you may be assigned its shares — the console shows that consequence in a confirmation before submitting. `watchlist` is reporting-only and applies immediately. `sectors` and every other list stay file-only; they are not editable from the browser at all. |
 
 See `docs/web/commands.md` for every command kind's payload, dedupe key, and failure reasons, and
 `Web plan/P2-design.md` for the full design.

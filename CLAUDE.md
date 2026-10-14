@@ -196,9 +196,16 @@ read-only P&L builders over the trading DB (`pnl.py` — legs, campaigns, summar
 It also holds `trade_ledger.py` — the whole-account trade-ledger builder (orders → FIFO trades →
 outcomes/rolls/orphans, stock lots and wheel-adjusted cost basis, ticker roll-ups, FX, and the
 USD portfolio summary; docs/superpowers/plans/2026-10-05-trade-ledger.md, Tasks 1-12). It is
-read-only, like `pnl.py` — same no-writes rule, same tier. It reads the whole book, including
-enrichment-side tables, which is why it stays on the read side of the tier line exactly as
-`src/api/` and `src/research/` do:
+read-only, like `pnl.py` — same no-writes rule, same tier. Web overhaul Part 1 added two more
+read-only builders under the same rules:
+
+- `account_value.py` — the Home hero's account-value series (EOD journal closes plus intraday
+  portfolio snapshots; unknown is `None`, never `0`) and `month_start_value`;
+- `pay.py` — `build_month_pay`, the month's pay stub from the same `PnlLeg` list plus plain
+  `SpreadPayInput` values the API reads from `data/spreads.db` (it never imports `src.spreads`).
+
+The tier reads the whole book, including enrichment-side tables, which is why it stays on the
+read side of the tier line exactly as `src/api/` and `src/research/` do:
 
 - `src/reporting/` imports nothing from `src.claude`;
 - `src/engine/`, `src/execution/` and `src/strategies/` may never import `src.reporting`.
@@ -264,6 +271,9 @@ credit spreads in the **same IBKR account and Gateway** as the wheel, with its o
   that imports `src.spreads_ai`; `src/spreads_ai/` imports nothing from `src.spreads`, the trading
   path, `src.notify`, `src.ledger` or `src.storage`, and reaches Claude only through
   `src.claude.cli` (which imports nothing from `src/`). Enforced by `tests/test_spreads_fence.py`.
+- **The web API reads `data/spreads.db` only through `src/api/spreads_db.py`** (SQLite `mode=ro`,
+  plain SQL; `GET /spreads/positions` and `GET /pnl/month`), never by importing `src.spreads`;
+  asserted by `tests/test_web_fence.py::test_only_spreads_db_opens_the_spreads_file_in_the_api`.
 - `src/spreads/` imports nothing from `src.claude`, `src.engine`, `src.execution`,
   `src.strategies`, `src.orchestrator`, `src.monitor`, `src.notify`, `src.reporting`, `src.api`,
   `src.research`; only `src/spreads/service.py` may import `src.ledger` / `src.storage`.

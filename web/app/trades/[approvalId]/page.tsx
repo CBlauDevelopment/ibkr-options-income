@@ -35,7 +35,7 @@ export default function ApprovalDetailPage({
         <p className="text-sm text-muted">
           This approval does not exist or has been pruned.
         </p>
-        <Link href="/options" className="text-xs text-muted hover:text-content">
+        <Link href="/trades" className="text-xs text-muted hover:text-content">
           Back to approvals
         </Link>
       </div>

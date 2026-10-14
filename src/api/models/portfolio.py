@@ -12,6 +12,7 @@ from datetime import date
 from typing import Literal
 
 from src.api.models.common import Envelope, Sourced
+from src.common.schemas import AccountValueSeries
 
 # ---------------------------------------------------------------------------
 # Task 2.1 — GET /portfolio/summary
@@ -149,3 +150,7 @@ class CalendarResponse(Envelope):
     degraded: bool
     horizon_days: int
     days: list[CalendarDay]
+
+
+class AccountValueResponse(Envelope):
+    series: AccountValueSeries

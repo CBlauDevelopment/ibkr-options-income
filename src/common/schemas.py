@@ -839,6 +839,9 @@ class PnlLeg(BaseModel):
     debit: float
     commissions: float
     commissions_complete: bool
+    # The SELL-side (opening) share of `commissions`, so a month's pay can charge each side in
+    # the month it was paid; the rest belongs to the close. None when the split is not known.
+    open_commissions: float | None = None
     net_pnl: float | None = None
     unrealized_pnl: float | None = None
     days_held: int
@@ -911,6 +914,69 @@ class EquityCurve(BaseModel):
     points: list[EquityPoint] = Field(default_factory=list)
     gaps: list[date] = Field(default_factory=list)
     starts_at: date | None = None
+
+
+AccountValueRange = Literal["1d", "1w", "1m", "3m", "ytd", "all"]
+
+
+class AccountValuePoint(BaseModel):
+    at: datetime
+    value: float
+
+
+class AccountValueSeries(BaseModel):
+    """Account value (net liquidation) over a range, for the Home hero chart.
+
+    1d/1w plot the intraday portfolio snapshots inside the window (retention:
+    `storage.portfolio_snapshot_retention_days`); 1m/3m/ytd/all plot one point per EOD journal
+    close, at that day's 16:00 ET. `latest` is the newer of the newest known snapshot and the
+    newest close, compared as instants (a journal day is a close only once its 16:00 ET has
+    passed), so it can be a close. 1m/3m/ytd/all end on `latest` when it is newer than their
+    last close; 1d/1w end on it only when `latest_at` falls inside the window. Points ascend in
+    time but not strictly: snapshot rows sharing a `captured_at` both appear.
+    `previous_close` is the close before the New York day `latest` belongs to; `change_today`
+    is None unless that day is today (weekends, before the day's first snapshot). A net
+    liquidation of 0 or less is unknown. Every figure is None when unknown - never 0.0.
+    """
+
+    range: AccountValueRange
+    points: list[AccountValuePoint] = Field(default_factory=list)
+    latest: float | None = None
+    latest_at: datetime | None = None
+    previous_close: float | None = None
+    change_today: float | None = None
+    change_today_pct: float | None = None
+
+
+class MonthPay(BaseModel):
+    """One month's options income as a pay stub (web Home, DESIGN.md "October pay").
+
+    Months are New York calendar months. `premium_collected` counts credit on legs SOLD in the
+    month; `bought_back` counts debit on legs BOUGHT BACK in the month (an expired or assigned
+    leg closes on its expiry date). Commissions are charged by side, once each: the sell-side
+    commission (`PnlLeg.open_commissions`) in the month the leg was opened, the rest in the
+    month it closed; a leg with no known split charges all of them to the month it opened.
+    When `strategy` is "all" or "spread" the figures include the book's spread positions: entry
+    credit and entry commission in the month opened, the exit debit and exit commission in the
+    month the spread finally closed. `target_pct` echoes the setting; `target` and
+    `progress_pct` are None - never 0.0 - when there is no target percentage or no month-start
+    account value.
+    """
+
+    month: date  # first day of the month
+    strategy: Literal["all", "csp", "cc", "spread"]
+    premium_collected: float
+    bought_back: float
+    commissions: float
+    commissions_complete: bool
+    net: float
+    n_opened: int
+    n_closed: int
+    month_start_value: float | None = None
+    target_pct: float | None = None
+    target: float | None = None
+    progress_pct: float | None = None
+    days_left: int
 
 
 # --------------------------------------------------------------------------- #

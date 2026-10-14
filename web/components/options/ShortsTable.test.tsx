@@ -295,7 +295,7 @@ describe("ShortsTable — the roll control (M5 5.2)", () => {
     const link = (await screen.findByRole("link", {
       name: /roll already in flight/i,
     })) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/options/77");
+    expect(link.getAttribute("href")).toBe("/trades/77");
   });
 
   it("on success the receipt links to the new approval", async () => {
@@ -316,7 +316,7 @@ describe("ShortsTable — the roll control (M5 5.2)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Propose a roll" }));
     fireEvent.click(dialogConfirm());
     const link = (await screen.findByRole("link", { name: /view approval/i })) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/options/99");
+    expect(link.getAttribute("href")).toBe("/trades/99");
   });
 
   it("the control is disabled while a roll command for that position is in flight", async () => {

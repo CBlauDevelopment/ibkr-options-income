@@ -42,7 +42,7 @@ export function SystemStatusCard() {
     <div className="border-t border-border px-3 py-3">
       <div className="mb-2 font-mono text-xs text-muted">System status</div>
       {isError ? (
-        <p className="text-xs text-unknown">Status unavailable</p>
+        <p className="text-xs text-muted">Status unavailable</p>
       ) : (
         <ul className="space-y-1.5">
           {(data?.rows ?? []).map((row) => (

@@ -47,7 +47,7 @@ export function NewsPanel({ items }: { items: NewsItem[] }) {
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-content hover:text-focus"
+                  className="text-content underline-offset-2 hover:underline"
                 >
                   {item.title}
                 </a>

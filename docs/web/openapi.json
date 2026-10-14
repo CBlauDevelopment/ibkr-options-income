@@ -1260,6 +1260,60 @@
         ]
       }
     },
+    "/portfolio/value": {
+      "get": {
+        "summary": "Portfolio Value",
+        "description": "Account value over `range` for the Home hero. Computes nothing itself: a thin render\nof `account_value_series`. No history is a 200 with no points, never zeros.",
+        "operationId": "portfolio_value_portfolio_value_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1d",
+                "1w",
+                "1m",
+                "3m",
+                "ytd",
+                "all"
+              ],
+              "type": "string",
+              "default": "1m",
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountValueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pnl/ledger": {
       "get": {
         "summary": "Pnl Ledger",
@@ -1840,6 +1894,95 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SystemPerformanceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnl/month": {
+      "get": {
+        "summary": "Pnl Month",
+        "description": "The month's pay stub. `book` defaults to the running mode: a pay figure across paper\nand live is not a number that means anything (same rule as /pnl/summary). Spreads count\nonly positions whose mode equals the book; shadow and baseline are simulations.",
+        "operationId": "pnl_month_pnl_month_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "csp",
+                "cc",
+                "spread"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "book",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "paper",
+                    "live"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthPayResponse"
                 }
               }
             }
@@ -2690,6 +2833,86 @@
         ]
       }
     },
+    "/spreads/positions": {
+      "get": {
+        "tags": [
+          "spreads"
+        ],
+        "summary": "Spread Positions",
+        "operationId": "spread_positions_spreads_positions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
+              "type": "string",
+              "default": "open",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "paper",
+                "shadow",
+                "baseline"
+              ],
+              "type": "string",
+              "default": "paper",
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadPositionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/universe": {
       "get": {
         "tags": [
@@ -3134,6 +3357,128 @@
           "excess_liquidity"
         ],
         "title": "AccountBlock"
+      },
+      "AccountValuePoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "value"
+        ],
+        "title": "AccountValuePoint"
+      },
+      "AccountValueResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "series": {
+            "$ref": "#/components/schemas/AccountValueSeries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "series"
+        ],
+        "title": "AccountValueResponse"
+      },
+      "AccountValueSeries": {
+        "properties": {
+          "range": {
+            "type": "string",
+            "enum": [
+              "1d",
+              "1w",
+              "1m",
+              "3m",
+              "ytd",
+              "all"
+            ],
+            "title": "Range"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/AccountValuePoint"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "latest_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest At"
+          },
+          "previous_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Close"
+          },
+          "change_today": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Today"
+          },
+          "change_today_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Today Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "range"
+        ],
+        "title": "AccountValueSeries",
+        "description": "Account value (net liquidation) over a range, for the Home hero chart.\n\n1d/1w plot the intraday portfolio snapshots inside the window (retention:\n`storage.portfolio_snapshot_retention_days`); 1m/3m/ytd/all plot one point per EOD journal\nclose, at that day's 16:00 ET. `latest` is the newer of the newest known snapshot and the\nnewest close, compared as instants (a journal day is a close only once its 16:00 ET has\npassed), so it can be a close. 1m/3m/ytd/all end on `latest` when it is newer than their\nlast close; 1d/1w end on it only when `latest_at` falls inside the window. Points ascend in\ntime but not strictly: snapshot rows sharing a `captured_at` both appear.\n`previous_close` is the close before the New York day `latest` belongs to; `change_today`\nis None unless that day is today (weekends, before the day's first snapshot). A net\nliquidation of 0 or less is unknown. Every figure is None when unknown - never 0.0."
       },
       "AlternativeStrike": {
         "properties": {
@@ -7547,6 +7892,148 @@
         ],
         "title": "MeResponse"
       },
+      "MonthPay": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "format": "date",
+            "title": "Month"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "all",
+              "csp",
+              "cc",
+              "spread"
+            ],
+            "title": "Strategy"
+          },
+          "premium_collected": {
+            "type": "number",
+            "title": "Premium Collected"
+          },
+          "bought_back": {
+            "type": "number",
+            "title": "Bought Back"
+          },
+          "commissions": {
+            "type": "number",
+            "title": "Commissions"
+          },
+          "commissions_complete": {
+            "type": "boolean",
+            "title": "Commissions Complete"
+          },
+          "net": {
+            "type": "number",
+            "title": "Net"
+          },
+          "n_opened": {
+            "type": "integer",
+            "title": "N Opened"
+          },
+          "n_closed": {
+            "type": "integer",
+            "title": "N Closed"
+          },
+          "month_start_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month Start Value"
+          },
+          "target_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Pct"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "progress_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Pct"
+          },
+          "days_left": {
+            "type": "integer",
+            "title": "Days Left"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "strategy",
+          "premium_collected",
+          "bought_back",
+          "commissions",
+          "commissions_complete",
+          "net",
+          "n_opened",
+          "n_closed",
+          "days_left"
+        ],
+        "title": "MonthPay",
+        "description": "One month's options income as a pay stub (web Home, DESIGN.md \"October pay\").\n\nMonths are New York calendar months. `premium_collected` counts credit on legs SOLD in the\nmonth; `bought_back` counts debit on legs BOUGHT BACK in the month (an expired or assigned\nleg closes on its expiry date). Commissions are charged by side, once each: the sell-side\ncommission (`PnlLeg.open_commissions`) in the month the leg was opened, the rest in the\nmonth it closed; a leg with no known split charges all of them to the month it opened.\nWhen `strategy` is \"all\" or \"spread\" the figures include the book's spread positions: entry\ncredit and entry commission in the month opened, the exit debit and exit commission in the\nmonth the spread finally closed. `target_pct` echoes the setting; `target` and\n`progress_pct` are None - never 0.0 - when there is no target percentage or no month-start\naccount value."
+      },
+      "MonthPayResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "book": {
+            "type": "string",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Book"
+          },
+          "pay": {
+            "$ref": "#/components/schemas/MonthPay"
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "book",
+          "pay",
+          "spreads_available"
+        ],
+        "title": "MonthPayResponse"
+      },
       "NavResponse": {
         "properties": {
           "as_of": {
@@ -8609,6 +9096,17 @@
           "commissions_complete": {
             "type": "boolean",
             "title": "Commissions Complete"
+          },
+          "open_commissions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Commissions"
           },
           "net_pnl": {
             "anyOf": [
@@ -9816,6 +10314,183 @@
           "as_of"
         ],
         "title": "Sourced[float]"
+      },
+      "SpreadPositionOut": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "spread_id": {
+            "type": "string",
+            "title": "Spread Id"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "put",
+              "call"
+            ],
+            "title": "Side"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "short_strike": {
+            "type": "number",
+            "title": "Short Strike"
+          },
+          "long_strike": {
+            "type": "number",
+            "title": "Long Strike"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width"
+          },
+          "contracts_opened": {
+            "type": "integer",
+            "title": "Contracts Opened"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "entry_credit": {
+            "type": "number",
+            "title": "Entry Credit"
+          },
+          "entry_commission": {
+            "type": "number",
+            "title": "Entry Commission"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "exit_debit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Debit"
+          },
+          "exit_commission": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Commission"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "realized_pnl_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realized Pnl Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "spread_id",
+          "mode",
+          "side",
+          "expiry",
+          "short_strike",
+          "long_strike",
+          "width",
+          "contracts_opened",
+          "contracts",
+          "entry_credit",
+          "entry_commission",
+          "opened_at",
+          "status"
+        ],
+        "title": "SpreadPositionOut"
+      },
+      "SpreadPositionsResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "underlying": {
+            "type": "string",
+            "title": "Underlying"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadPositionOut"
+            },
+            "type": "array",
+            "title": "Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "available",
+          "underlying",
+          "mode"
+        ],
+        "title": "SpreadPositionsResponse"
       },
       "StockLeg": {
         "properties": {

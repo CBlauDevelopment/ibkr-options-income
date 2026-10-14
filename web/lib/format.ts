@@ -44,11 +44,11 @@ export function formatDateTime(iso: string | null | undefined): string {
 }
 
 /** "3m ago" / "2h ago" / "5d ago" / "3mo ago". Empty string for an unparseable timestamp. */
-export function relativeAge(iso: string | null | undefined): string {
+export function relativeAge(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
-  const mins = Math.floor((Date.now() - then) / 60000);
+  const mins = Math.floor((now - then) / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);

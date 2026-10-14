@@ -183,6 +183,8 @@ def build_legs(
                 debit=econ.debit,
                 commissions=econ.commissions,
                 commissions_complete=econ.commissions_complete,
+                # Additive: the SELL fills' share, summed the way fill_economics sums them.
+                open_commissions=sum(f.commission or 0.0 for f in fills if not _is_buy(f)),
                 net_pnl=out.realized_pnl,
                 unrealized_pnl=None,
                 days_held=max(days_held, 0),

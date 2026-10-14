@@ -236,7 +236,7 @@ describe("AssessedRow — the promote control (M4 4.3)", () => {
     fireEvent.click(dialogConfirm());
     await screen.findByTestId("command-receipt");
     const link = (await screen.findByRole("link", { name: /view approval/i })) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/options/99");
+    expect(link.getAttribute("href")).toBe("/trades/99");
   });
 
   it("does not render a 'view approval' link when applied carries no approval_id", async () => {

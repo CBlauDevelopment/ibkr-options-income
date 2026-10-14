@@ -10,11 +10,10 @@ import { HaltControl } from "./HaltControl";
 /**
  * The controls strip (M2 Task 2.6, read-only then; M6 Task 6.3 makes it live).
  *
- * The halted state must be unmissable: when `halted` is true a banner renders
- * at the top of the console, with the reason and the time it was engaged as
- * text. The banner uses fill and text, never colour alone; the same applies
- * to `HaltControl`'s own button, whose label changes between "Halt" and
- * "Resume" rather than relying on a colour swap.
+ * The halted state must be unmissable: the halted banner now lives in the
+ * shell (`components/shell/HaltedBanner.tsx`, web overhaul Task 6), so it
+ * shows on every page, not only here. `HaltControl`'s own button changes its
+ * label between "Halt" and "Resume" rather than relying on a colour swap.
  *
  * `drain_healthy: false` renders "the trading service is not draining
  * commands" beside every control: a halt queued but never picked up is this
@@ -35,26 +34,6 @@ export function ControlsStrip() {
 
   return (
     <div className="flex flex-col gap-3" data-testid="controls-strip">
-      {data.halted && (
-        <div
-          data-testid="halted-banner"
-          className="rounded-md border border-border bg-surface px-4 py-3"
-        >
-          <p className="text-sm font-medium text-content">
-            Execution is HALTED
-            {data.halt_reason ? `: ${data.halt_reason}` : ""}
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            Engaged{" "}
-            {data.halted_at
-              ? relativeAge(data.halted_at)
-              : "at an unknown time (no web halt command recorded)"}
-            . No new orders will be queued or transmitted; profit-take closes still
-            run. Use Resume below to release.
-          </p>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border bg-surface px-4 py-3 text-sm">
         <ControlPill label="Mode" value={data.mode} />
         <AutonomyControl autonomy={data.autonomy} rungs={data.rungs} drainHealthy={data.drain_healthy} />
@@ -79,20 +58,27 @@ export function ControlsStrip() {
         <ControlPill label="Pending" value={String(data.pending_commands)} />
       </div>
 
-      {!data.drain_healthy && (
-        <p
-          className="rounded-md border border-border bg-surface px-4 py-2 text-xs text-content"
-          data-testid="drain-dead-warning"
-        >
-          the trading service is not draining commands
-          {data.drain_last_seen
-            ? ` (last seen ${relativeAge(data.drain_last_seen)})`
-            : " (it has never run)"}
-          . A click below queues an intent; it will not be applied until the drain
-          is back.
-        </p>
-      )}
+      {!data.drain_healthy && <DrainWarning lastSeen={data.drain_last_seen} />}
     </div>
+  );
+}
+
+/**
+ * The "not draining" line that sits beside the halt and autonomy controls wherever they
+ * render: here and in the shell's bot sheet (`components/shell/BotSheet.tsx`). Shared so the
+ * two surfaces cannot drift apart. The caller renders it only when `drain_healthy` is false.
+ */
+export function DrainWarning({ lastSeen }: { lastSeen: string | null }) {
+  return (
+    <p
+      className="rounded-md border border-border bg-surface px-4 py-2 text-xs text-content"
+      data-testid="drain-dead-warning"
+    >
+      the trading service is not draining commands
+      {lastSeen ? ` (last seen ${relativeAge(lastSeen)})` : " (it has never run)"}
+      . A click below queues an intent; it will not be applied until the drain
+      is back.
+    </p>
   );
 }
 

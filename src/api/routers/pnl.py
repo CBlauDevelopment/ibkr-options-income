@@ -41,6 +41,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
@@ -51,13 +52,16 @@ from src.api.models.pnl import (
     EquityResponse,
     LedgerFilters,
     LedgerResponse,
+    MonthPayResponse,
     SummaryResponse,
     SystemPerformanceResponse,
     VerdictAgreement,
 )
 from src.api.portfolio_source import read_portfolio
+from src.api.spreads_db import spreads_read_session, try_read_spread_rows
 from src.claude.eval.ledger import load_records
 from src.claude.eval.score_metrics import score_outcome_report
+from src.common.config import get_config
 from src.common.schemas import (
     CampaignPnl,
     EquityCurve,
@@ -66,6 +70,8 @@ from src.common.schemas import (
     PortfolioSnapshot,
     VerdictRecord,
 )
+from src.reporting.account_value import month_start_value
+from src.reporting.pay import SpreadPayInput, build_month_pay
 from src.reporting.pnl import build_campaigns, build_legs, build_summary, equity_curve
 
 router = APIRouter()
@@ -433,3 +439,70 @@ def pnl_system(
         since=since,
         until=until,
     )
+
+
+# ---------------------------------------------------------------------------
+# Web overhaul Part 1, Task 9 — GET /pnl/month
+# ---------------------------------------------------------------------------
+
+_ET = ZoneInfo("America/New_York")
+
+
+def _spread_inputs(book: str) -> list[SpreadPayInput] | None:
+    """Spread positions of the running book as plain inputs; None when spreads.db could not be
+    read (absent, not a database, locked, or no spread_positions table)."""
+    with spreads_read_session() as s:
+        if s is None:
+            return None
+        rows = try_read_spread_rows(s, mode=book, status="all", limit=5000)
+    if rows is None:
+        return None
+
+    def dt(v: object) -> datetime | None:
+        if v is None:
+            return None
+        return v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
+
+    return [
+        SpreadPayInput(
+            opened_at=dt(r["opened_at"]) or datetime.now(UTC),
+            closed_at=dt(r["closed_at"]),
+            entry_credit=float(r["entry_credit"]),
+            exit_debit=None if r["exit_debit"] is None else float(r["exit_debit"]),
+            contracts_opened=int(r["contracts_opened"]),
+            contracts_open=int(r["contracts"]),
+            entry_commission=float(r["entry_commission"] or 0.0),
+            exit_commission=float(r["exit_commission"] or 0.0),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/month", response_model=MonthPayResponse)
+def pnl_month(
+    user: OwnerUser,  # noqa: ARG001
+    db: TradingDb,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    strategy: Literal["all", "csp", "cc", "spread"] = "all",
+    book: Literal["paper", "live"] | None = None,
+) -> MonthPayResponse:
+    """The month's pay stub. `book` defaults to the running mode: a pay figure across paper
+    and live is not a number that means anything (same rule as /pnl/summary). Spreads count
+    only positions whose mode equals the book; shadow and baseline are simulations."""
+    now = datetime.now(UTC)
+    today = now.astimezone(_ET).date()
+    first = date(int(month[:4]), int(month[5:7]), 1) if month else today.replace(day=1)
+    chosen: Literal["paper", "live"] = book or ("live" if get_config().is_live else "paper")
+    filters = _filter_params(None, None, None, None, None, chosen)
+    legs = _filtered_legs(db, filters)
+    spreads = _spread_inputs(chosen) if strategy in ("all", "spread") else []
+    pay = build_month_pay(
+        legs,
+        spreads or [],
+        month=first,
+        strategy=strategy,
+        month_start_value=month_start_value(_session_factory(db), first),
+        target_pct=get_config().web.monthly_income_target_pct,
+        today=today,
+    )
+    return MonthPayResponse(as_of=now, book=chosen, pay=pay, spreads_available=spreads is not None)

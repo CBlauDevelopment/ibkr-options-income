@@ -63,35 +63,7 @@ describe("ControlsStrip", () => {
     const select = screen.getByTestId("autonomy-select") as HTMLSelectElement;
     expect(select.value).toBe("observe");
     expect(select.options).toHaveLength(4);
-    expect(screen.queryByTestId("halted-banner")).toBeNull();
     expect(screen.queryByTestId("drain-dead-warning")).toBeNull();
-  });
-
-  it("the halted banner is present when halted is true, with reason and time as text", async () => {
-    apiFetch.mockResolvedValue(
-      controlsState({
-        halted: true,
-        halt_reason: "spread blew out",
-        halted_at: "2026-09-07T09:41:00Z",
-      }),
-    );
-    withClient(<ControlsStrip />);
-
-    const banner = await screen.findByTestId("halted-banner");
-    // Fill and text, not colour alone: the banner's own sentences carry the state.
-    expect(banner.textContent).toContain("Execution is HALTED");
-    expect(banner.textContent).toContain("spread blew out");
-    expect(banner.textContent).toContain("No new orders will be queued or transmitted");
-  });
-
-  it("a halted state with no recorded time says so honestly, not with a fabricated one", async () => {
-    apiFetch.mockResolvedValue(
-      controlsState({ halted: true, halt_reason: "circuit breaker", halted_at: null }),
-    );
-    withClient(<ControlsStrip />);
-
-    const banner = await screen.findByTestId("halted-banner");
-    expect(banner.textContent).toContain("unknown time");
   });
 
   it("drain_healthy false renders the not-draining line beside the controls, immediately", async () => {

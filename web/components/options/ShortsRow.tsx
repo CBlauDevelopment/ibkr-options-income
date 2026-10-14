@@ -246,7 +246,7 @@ export function ShortsRow({
             {workingApprovalId != null && (
               <p className="mt-1 text-xs">
                 <Link
-                  href={`/options/${workingApprovalId}`}
+                  href={`/trades/${workingApprovalId}`}
                   className="text-content underline hover:text-focus focus-visible:ring-focus"
                 >
                   View the roll already in flight
@@ -257,7 +257,7 @@ export function ShortsRow({
             {successApprovalId != null && (
               <p className="mt-1 text-xs">
                 <Link
-                  href={`/options/${successApprovalId}`}
+                  href={`/trades/${successApprovalId}`}
                   className="text-content underline hover:text-focus focus-visible:ring-focus"
                 >
                   View approval

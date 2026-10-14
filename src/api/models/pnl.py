@@ -14,7 +14,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 from src.api.models.common import Envelope
-from src.common.schemas import CampaignPnl, EquityCurve, PnlSummary, ScoreOutcomeReport
+from src.common.schemas import (
+    CampaignPnl,
+    EquityCurve,
+    MonthPay,
+    PnlSummary,
+    ScoreOutcomeReport,
+)
 
 
 class LedgerFilters(Envelope):
@@ -63,3 +69,12 @@ class SystemPerformanceResponse(Envelope):
     agreement: VerdictAgreement
     since: date | None = None
     until: date | None = None
+
+
+class MonthPayResponse(Envelope):
+    book: Literal["paper", "live"]
+    pay: MonthPay
+    # False only when a spreads book is in scope (strategy all or spread) and data/spreads.db
+    # could not be read (absent, not a database, locked, no table): the spread part of `pay`
+    # is then unknown, not $0, and an "all" total is the wheel alone.
+    spreads_available: bool

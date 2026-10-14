@@ -51,7 +51,7 @@ export function SummaryPanel({ book, qsString, onBookChange, onSelectLeg }: {
       <div className="space-y-3" data-testid="summary-panel">
         <p className="text-sm text-content">
           This summary would total both the paper and the live book. A total across
-          both books is not a number that means anything — pick one.
+          both books is not a number that means anything, so pick one.
         </p>
         <fieldset className="flex flex-wrap gap-2" role="group" aria-label="book">
           {["paper", "live"].map((b) => (
@@ -162,7 +162,7 @@ function BestWorstRow({
             type="button"
             onClick={() => onSelect(leg)}
             aria-label={`View ${contract} in the ledger`}
-            className="font-mono text-content underline decoration-dotted underline-offset-2 hover:text-focus"
+            className="font-mono text-content underline decoration-dotted underline-offset-2 hover:decoration-solid"
           >
             {contract}
           </button>
