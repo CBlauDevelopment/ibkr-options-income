@@ -60,7 +60,7 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | **C entry checks** | done | main..HEAD = 8 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67 8fab3c3 429511f d055ef4) | pytest 3520+1 skip, vitest 571, tsc/lint/ruff/mypy green, build green, fences 50, C1-C5 pass | 2026-10-14 | C1 counts eight commits, not six (Section A and Section B review fix passes, +2); C2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`) |
 | 7 Account value API | done | 375242b | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
 | 8 Spreads read API | done | b3bcc5c | pytest 3539 (3532+7) + 1 skip, ruff/mypy clean, fences 51 (50+1), OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | The open probe is `SELECT count(*) FROM sqlite_master`, not `SELECT 1` (which never reads the file, so a non-SQLite `spreads.db` answered `available: true` with an empty book), and a failed probe closes its session. `read_spread_rows` types its `text()` select (`expiry` Date, `opened_at`/`closed_at` DateTime): raw SQL returned strings, so the router's `as_utc` branch never ran and timestamps left the API without an offset. +2 tests (6, not 4), each RED against the plan's code first |
-| 9 Monthly pay API | done | (this commit; the next commit on the branch records the hash) | pytest 3556 (3539+17) + 1 skip, ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean; D4's field list matches Task 10's `types.ts` | 2026-10-14 | An expired or assigned leg closes on its `expiry` date in the month buckets (`build_legs` stamps those as naive midnight on the expiry date, which read as UTC fell on the previous ET day, so a May 1 expiry counted in April); +1 builder test (10, not 9). `pay.py` docstring avoids the literal `src.claude` (the reporting fence greps raw text). Route tests: an autouse fixture keeps them off the operator's real `data/spreads.db` (the plan's `strategy=all` tests read it), the `seed_leg` test asks for the month its naive-local fill lands in (UTC+8 flake from 04:00 to 12:00 local on each 1st), and +3 tests (7, not 4): only the book's own spreads count, the target is `web.monthly_income_target_pct` of the month-start value, and the setting's 0 < x <= 20 bound |
+| 9 Monthly pay API | done | b124c2f | pytest 3556 (3539+17) + 1 skip, ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean; D4's field list matches Task 10's `types.ts` | 2026-10-14 | An expired or assigned leg closes on its `expiry` date in the month buckets (`build_legs` stamps those as naive midnight on the expiry date, which read as UTC fell on the previous ET day, so a May 1 expiry counted in April); +1 builder test (10, not 9). `pay.py` docstring avoids the literal `src.claude` (the reporting fence greps raw text). Route tests: an autouse fixture keeps them off the operator's real `data/spreads.db` (the plan's `strategy=all` tests read it), the `seed_leg` test asks for the month its naive-local fill lands in (UTC+8 flake from 04:00 to 12:00 local on each 1st), and +3 tests (7, not 4): only the book's own spreads count, the target is `web.monthly_income_target_pct` of the month-start value, and the setting's 0 < x <= 20 bound |
 | **D entry checks** | not started | | | | |
 | 10 Home hero | not started | | | | |
 | 11 Pay card | not started | | | | |
@@ -112,6 +112,12 @@ then stands. They are listed so this part's structure does not paint them into a
   `src.api`; engine / execution / strategies import none of the new modules.
 - Quality gate after every task: `cd web && npx vitest run && npx tsc --noEmit && npm run lint`;
   for backend tasks also `python -m pytest -q && ruff check . && mypy src` from the repo root.
+
+- UI work goes through the da-vinci skill (operator, 2026-10-14): Section D's subagent invokes
+  `da-vinci` before writing any UI code, and Task 14 Step 5a runs da-vinci `critique` and `audit`
+  over the surfaces Sections A and B built before it was in the loop. da-vinci never changes the
+  design system (colour, font, radius, elevation) without the operator, and never ratifies
+  `web/DESIGN.md` before Task 14 Step 7.
 
 ## Review Focus
 
@@ -5757,6 +5763,29 @@ Start the API and `cd web && npm run dev -- -p 3001` (port 3001 so the operator'
 untouched), then screenshot `/` at 1440×900 and 390×844 in light and dark (Bot sheet open once,
 one proposal's Why open once). Compare against `web/DESIGN.md` § Surfaces → Home's FIRST VIEWPORT.
 Fix any drift before continuing; record each fix as a ruling.
+
+- [ ] **Step 5a: da-vinci critique and audit of every surface built without it**
+
+Sections A and B (and their review fix passes) built UI without invoking da-vinci. Invoke the
+`da-vinci` skill (Skill tool; `web/DESIGN.md` is `draft`, so no interview) and run `critique`, then
+`audit` (`reference/audit-and-critique.md`), over:
+
+- `components/ui/*` (Button, Card, SegmentedControl, StatusWord, Meter, Disclosure, Stub, Sheet),
+  `lib/theme.ts` and the tokens in `app/globals.css`, in light and dark;
+- `components/shell/*` (Rail, TabBar, BotCard, BotSheet, HaltedBanner, ThemeToggle), `lib/nav.ts`;
+- `app/more/page.tsx` and the moved route pages (`/trades`, `/activity`, `/research`,
+  `/research/universe`) as they now look under the new tokens;
+- Home as screenshotted in Step 5 (built with da-vinci in Section D; a light pass only).
+
+Fix what the review finds through da-vinci's `polish` mode, inside `web/DESIGN.md`. A fix that
+would change the design system (a colour, font, radius or elevation rule) is not made: list it in
+the report for the operator. The deferred visual minors from the Section A and B reviews fold into
+this step (the ledger's `Section A: minor (deferred)` and `Section B: minor (deferred)` lines): the
+sheet shadow literal (`--shadow-sheet` token), lime text selection, the flattened focus accent on
+legacy pages, button press scale under reduced motion, the Button / StatusWord / Stub type drift
+from DESIGN.md and the 180ms sheet exit, the 44px theme-toggle targets, the missing phone tab
+state for `/research` and `/news`, and `aria-haspopup` on the bot card. Record each fix and each
+declined item as a ruling; re-run the web gate after the fixes.
 
 - [ ] **Step 6: Documentation (mandatory doc-update table, root CLAUDE.md)**
 
