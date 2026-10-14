@@ -61,9 +61,12 @@ def test_suppresses_runs_that_alternate_option_right():
     for i in range(6):
         strike = 485.0 + i * 2.5
         right = "C" if i % 2 == 0 else "P"
+        # Since 2026-10-14 "Unknown contract" option probes are dropped outright; the right
+        # normalisation still collapses other per-contract callbacks, e.g. Error 10091.
         rec = _record(
-            "ib_async.ib",
-            f"Unknown contract: Option(symbol='SMH', "
+            "ib_async.wrapper",
+            f"Error 10091, reqId {i}: Part of requested market data is not subscribed, "
+            f"contract: Option(symbol='SMH', "
             f"lastTradeDateOrContractMonth='20261009', strike={strike}, right='{right}', "
             f"exchange='SMART')",
             levelno=logging.WARNING,
@@ -101,3 +104,34 @@ def test_httpx_loggers_are_pinned_to_warning_even_at_debug(monkeypatch):
         root.setLevel(level)
         for n, lv in saved.items():
             logging.getLogger(n).setLevel(lv)
+
+
+def test_drops_option_strikes_ibkr_says_do_not_exist():
+    # 2026-10-13: 2,301 of these lines in one session, interleaved wrapper/ib so the run
+    # suppression never engaged. The contract cache already counts and remembers them.
+    f = _NoiseFilter()
+    err = _record(
+        "ib_async.wrapper",
+        "Error 200, reqId 5597: No security definition has been found for the request, "
+        "contract: Option(symbol='VST', lastTradeDateOrContractMonth='20261030', strike=124.0, "
+        "right='P', exchange='SMART', tradingClass='VST')",
+    )
+    unknown = _record(
+        "ib_async.ib",
+        "Unknown contract: Option(symbol='VST', lastTradeDateOrContractMonth='20261030', "
+        "strike=124.0, right='P', exchange='SMART', tradingClass='VST')",
+        logging.WARNING,
+    )
+    assert f.filter(err) is False
+    assert f.filter(unknown) is False
+
+
+def test_keeps_an_error_200_that_is_not_an_option_probe():
+    f = _NoiseFilter()
+    stock = _record(
+        "ib_async.wrapper",
+        "Error 200, reqId 9: No security definition has been found for the request, "
+        "contract: Stock(symbol='XYZ', exchange='SMART', currency='USD')",
+    )
+    assert f.filter(stock) is True
+    assert f.filter(_record("ib_async.ib", "Unknown contract: Stock(symbol='XYZ')")) is True

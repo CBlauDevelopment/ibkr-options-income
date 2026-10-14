@@ -55,6 +55,21 @@ class _NoiseFilter(logging.Filter):
     # it out too so calls and puts for the same contract-shape collapse into one run.
     _OPTION_RIGHT = re.compile(r"right='[CP]'")
 
+    # Option strikes IBKR says don't exist (2026-10-14). The secdef strike list is a union across
+    # expiries, so every chain probe asks for weekly strikes that were never listed: 1,139
+    # "Unknown contract" + 1,162 "Error 200" lines on 2026-10-13, interleaved so the run-length
+    # suppression never engaged. They are expected answers, already counted in the contract
+    # cache's own "qualify: … (N qualified, M missing)" line and remembered as known-missing,
+    # so they are dropped. Only *option* lookups: an Error 200 for a stock or an order still
+    # shows.
+    _OPTION_PROBE = (
+        (
+            "ib_async.wrapper",
+            re.compile(r"^Error 200, reqId -?\d+: No security definition .*Option\("),
+        ),
+        ("ib_async.ib", re.compile(r"^Unknown contract: Option\(")),
+    )
+
     def __init__(self) -> None:
         super().__init__()
         self._last_key: tuple[str, str] | None = None
@@ -69,6 +84,9 @@ class _NoiseFilter(logging.Filter):
             return bool(cached)
 
         msg = record.getMessage()
+        if any(record.name == name and rx.match(msg) for name, rx in self._OPTION_PROBE):
+            record._noise_decision = False
+            return False
         normalised = self._DIGITS.sub("#", msg)
         normalised = self._OPTION_RIGHT.sub("right='#'", normalised)
         key = (record.name, normalised[: self._PREFIX_LEN])
