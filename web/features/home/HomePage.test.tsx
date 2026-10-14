@@ -1,4 +1,7 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithQuery } from "@/lib/test-query";
 
@@ -51,5 +54,51 @@ describe("HomePage", () => {
     const switcher = await screen.findByRole("group", { name: "Strategy" });
     fireEvent.click(within(switcher).getByRole("button", { name: "CSPs" }));
     expect(nav.replace).toHaveBeenCalledWith("/?strategy=csp", { scroll: false });
+  });
+  it("hydrates over the server HTML even when the rail has already filled the shared cache", async () => {
+    // React hydrates Home's Suspense boundary after the rail, and the rail's approvals query
+    // (same key) can land first; Home's first client render must still match the server's.
+    const wrap = (qc: QueryClient) => (
+      <QueryClientProvider client={qc}>
+        <HomePage />
+      </QueryClientProvider>
+    );
+    const html = renderToString(wrap(new QueryClient()));
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const warm = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    warm.setQueryData(["options", "approvals", "pending"], {
+      as_of: "",
+      approvals: [
+        {
+          as_of: "",
+          id: 1,
+          candidate_id: "c1",
+          status: "pending",
+          underlying: "AAPL",
+          strategy: "cash_secured_put",
+          right: "P",
+          strike: 180,
+          expiry: "2099-11-21",
+          contracts: 1,
+          premium: 2.35,
+          blended_score: 0.7,
+          created_at: "2026-10-13T13:00:00Z",
+          expires_at: null,
+          decided_at: null,
+          order_state: null,
+          source: "scan",
+          review: null,
+          rationale_tags: [],
+        },
+      ],
+    });
+    const errors: unknown[] = [];
+    await act(async () => {
+      hydrateRoot(container, wrap(warm), { onRecoverableError: (e) => errors.push(e) });
+    });
+    expect(errors).toEqual([]);
+    container.remove();
   });
 });
