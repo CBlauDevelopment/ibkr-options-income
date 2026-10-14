@@ -1911,6 +1911,95 @@
         }
       }
     },
+    "/pnl/month": {
+      "get": {
+        "summary": "Pnl Month",
+        "description": "The month's pay stub. `book` defaults to the running mode: a pay figure across paper\nand live is not a number that means anything (same rule as /pnl/summary). Spreads count\nonly positions whose mode equals the book; shadow and baseline are simulations.",
+        "operationId": "pnl_month_pnl_month_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "csp",
+                "cc",
+                "spread"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "book",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "paper",
+                    "live"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthPayResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ledger/summary": {
       "get": {
         "tags": [
@@ -7802,6 +7891,143 @@
           "role"
         ],
         "title": "MeResponse"
+      },
+      "MonthPay": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "format": "date",
+            "title": "Month"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "all",
+              "csp",
+              "cc",
+              "spread"
+            ],
+            "title": "Strategy"
+          },
+          "premium_collected": {
+            "type": "number",
+            "title": "Premium Collected"
+          },
+          "bought_back": {
+            "type": "number",
+            "title": "Bought Back"
+          },
+          "commissions": {
+            "type": "number",
+            "title": "Commissions"
+          },
+          "commissions_complete": {
+            "type": "boolean",
+            "title": "Commissions Complete"
+          },
+          "net": {
+            "type": "number",
+            "title": "Net"
+          },
+          "n_opened": {
+            "type": "integer",
+            "title": "N Opened"
+          },
+          "n_closed": {
+            "type": "integer",
+            "title": "N Closed"
+          },
+          "month_start_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month Start Value"
+          },
+          "target_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Pct"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "progress_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Pct"
+          },
+          "days_left": {
+            "type": "integer",
+            "title": "Days Left"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "strategy",
+          "premium_collected",
+          "bought_back",
+          "commissions",
+          "commissions_complete",
+          "net",
+          "n_opened",
+          "n_closed",
+          "days_left"
+        ],
+        "title": "MonthPay",
+        "description": "One month's options income as a pay stub (web Home, DESIGN.md \"October pay\").\n\n`premium_collected` counts credit on legs SOLD in the month; `bought_back` counts debit on\nlegs BOUGHT BACK in the month; a leg touching the month contributes all its commissions\nonce. Months are New York calendar months. `target` is None - never 0.0 - when there is no\ntarget percentage or no month-start account value."
+      },
+      "MonthPayResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "book": {
+            "type": "string",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Book"
+          },
+          "pay": {
+            "$ref": "#/components/schemas/MonthPay"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "book",
+          "pay"
+        ],
+        "title": "MonthPayResponse"
       },
       "NavResponse": {
         "properties": {

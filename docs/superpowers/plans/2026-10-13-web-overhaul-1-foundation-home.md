@@ -59,8 +59,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | 6 Shell | done | 429511f; Section B review fix pass in one extra commit after it | vitest 565 (552+4 nav+10 shell+1 More-2 ControlsStrip; Rail's 3 replaced 3), tsc 0, lint clean; after the review fix pass vitest 571 (565+6), tsc 0, lint clean, scratch-copy `next build` green; `next build` green (15 routes); real browser: 307s, five pages render, halt / RESUME / rung change from the bot sheet against a mock API | 2026-10-13 | `HaltedBanner` also says "No new orders will be queued or transmitted; profit-take closes still run": Step 1's copied ControlsStrip wording assertion failed against the plan's banner (RED then GREEN). `ControlsStrip.test.tsx`: dropped the `halted-banner` null check and the two banner tests (the null-time case is now `shell.test` "omits the time"; the banner omits the time instead of saying "unknown time", and `HaltControl` still says it). `text-on-flag` on sunk measured 6.95/10.17 (hover 6.19/8.90): kept. Build gate run in a scratch copy of `web/` (node_modules symlinked) because the operator's own `next dev` on :3000 shares `web/.next`. HaltControl, AutonomyControl, ConfirmAction and DecideControls (via ApprovalCard.test) tests unchanged and green. **Section B review fix pass (one extra commit `fix(web): scope halt copy to the wheel, drain warning in the sheet, dialog keys over the sheet, Universe and Ledger links`), so the later entry-check commit counts shift by a further +1: C1 expects 8 commits on `main..HEAD`, D1 11, E1 15.** I1: the plan's banner text "Trading is halted" is amended to "Wheel trading is halted" plus "No new CSP or covered-call orders will be queued or sent. Credit spreads have their own halt and are not stopped by this one." (the profit-take clause is dropped); the bot card's halted state reads "Wheel halted · paper" (the web halt is the wheel's `system_settings` switch; the spreads service honours only its own halt file). I2: the plan's `BotSheet` code is amended to render the "not draining" warning above the controls, through `DrainWarning`, now exported from `ControlsStrip.tsx` and shared by both surfaces. I3: `useFocusTrap` hands Escape (unstopped) and Tab (into the nested dialog) to a nested `[role=dialog]` while one is open, even with focus on the panel. I4: More also links Universe (`/research/universe`) and Ledger (`/ledger`) |
 | **C entry checks** | done | main..HEAD = 8 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67 8fab3c3 429511f d055ef4) | pytest 3520+1 skip, vitest 571, tsc/lint/ruff/mypy green, build green, fences 50, C1-C5 pass | 2026-10-14 | C1 counts eight commits, not six (Section A and Section B review fix passes, +2); C2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`) |
 | 7 Account value API | done | 375242b | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
-| 8 Spreads read API | done | (this commit; Task 9's commit records the hash) | pytest 3539 (3532+7) + 1 skip, ruff/mypy clean, fences 51 (50+1), OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | The open probe is `SELECT count(*) FROM sqlite_master`, not `SELECT 1` (which never reads the file, so a non-SQLite `spreads.db` answered `available: true` with an empty book), and a failed probe closes its session. `read_spread_rows` types its `text()` select (`expiry` Date, `opened_at`/`closed_at` DateTime): raw SQL returned strings, so the router's `as_utc` branch never ran and timestamps left the API without an offset. +2 tests (6, not 4), each RED against the plan's code first |
-| 9 Monthly pay API | not started | | | | |
+| 8 Spreads read API | done | b3bcc5c | pytest 3539 (3532+7) + 1 skip, ruff/mypy clean, fences 51 (50+1), OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | The open probe is `SELECT count(*) FROM sqlite_master`, not `SELECT 1` (which never reads the file, so a non-SQLite `spreads.db` answered `available: true` with an empty book), and a failed probe closes its session. `read_spread_rows` types its `text()` select (`expiry` Date, `opened_at`/`closed_at` DateTime): raw SQL returned strings, so the router's `as_utc` branch never ran and timestamps left the API without an offset. +2 tests (6, not 4), each RED against the plan's code first |
+| 9 Monthly pay API | done | (this commit; the next commit on the branch records the hash) | pytest 3556 (3539+17) + 1 skip, ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean; D4's field list matches Task 10's `types.ts` | 2026-10-14 | An expired or assigned leg closes on its `expiry` date in the month buckets (`build_legs` stamps those as naive midnight on the expiry date, which read as UTC fell on the previous ET day, so a May 1 expiry counted in April); +1 builder test (10, not 9). `pay.py` docstring avoids the literal `src.claude` (the reporting fence greps raw text). Route tests: an autouse fixture keeps them off the operator's real `data/spreads.db` (the plan's `strategy=all` tests read it), the `seed_leg` test asks for the month its naive-local fill lands in (UTC+8 flake from 04:00 to 12:00 local on each 1st), and +3 tests (7, not 4): only the book's own spreads count, the target is `web.monthly_income_target_pct` of the month-start value, and the setting's 0 < x <= 20 bound |
 | **D entry checks** | not started | | | | |
 | 10 Home hero | not started | | | | |
 | 11 Pay card | not started | | | | |
@@ -3376,7 +3376,7 @@ git commit -m "feat(api): read-only GET /spreads/positions over data/spreads.db"
   - `SpreadPayInput` dataclass; `build_month_pay(legs, spreads, *, month, strategy, month_start_value, target_pct, today) -> MonthPay`
   - `GET /pnl/month?month=YYYY-MM&strategy=all|csp|cc|spread&book=paper|live` → `MonthPayResponse(as_of, book, pay)`
 
-- [ ] **Step 1: Write the failing builder tests** — `tests/test_reporting_pay.py`
+- [x] **Step 1: Write the failing builder tests** — `tests/test_reporting_pay.py`
 
 ```python
 """The month's pay stub: premium in, buybacks and commissions out, net, against a target."""
@@ -3502,12 +3502,12 @@ def test_a_past_month_has_no_days_left() -> None:
     assert pay(month=date(2026, 9, 1)).days_left == 0
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `python -m pytest tests/test_reporting_pay.py -q`
 Expected: FAIL (`ModuleNotFoundError: src.reporting.pay`).
 
-- [ ] **Step 3: Schema, config, builder**
+- [x] **Step 3: Schema, config, builder**
 
 Append to `src/common/schemas.py` (after `AccountValueSeries`):
 
@@ -3710,13 +3710,13 @@ def build_month_pay(
     )
 ```
 
-- [ ] **Step 4: Run the builder tests**
+- [x] **Step 4: Run the builder tests**
 
 Run: `python -m pytest tests/test_reporting_pay.py -q`
 Expected: PASS (9 tests). If `PnlLeg` rejects a field in the `leg()` helper (e.g. it has more
 required fields than listed), add the missing required fields with neutral values and record it.
 
-- [ ] **Step 5: Write the failing route tests** — `tests/test_api_pnl_month.py`
+- [x] **Step 5: Write the failing route tests** — `tests/test_api_pnl_month.py`
 
 ```python
 """GET /pnl/month — a thin render of build_month_pay."""
@@ -3774,12 +3774,12 @@ def test_spreads_unavailable_still_answers(client, monkeypatch, tmp_path) -> Non
     assert r.json()["pay"]["premium_collected"] == 0.0
 ```
 
-- [ ] **Step 6: Run to verify failure**
+- [x] **Step 6: Run to verify failure**
 
 Run: `python -m pytest tests/test_api_pnl_month.py -q`
 Expected: FAIL (404).
 
-- [ ] **Step 7: Model and route**
+- [x] **Step 7: Model and route**
 
 `src/api/models/pnl.py` — import `MonthPay` from `src.common.schemas` and append:
 
@@ -3865,7 +3865,7 @@ def pnl_month(
     return MonthPayResponse(as_of=now, book=chosen, pay=pay)
 ```
 
-- [ ] **Step 8: Run tests, regenerate OpenAPI, gate, commit**
+- [x] **Step 8: Run tests, regenerate OpenAPI, gate, commit**
 
 ```bash
 python -m pytest tests/test_reporting_pay.py tests/test_api_pnl_month.py -q

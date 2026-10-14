@@ -14,7 +14,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 from src.api.models.common import Envelope
-from src.common.schemas import CampaignPnl, EquityCurve, PnlSummary, ScoreOutcomeReport
+from src.common.schemas import (
+    CampaignPnl,
+    EquityCurve,
+    MonthPay,
+    PnlSummary,
+    ScoreOutcomeReport,
+)
 
 
 class LedgerFilters(Envelope):
@@ -63,3 +69,8 @@ class SystemPerformanceResponse(Envelope):
     agreement: VerdictAgreement
     since: date | None = None
     until: date | None = None
+
+
+class MonthPayResponse(Envelope):
+    book: Literal["paper", "live"]
+    pay: MonthPay

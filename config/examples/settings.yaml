@@ -517,3 +517,9 @@ ledger:
   # role -> gid; roles: summary, buy_and_hold, options, credit_spreads, tickers. Roles not listed
   # are never written; credit_spreads, when listed, takes the spreads book's legs out of options. Empty ({}) = legacy mode: create and own three "(auto)" tabs instead.
   sheets_tabs: {}
+
+# Web console (web/). Display-only: nothing here reaches the trading path.
+web:
+  # Monthly income target, as a percent of the account's month-start net liquidation value
+  # (1.0 = 1% a month). null = no target: Home's pay card says "No target set".
+  monthly_income_target_pct: null

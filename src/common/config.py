@@ -1225,6 +1225,23 @@ class NewsCfg(BaseModel):
     briefs: NewsBriefsCfg = Field(default_factory=NewsBriefsCfg)
 
 
+class WebCfg(BaseModel):
+    """Display settings for the web console (web/). Nothing here reaches the trading path."""
+
+    # Monthly income target as a percent of the month-start net liquidation value
+    # (1.0 = 1% a month). None = no target; the pay card then says "No target set".
+    monthly_income_target_pct: float | None = None
+
+    @field_validator("monthly_income_target_pct")
+    @classmethod
+    def _sane_pct(cls, v: float | None) -> float | None:
+        if v is not None and not (0 < v <= 20):
+            raise ValueError(
+                "web.monthly_income_target_pct must be > 0 and <= 20 (percent per month)"
+            )
+        return v
+
+
 class Config(BaseModel):
     """Top-level config: settings.yaml sections + the rules/universe/weights dicts."""
 
@@ -1246,6 +1263,7 @@ class Config(BaseModel):
     ledger: LedgerCfg = Field(default_factory=LedgerCfg)
     spreads: SpreadsCfg = Field(default_factory=SpreadsCfg)
     news: NewsCfg = Field(default_factory=NewsCfg)
+    web: WebCfg = Field(default_factory=WebCfg)
     # These three stay as plain dicts — they are tuning tables, not typed schemas,
     # so users can extend them in YAML without touching code.
     risk: dict[str, Any]
@@ -1409,6 +1427,7 @@ def get_config() -> Config:
         ledger=LedgerCfg(**settings.get("ledger", {})),
         spreads=SpreadsCfg(**_load_yaml("spreads.yaml")),
         news=NewsCfg(**_load_yaml("news.yaml")),
+        web=WebCfg(**(settings.get("web") or {})),
         risk=_load_yaml("risk_limits.yaml"),
         universe=_load_yaml("universe.yaml"),
         weights=_load_yaml("scoring_weights.yaml"),

@@ -898,6 +898,31 @@ class AccountValueSeries(BaseModel):
     change_today_pct: float | None = None
 
 
+class MonthPay(BaseModel):
+    """One month's options income as a pay stub (web Home, DESIGN.md "October pay").
+
+    `premium_collected` counts credit on legs SOLD in the month; `bought_back` counts debit on
+    legs BOUGHT BACK in the month; a leg touching the month contributes all its commissions
+    once. Months are New York calendar months. `target` is None - never 0.0 - when there is no
+    target percentage or no month-start account value.
+    """
+
+    month: date  # first day of the month
+    strategy: Literal["all", "csp", "cc", "spread"]
+    premium_collected: float
+    bought_back: float
+    commissions: float
+    commissions_complete: bool
+    net: float
+    n_opened: int
+    n_closed: int
+    month_start_value: float | None = None
+    target_pct: float | None = None
+    target: float | None = None
+    progress_pct: float | None = None
+    days_left: int
+
+
 # --------------------------------------------------------------------------- #
 # Trade ledger — whole-account broker truth
 # (docs/superpowers/specs/2026-10-04-trade-ledger-design.md). Read by src/ledger/,
