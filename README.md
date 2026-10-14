@@ -38,7 +38,7 @@ live-cutover checklist), **[STATUS.md](STATUS.md)**; to fork and run it yourself
 |---|---|
 | **Every 15 min (RTH)** | Intraday loop: checks profit-take/loss-exit targets, runs a fresh scan (full sweep on first cycle each session); candidates a symbol's autonomy rung clears (WHITELIST/FULL) auto-execute, everything else sends an approval request (buttons withheld at OBSERVE) |
 | **During market hours** | Event-driven monitor watches open positions for delta drift, IV spikes, ex-dividend and early-assignment risk, and the **21-DTE management point** as information-only alerts (from 09:45 ET); a short actually breached near expiry gets a roll / assign / close decision card instead |
-| **4:15 PM ET (auto)** | End-of-day report: P&L summary, journal entry, tomorrow's watchlist |
+| **4:15 PM ET (auto)** | End-of-day report: NLV and unrealised change since the last close, every trade with its P&L, roll decisions, movers, and what's coming before the next session (macro prints, shorts in the money or expiring, earnings) |
 | **Any time** | Telegram bot commands (see below) — query the system interactively from your phone |
 | **When you approve** | Execution engine re-validates, builds a limit order at mid-price, places it, and confirms the fill back to Telegram |
 
@@ -76,7 +76,7 @@ the IDs listed below; override any `TELEGRAM_THREAD_*` variable in `.env` to mat
 | **54** (`TELEGRAM_THREAD_CC`) | `TELEGRAM_THREAD_CC` | Covered-call candidates on currently-held underlyings |
 | **56** (`TELEGRAM_THREAD_BUY`) | `TELEGRAM_THREAD_BUY` | Buy-to-own recommendations (stocks worth owning to sell CCs against) |
 | **58** (`TELEGRAM_THREAD_ACCOUNT`) | `TELEGRAM_THREAD_ACCOUNT` | Account snapshot: net liq, holdings with nested CCs/CSPs, per-position unrealized P&L % — sent fresh at 09:00 ET then edited in-place each cycle |
-| **4308** (`TELEGRAM_THREAD_SPREADS`) | `TELEGRAM_THREAD_SPREADS` | The daily credit-spread book (SPY 0DTE, `src/spreads/`): the 09:31 ET GEX map, every entry and exit, alerts (spreads still open past the time stop, a Gateway drop with spreads open, broker/DB mismatches) and the 16:10 ET summary |
+| **4308** (`TELEGRAM_THREAD_SPREADS`) | `TELEGRAM_THREAD_SPREADS` | The daily credit-spread book (SPY 0DTE, `src/spreads/`): one day card edited in place (levels, plan, trades, status), every entry and exit, alerts (spreads still open past the time stop, a Gateway drop with spreads open, broker/DB mismatches) and the 16:10 ET summary |
 | **4409** (`TELEGRAM_THREAD_NEWS`) | `TELEGRAM_THREAD_NEWS` | The News thread (`src/news/`): pre-market / close / week-ahead digests, alerts for high-impact US releases, index and VIX moves, held-name moves and earnings, breaking geopolitical news that moved the market, and `/news TICKER` briefs. Every number comes from deterministic code; the 🧠 read is grounding-checked |
 
 ## How it works, in short

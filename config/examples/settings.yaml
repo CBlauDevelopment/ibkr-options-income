@@ -388,9 +388,10 @@ automation:
   daily_loss_halt_pct: 3.0
   drawdown_halt_pct: 10.0
   # Loss line: cost-to-close reaching this multiple of the entry credit. 0 disables.
-  # Leveraged ETFs (universe.yaml → leveraged_etfs) are bought back at the line; every other
-  # short (a name you'd own) gets a defensive roll proposal from the monitor instead of a
-  # loss-taking close (2026-10-02). Rolls still need an Approve tap.
+  # Leveraged ETFs (universe.yaml → leveraged_etfs): at the line a roll is tried first and the
+  # short is bought back only when no roll qualifies (2026-10-14). Every other short (a name
+  # you'd own) gets a defensive roll proposal from the monitor instead of a loss-taking close
+  # (2026-10-02). On FULL autonomy rolls are approved and sent without a tap.
   max_loss_multiple: 2.0
   # Risk-reducing closes (profit takes AND loss exits) run independently of autonomy level.
   auto_close_enabled: true
@@ -463,8 +464,9 @@ monitor:
   # for the DTE-window triggers, at most once per ET day per position while still relevant.
   # N20: when true, a roll decision of `roll` carries Approve/Reject buttons (Approve → QUEUED
   # ROLL → execute_roll) and a `close` decision carries a Close button. Turned ON 2026-10-01 on
-  # the paper account to verify the BAG combo sign convention — every roll still needs an
-  # Approve tap. Re-confirm before live cutover (STATUS.md live-cutover gate).
+  # the paper account to verify the BAG combo sign convention. Since 2026-10-14 a roll on FULL
+  # autonomy is approved without a tap (the card says so, no buttons); every other rung still
+  # needs Approve. Re-confirm before live cutover (STATUS.md live-cutover gate).
   roll_execution_enabled: true
   # C4: assignment-risk alert — fires when |delta| >= threshold AND DTE <= dte window.
   assignment_alert_delta: 0.70

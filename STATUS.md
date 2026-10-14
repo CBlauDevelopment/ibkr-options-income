@@ -372,6 +372,54 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Changed (2026-10-14 — 13 Oct log review: rolls, EOD report, spreads thread, news digest)
+
+From the 2026-10-13 session's logs. Operator rulings in quotes.
+
+- **Leveraged ETFs roll** ("roll on leveraged products allowed"). `roll_policy.decide` no longer
+  short-circuits TQQQ/SOXL/UPRO/DPST/LABU/TSLL to `hold:leveraged_etf_no_roll`; the monitor
+  no longer skips the fetch. They follow the same tree: a breached would-own put rolls for a
+  net credit, else is assigned.
+- **The loss line rolls before it closes** ("prefer rolling over closing in a loss; if there
+  are no viable rolls, then reluctantly close"). The leveraged 2× loss exit
+  (`profit_take.check_loss_exits`) asks `evaluate_roll(on_no_roll="close")` first; it buys back
+  only when no roll qualifies, the Rules Engine refuses it, it was rejected or expired, or a
+  roll order for that short already failed today (`roll_failed_today`). 13 Oct: the SOXL $130P
+  was bought back at 2.4× (−$1,604) with no roll attempted. A put on a name we would not own
+  also rolls when it can, closing only when it cannot.
+- **Rolls run on FULL autonomy** ("it should roll on full autonomy"). `queue_roll_candidate`
+  writes the approval APPROVED with its QUEUED order when `may_auto_open` — the entry
+  auto-queue's shape; the approval-queue re-gate and `execute_roll`'s send-time check still
+  run. Other rungs still wait for Approve. Rolls are exempt from the daily new-entry cap
+  (`max_auto_trades_per_day`) — same size, no new exposure. The kill switch still blocks them.
+- **EOD report rebuilt** (`orchestrator/eod_facts.py`). The unrealised Δ read the calendar day
+  before, so every Monday and every day after a missed EOD showed the whole unrealised figure
+  as the change (13 Oct: −$2,362, really +$6,635 since Mon 12 Oct; 12 Oct's EOD hung ~9 h with
+  the Gateway flapping and was killed). The baseline is now the previous session's journal row,
+  else the last intraday snapshot before today. The report lists every open / close / expiry /
+  assignment with its P&L, the day's roll decisions, movers by change since the baseline (not
+  lifetime unrealised), and a "Before <next session>" block (high-impact macro prints, shorts
+  in the money or expiring within a week, earnings for held names). The journal prompt
+  carries the same facts. The old "Tomorrow: N names (unchanged)" line is gone.
+- **Spreads thread** — one day card per session edited in place (levels, plan as bullets,
+  trades, live status) instead of seven map posts, a plan post and per-side "nothing to sell"
+  posts; HTML event messages for opens, closes, picks, alerts and the EOD. The day plan runs
+  Opus at **medium** (`spreads.ai.brief_effort`). The card's message id is in memory only: a
+  restart posts a fresh card.
+- **News digest truncated** — `render.split_message` hard-sliced a >4096-char section inside an
+  `<a href>`; Telegram rejected the chunk and the rest of the 13 Oct close digest never posted.
+  Splits now fall on paragraph/line/word boundaries and re-balance open tags across chunks.
+  News LLM backend ships as `cli` (claude -p only, no Ollama fallback).
+- **Log noise** — "Unknown contract" / "Error 200" for option strikes IBKR never listed (2,301
+  lines on 13 Oct) are dropped by the logging noise filter; the contract cache's `qualify:` line
+  already counts them.
+
+**Still open:** spreads have never traded since go-live — on 13 Oct every armed check failed the
+$0.25 credit floor (`min_credit_pct_of_width: 0.05`) against the 0.15 delta cap and 1× EM
+distance on a ±1.2–1.9 point expected-move day. Needs a backtest-backed floor change, not made
+here. The info-only roll alerts (delta drift) still carry a Claude "roll" recommendation that
+can read as contradicting the deterministic policy.
+
 ## Bugs fixed (2026-10-13 — 2026-10-12 RTH: wheel halted all day unseen, spreads checks silent)
 
 - **The wheel's drawdown breaker compared an SGD high-water mark against USD net liq.** The
@@ -1038,7 +1086,8 @@ $335) is the plan. Now:
   line (`monitor/triggers.py::check_loss_multiple`), through the existing approvable-roll path
   (`roll_execution_enabled` → defensive roll candidate → Approve/Reject). It is an escalation
   trigger in the alert policy (not held back by an earlier alert that day) and repeats at most
-  daily while the line holds. Rolls still need an Approve tap. If no defensive roll fits
+  daily while the line holds. Rolls still need an Approve tap (superseded 2026-10-14: on FULL
+  autonomy a gated roll is approved without one). If no defensive roll fits
   (`monitor.roll_defensive` bounds — e.g. the debit cap), the alert is alert-only and the
   position is held toward expiry or assignment.
 
