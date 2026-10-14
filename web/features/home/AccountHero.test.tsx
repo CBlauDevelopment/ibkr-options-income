@@ -2,14 +2,18 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithQuery, apiFetchMock } from "@/lib/test-query";
 
-const chart = vi.hoisted(() => ({ handlers: [] as Array<(p: { time?: number }) => void> }));
+const chart = vi.hoisted(() => ({
+  handlers: [] as Array<(p: { time?: number }) => void>,
+  /** every series.setData(...) argument, in call order */
+  data: [] as Array<Array<{ time: number; value: number }>>,
+}));
 
 vi.mock("lightweight-charts", () => ({
   ColorType: { Solid: "solid" },
   CrosshairMode: { Magnet: 1 },
   LineType: { Simple: 0 },
   createChart: () => ({
-    addLineSeries: () => ({ setData: vi.fn(), applyOptions: vi.fn() }),
+    addLineSeries: () => ({ setData: (d: Array<{ time: number; value: number }>) => chart.data.push(d), applyOptions: vi.fn() }),
     subscribeCrosshairMove: (h: (p: { time?: number }) => void) => chart.handlers.push(h),
     unsubscribeCrosshairMove: vi.fn(),
     timeScale: () => ({ fitContent: vi.fn() }),
@@ -97,6 +101,82 @@ describe("AccountHero", () => {
     expect(await screen.findByText("$101,500.00")).toBeInTheDocument();
     expect(screen.getByText(/n\/a today/)).toBeInTheDocument();
     expect(screen.getByText(/last value Oct 13, 2026/)).toBeInTheDocument();
+  });
+  describe("points the chart cannot take as they are", () => {
+    // lightweight-charts wants strictly ascending whole-second times and throws on a tie.
+    const at = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+    function withPoints(points: Array<{ at: string; value: number }>) {
+      const b = body("1d");
+      const last = points[points.length - 1];
+      b.series = { ...b.series, points, latest: last.value, latest_at: last.at };
+      return b;
+    }
+    const lastPlotted = () => chart.data[chart.data.length - 1];
+
+    it("plots one point per second, the last one, so two snapshots in one second do not crash the chart", async () => {
+      chart.data.length = 0;
+      renderWithQuery(<AccountHero />, {
+        "/portfolio/value": withPoints([
+          { at: "2026-10-13T14:00:00.100Z", value: 100_000 },
+          { at: "2026-10-13T14:00:00.900Z", value: 100_250 },
+          { at: "2026-10-13T14:05:00Z", value: 100_500 },
+        ]),
+      });
+      await screen.findByText("$100,500.00");
+      expect(lastPlotted()).toEqual([
+        { time: at("2026-10-13T14:00:00Z"), value: 100_250 },
+        { time: at("2026-10-13T14:05:00Z"), value: 100_500 },
+      ]);
+    });
+    it("hands the chart strictly ascending times however the rows arrive", async () => {
+      chart.data.length = 0;
+      renderWithQuery(<AccountHero />, {
+        "/portfolio/value": withPoints([
+          { at: "2026-10-13T14:10:00Z", value: 103 },
+          { at: "2026-10-13T14:00:00.200Z", value: 101 },
+          { at: "2026-10-13T14:00:00.700Z", value: 102 },
+          { at: "2026-10-13T14:05:00Z", value: 104 },
+          { at: "2026-10-13T14:10:00Z", value: 105 },
+        ]),
+      });
+      await screen.findByText("$105.00");
+      const times = lastPlotted().map((p) => p.time);
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+      expect(new Set(times).size).toBe(times.length);
+      expect(lastPlotted().map((p) => p.value)).toEqual([102, 104, 105]);
+    });
+    it("a scrub on a merged second reads the point that was plotted", async () => {
+      chart.data.length = 0;
+      renderWithQuery(<AccountHero />, {
+        "/portfolio/value": withPoints([
+          { at: "2026-10-13T14:00:00.100Z", value: 100_000 },
+          { at: "2026-10-13T14:00:00.900Z", value: 100_250 },
+          { at: "2026-10-13T14:05:00Z", value: 100_500 },
+        ]),
+      });
+      await screen.findByText("$100,500.00");
+      act(() => chart.handlers.at(-1)!({ time: at("2026-10-13T14:00:00Z") }));
+      expect(screen.getByText("$100,250.00")).toBeInTheDocument();
+    });
+    it("the keyboard steps through the plotted points, never onto one that was merged away", async () => {
+      chart.data.length = 0;
+      renderWithQuery(<AccountHero />, {
+        "/portfolio/value": withPoints([
+          { at: "2026-10-13T14:00:00.100Z", value: 100_000 },
+          { at: "2026-10-13T14:00:00.900Z", value: 100_250 },
+          { at: "2026-10-13T14:05:00Z", value: 100_500 },
+        ]),
+      });
+      await screen.findByText("$100,500.00");
+      const slider = screen.getByRole("slider", { name: /Account value history/ });
+      expect(slider).toHaveAttribute("aria-valuemax", "1");
+      fireEvent.keyDown(slider, { key: "ArrowLeft" });
+      expect(screen.getByText("$100,250.00")).toBeInTheDocument();
+      expect(slider).toHaveAttribute("aria-valuenow", "0");
+      fireEvent.keyDown(slider, { key: "ArrowLeft" });
+      expect(screen.getByText("$100,250.00")).toBeInTheDocument();
+      expect(screen.queryByText("$100,000.00")).toBeNull();
+    });
   });
   it("says there is no history yet instead of drawing an empty frame", async () => {
     const empty = body("1m");

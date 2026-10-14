@@ -16,6 +16,30 @@ export function formatDay(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "" : DATE_ONLY.format(d);
 }
 
+/** One point as the chart takes it: whole-second time, plus the row of `points` it came from. */
+export type ChartPoint = { time: number; value: number; index: number };
+
+/**
+ * lightweight-charts wants strictly ascending whole-second times and throws on a tie, and
+ * snapshot rows can share a captured_at (a refresh moments after a monitor write). So: one point
+ * per second, the one with the later instant (the later row wins an exact tie), sorted ascending,
+ * and unreadable timestamps left out. `index` maps a plotted point back to `series.points`, which
+ * is what the hover figures read.
+ */
+export function chartPoints(points: AccountValuePoint[]): ChartPoint[] {
+  const bySecond = new Map<number, ChartPoint & { ms: number }>();
+  points.forEach((p, index) => {
+    const ms = Date.parse(p.at);
+    if (!Number.isFinite(ms)) return;
+    const time = Math.floor(ms / 1000);
+    const kept = bySecond.get(time);
+    if (kept === undefined || ms >= kept.ms) bySecond.set(time, { time, value: p.value, index, ms });
+  });
+  return [...bySecond.values()]
+    .sort((a, b) => a.time - b.time)
+    .map(({ time, value, index }) => ({ time, value, index }));
+}
+
 /** The words a screen reader hears for one chart point (the chart itself is a canvas). */
 export function pointLabel(p: AccountValuePoint): string {
   return `${formatDateTime(p.at)}, ${formatMoneyCell(p.value)}`;

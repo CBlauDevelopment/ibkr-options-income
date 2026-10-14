@@ -73,8 +73,20 @@ export function useFocusTrap(
       }
     }
 
+    // A focused control that leaves the page (a confirmation closing, a button that disables
+    // itself) drops focus to <body>, where the panel's key listener hears nothing: Escape stops
+    // closing the sheet and Tab walks out of it. While no nested dialog is open (it owns the
+    // keys, and focus, until it closes), put focus back on the panel. A nested dialog that is
+    // closing hands focus to its trigger itself; if that trigger is still enabled it wins.
+    const observer = new MutationObserver(() => {
+      const lost = document.activeElement === null || document.activeElement === document.body;
+      if (lost && !el.querySelector('[role="dialog"]')) el.focus();
+    });
+    observer.observe(el, { childList: true, subtree: true });
+
     el.addEventListener("keydown", onKeyDown);
     return () => {
+      observer.disconnect();
       el.removeEventListener("keydown", onKeyDown);
       if (previous instanceof HTMLElement) previous.focus();
     };

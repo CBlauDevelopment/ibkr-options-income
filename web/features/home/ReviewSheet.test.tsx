@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetchMock } from "@/lib/test-query";
 import { NeedsYou } from "./NeedsYou";
+import { DETAIL_POLL_MS } from "./ReviewSheet";
 
 /**
  * The real flow, nothing stubbed but the network: NeedsYou -> Review -> the sheet ->
@@ -69,7 +70,15 @@ const command = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-type World = { live?: boolean; applyOnPoll?: boolean; kind?: string };
+type World = {
+  live?: boolean;
+  applyOnPoll?: boolean;
+  kind?: string;
+  /** what the server says about the approval once this sheet's own command has applied */
+  settledStatus?: string;
+  /** the approval's status on the server right now; a test sets it to simulate a change made elsewhere */
+  serverStatus?: string;
+};
 
 /** The set of requests a test saw: [path, method] for everything that is not a plain GET. */
 function writes(): Array<[string, unknown]> {
@@ -81,8 +90,9 @@ function writes(): Array<[string, unknown]> {
 function mount(world: World = {}) {
   let settled = false;
   apiFetchMock.mockImplementation(async (path: string) => {
-    if (path === "/options/approvals/1") return { ...approval, status: settled ? "approved" : "pending" };
-    if (path.startsWith("/options/approvals")) return { as_of: "", approvals: settled ? [] : [approval] };
+    const status = world.serverStatus ?? (settled ? (world.settledStatus ?? "approved") : "pending");
+    if (path === "/options/approvals/1") return { ...approval, status };
+    if (path.startsWith("/options/approvals")) return { as_of: "", approvals: status === "pending" ? [approval] : [] };
     if (path === "/options/controls") return controls;
     if (path === "/commands/7") {
       if (world.applyOnPoll) settled = true;
@@ -205,6 +215,7 @@ describe("the review sheet, with the real decide flow inside it", () => {
     expect(within(sheet).queryByRole("button", { name: "Approve" })).toBeNull();
     expect(within(sheet).queryByRole("button", { name: "Reject" })).toBeNull();
     expect(within(sheet).getByTestId("command-receipt")).toBeInTheDocument();
+    expect(within(sheet).queryByText(/decided elsewhere/)).toBeNull();
   });
 
   it("in live mode the second confirmation still appears, inside the sheet, and Escape leaves the intent unreleased", async () => {
@@ -267,5 +278,101 @@ describe("the sheet's own keys", () => {
     reject.focus();
     fireEvent.keyDown(reject, { key: "Tab" });
     expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Close" }));
+  });
+});
+
+describe("an approval decided or expired somewhere else while the sheet is open", () => {
+  beforeEach(() => {
+    // shouldAdvanceTime keeps testing-library's waitFor moving while the poll is driven by hand
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function pollOnce() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DETAIL_POLL_MS + 500);
+    });
+  }
+
+  it("rejected elsewhere: the sheet says so and Approve and Reject are gone", async () => {
+    const world: World = {};
+    mount(world);
+    const { sheet } = await openSheet();
+    expect(within(sheet).getByRole("button", { name: "Approve" })).toBeEnabled();
+    world.serverStatus = "rejected";
+    await pollOnce();
+    expect(await within(sheet).findByText("This proposal was decided elsewhere.")).toBeInTheDocument();
+    expect(within(sheet).getByTestId("approval-decision")).toHaveTextContent("Decision: rejected");
+    expect(within(sheet).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(writes()).toEqual([]);
+  });
+
+  it("expired on the server: the sheet says it has expired, in words", async () => {
+    const world: World = {};
+    mount(world);
+    const { sheet } = await openSheet();
+    world.serverStatus = "expired";
+    await pollOnce();
+    expect(await within(sheet).findByText("This proposal has expired.")).toBeInTheDocument();
+    expect(within(sheet).queryByText(/decided elsewhere/)).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("stays quiet while the approval is still pending", async () => {
+    mount({});
+    const { sheet } = await openSheet();
+    await pollOnce();
+    expect(within(sheet).queryByText(/decided elsewhere|has expired/)).toBeNull();
+    expect(within(sheet).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("a decision made from this sheet shows its receipt, not the elsewhere sentence (Reject too)", async () => {
+    mount({ applyOnPoll: true, kind: "reject", settledStatus: "rejected" });
+    const { sheet } = await openSheet();
+    const confirm = openConfirm(sheet, "Reject");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Reject" }));
+    expect(await within(sheet).findByTestId("approval-decision")).toHaveTextContent("Decision: rejected");
+    expect(within(sheet).getByTestId("command-receipt")).toBeInTheDocument();
+    expect(within(sheet).queryByText(/decided elsewhere|has expired/)).toBeNull();
+  });
+});
+
+describe("focus after a confirmed decision", () => {
+  it("lands back inside the sheet, so Escape still closes it", async () => {
+    mount();
+    const { sheet } = await openSheet();
+    const confirm = openConfirm(sheet, "Approve");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Approve" }));
+    await within(sheet).findByTestId("command-receipt");
+    // ConfirmAction hands focus back to Approve, which is disabled by now: it must not strand on <body>.
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Review trade" })).toBeNull();
+  });
+
+  it("and Tab keeps cycling inside the sheet instead of leaving it", async () => {
+    mount();
+    const { sheet } = await openSheet();
+    const confirm = openConfirm(sheet, "Approve");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Approve" }));
+    await within(sheet).findByTestId("command-receipt");
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document.activeElement as Element, { key: "Tab" });
+    expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Close" }));
+    const close = within(sheet).getByRole("button", { name: "Close" });
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(sheet.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+  });
+
+  it("a cancelled confirmation still hands focus back to the Approve it came from", async () => {
+    mount();
+    const { sheet } = await openSheet();
+    const confirm = openConfirm(sheet, "Approve");
+    fireEvent.keyDown(within(confirm).getByRole("button", { name: "Cancel" }), { key: "Escape" });
+    expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Approve" }));
   });
 });

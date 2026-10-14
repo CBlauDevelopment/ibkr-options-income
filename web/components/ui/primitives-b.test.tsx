@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Disclosure } from "./Disclosure";
@@ -190,6 +190,31 @@ describe("Sheet", () => {
     const tabNotPrevented = fireEvent.keyDown(panel, { key: "Tab" });
     expect(tabNotPrevented).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+  });
+  it("takes focus back to the panel when the focused control leaves the page, so Escape and Tab still work", async () => {
+    const onClose = vi.fn();
+    function Vanishing() {
+      const [gone, setGone] = useState(false);
+      return (
+        <Sheet open onClose={onClose} title="Review trade">
+          <button type="button">Stays</button>
+          {!gone && (
+            <button type="button" onClick={() => setGone(true)}>
+              Vanishes
+            </button>
+          )}
+        </Sheet>
+      );
+    }
+    render(<Vanishing />);
+    const panel = screen.getByRole("dialog", { name: "Review trade" });
+    const vanishing = screen.getByRole("button", { name: "Vanishes" });
+    vanishing.focus();
+    fireEvent.click(vanishing);
+    expect(screen.queryByRole("button", { name: "Vanishes" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(panel));
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
   it("renders nothing when closed", () => {
     render(

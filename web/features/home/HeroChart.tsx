@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ColorType, CrosshairMode, createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
-import { pointLabel } from "./hero";
+import { chartPoints, pointLabel } from "./hero";
 import type { AccountValuePoint } from "./types";
 
 function cssVar(name: string): string {
   if (typeof window === "undefined") return "";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
-
-const toTime = (iso: string) => Math.floor(Date.parse(iso) / 1000) as UTCTimestamp;
 
 /**
  * One ink line, no grid, no axes: the hero number above is the label. Scrubbing reports the
@@ -32,11 +30,14 @@ export function HeroChart({
   const ref = useRef<HTMLDivElement>(null);
   const onHoverRef = useRef(onHover);
   onHoverRef.current = onHover;
+  // `index` is a row of `points` (what the hero figures read); `plotted` is what the chart
+  // draws: one point per second, ascending, each remembering its row.
   const [index, setIndex] = useState<number | null>(null);
+  const plotted = useMemo(() => chartPoints(points), [points]);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || plotted.length === 0) return;
     const chart: IChartApi = createChart(el, {
       autoSize: true,
       height: 160,
@@ -55,17 +56,12 @@ export function HeroChart({
       lastValueVisible: false,
       crosshairMarkerRadius: 4,
     });
-    const times = points.map((p) => toTime(p.at));
-    series.setData(points.map((p, i) => ({ time: times[i], value: p.value })));
+    series.setData(plotted.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
     chart.timeScale().fitContent();
 
     chart.subscribeCrosshairMove((param: { time?: unknown }) => {
-      if (param.time === undefined) {
-        setIndex(null);
-        return onHoverRef.current(null);
-      }
-      const i = times.indexOf(param.time as UTCTimestamp);
-      const next = i >= 0 ? i : null;
+      const hit = param.time === undefined ? undefined : plotted.find((p) => p.time === param.time);
+      const next = hit ? hit.index : null;
       setIndex(next);
       onHoverRef.current(next);
     });
@@ -80,24 +76,26 @@ export function HeroChart({
       observer.disconnect();
       chart.remove();
     };
-  }, [points]);
+  }, [plotted]);
 
-  const last = points.length - 1;
+  const last = plotted.length - 1;
   function move(next: number | null) {
     setIndex(next);
     onHoverRef.current(next);
   }
+  // Position of the scrub among the plotted points; at rest it sits on the last one.
+  const at = index === null ? last : Math.max(0, plotted.findIndex((p) => p.index === index));
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const current = index ?? last;
-    if (e.key === "ArrowLeft") move(Math.max(0, current - 1));
-    else if (e.key === "ArrowRight") move(Math.min(last, current + 1));
-    else if (e.key === "Home") move(0);
+    if (e.key === "ArrowLeft") move(plotted[Math.max(0, at - 1)].index);
+    else if (e.key === "ArrowRight") move(plotted[Math.min(last, at + 1)].index);
+    else if (e.key === "Home") move(plotted[0].index);
     else if (e.key === "End" || e.key === "Escape") move(null);
     else return;
     e.preventDefault();
   }
 
-  const shown = index ?? last;
+  if (plotted.length === 0) return null;
+  const shown = points[plotted[at].index];
   return (
     <div
       role="slider"
@@ -105,8 +103,8 @@ export function HeroChart({
       aria-label="Account value history, use the arrow keys to move along it"
       aria-valuemin={0}
       aria-valuemax={last}
-      aria-valuenow={shown}
-      aria-valuetext={points[shown] ? pointLabel(points[shown]) : undefined}
+      aria-valuenow={at}
+      aria-valuetext={shown ? pointLabel(shown) : undefined}
       onKeyDown={onKeyDown}
       onBlur={() => move(null)}
       className="mt-3 rounded-xl"
