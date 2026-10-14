@@ -60,7 +60,7 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | **C entry checks** | done | main..HEAD = 8 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67 8fab3c3 429511f d055ef4) | pytest 3520+1 skip, vitest 571, tsc/lint/ruff/mypy green, build green, fences 50, C1-C5 pass | 2026-10-14 | C1 counts eight commits, not six (Section A and Section B review fix passes, +2); C2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`) |
 | 7 Account value API | done | 375242b | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
 | 8 Spreads read API | done | b3bcc5c | pytest 3539 (3532+7) + 1 skip, ruff/mypy clean, fences 51 (50+1), OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | The open probe is `SELECT count(*) FROM sqlite_master`, not `SELECT 1` (which never reads the file, so a non-SQLite `spreads.db` answered `available: true` with an empty book), and a failed probe closes its session. `read_spread_rows` types its `text()` select (`expiry` Date, `opened_at`/`closed_at` DateTime): raw SQL returned strings, so the router's `as_utc` branch never ran and timestamps left the API without an offset. +2 tests (6, not 4), each RED against the plan's code first |
-| 9 Monthly pay API | done | b124c2f | pytest 3556 (3539+17) + 1 skip, ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean; D4's field list matches Task 10's `types.ts` | 2026-10-14 | An expired or assigned leg closes on its `expiry` date in the month buckets (`build_legs` stamps those as naive midnight on the expiry date, which read as UTC fell on the previous ET day, so a May 1 expiry counted in April); +1 builder test (10, not 9). `pay.py` docstring avoids the literal `src.claude` (the reporting fence greps raw text). Route tests: an autouse fixture keeps them off the operator's real `data/spreads.db` (the plan's `strategy=all` tests read it), the `seed_leg` test asks for the month its naive-local fill lands in (UTC+8 flake from 04:00 to 12:00 local on each 1st), and +3 tests (7, not 4): only the book's own spreads count, the target is `web.monthly_income_target_pct` of the month-start value, and the setting's 0 < x <= 20 bound |
+| 9 Monthly pay API | done | b124c2f; Section C review fix pass in one extra commit after it | pytest 3556 (3539+17) + 1 skip, ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean; D4's field list matches Task 10's `types.ts` | 2026-10-14 | An expired or assigned leg closes on its `expiry` date in the month buckets (`build_legs` stamps those as naive midnight on the expiry date, which read as UTC fell on the previous ET day, so a May 1 expiry counted in April); +1 builder test (10, not 9). `pay.py` docstring avoids the literal `src.claude` (the reporting fence greps raw text). Route tests: an autouse fixture keeps them off the operator's real `data/spreads.db` (the plan's `strategy=all` tests read it), the `seed_leg` test asks for the month its naive-local fill lands in (UTC+8 flake from 04:00 to 12:00 local on each 1st), and +3 tests (7, not 4): only the book's own spreads count, the target is `web.monthly_income_target_pct` of the month-start value, and the setting's 0 < x <= 20 bound **Section C review fix pass (one extra commit, so `main..HEAD` after it is 13 with the orchestrator's 020f00d: D1 expects 13, not 11): pytest 3572 + 1 skip (3556 + 17 new - 1 superseded), ruff/mypy clean, fences 51, OpenAPI regenerated, vitest 571, tsc 0, lint clean.** C1: `previous_close` is the close before the New York day `latest` belongs to, and `change_today`/`change_today_pct` are null unless that day is today (weekends, before the day's first snapshot); the stale-snapshot test's pinned 0.0 corrected. I3+I4: a journal close competes with the snapshot as an instant, and only once its 16:00 ET is at or before `now`; a row whose close is still ahead is not a close at all (not plotted, not `previous_close`); 1d/1w also end on `latest` after the close; the route test freezes the route's clock. I5: a net liquidation of 0 or less is unknown (never a point, `latest`, `previous_close` or month-start value); the newest snapshot with a known value is searched among the last 50. I1: `PnlLeg.open_commissions` (additive, the SELL fills' commissions) and pay charges each side in the month it was paid; `fill_economics`, `classify_outcome`, the reconciler and every existing `PnlLeg` value unchanged; two Task 9 tests that pinned the double count corrected. I2: `MonthPayResponse.spreads_available` (false only when a spreads book is in scope and `data/spreads.db` could not be read, absent included); Task 10 `types.ts`, the Task 11 PayCard sentence and the Task 11/14 fixtures amended to match |
 | **D entry checks** | not started | | | | |
 | 10 Home hero | not started | | | | |
 | 11 Pay card | not started | | | | |
@@ -3973,7 +3973,13 @@ export type MonthPay = {
   days_left: number;
 };
 
-export type MonthPayResponse = { as_of: string; book: "paper" | "live"; pay: MonthPay };
+export type MonthPayResponse = {
+  as_of: string;
+  book: "paper" | "live";
+  pay: MonthPay;
+  /** False when a spreads book is in scope but data/spreads.db could not be read. */
+  spreads_available: boolean;
+};
 
 export type SpreadPosition = {
   spread_id: string;
@@ -4369,6 +4375,7 @@ function pay(over: Record<string, unknown> = {}) {
   return {
     as_of: new Date().toISOString(),
     book: "paper",
+    spreads_available: true,
     pay: {
       month: "2026-10-01",
       strategy: "all",
@@ -4533,6 +4540,11 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
 
 Note: the `of $2,000.00` text sits inside the net span; the test finds it with `getByText("of
 $2,000.00")` because it is its own `<span>`.
+
+Spread income unavailable (Section C review I2): when `data.spreads_available` is `false` and the
+strategy includes spreads (`all` or `spread`), the card says in a sentence that spread income is
+unavailable (data/spreads.db could not be read) rather than showing `$0` for it or presenting the
+wheel total as the whole month; add a test for it.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -5640,6 +5652,7 @@ const responses = {
   "/pnl/month": {
     as_of: "",
     book: "paper",
+    spreads_available: true,
     pay: { month: "2026-10-01", strategy: "all", premium_collected: 0, bought_back: 0, commissions: 0, commissions_complete: true, net: 0, n_opened: 0, n_closed: 0, month_start_value: null, target_pct: null, target: null, progress_pct: null, days_left: 18 },
   },
   "/portfolio/positions": { as_of: "", source: "none", degraded: true, groups: [] },

@@ -74,3 +74,7 @@ class SystemPerformanceResponse(Envelope):
 class MonthPayResponse(Envelope):
     book: Literal["paper", "live"]
     pay: MonthPay
+    # False only when a spreads book is in scope (strategy all or spread) and data/spreads.db
+    # could not be read (absent, not a database, locked, no table): the spread part of `pay`
+    # is then unknown, not $0, and an "all" total is the wheel alone.
+    spreads_available: bool

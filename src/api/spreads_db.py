@@ -79,11 +79,12 @@ def spreads_read_session() -> Iterator[Session | None]:
         s.close()
 
 
-def read_spread_rows(
+def try_read_spread_rows(
     session: Session, *, mode: str, status: str, limit: int
-) -> list[dict[str, Any]]:
-    """spread_positions rows as dicts, newest first. `status` is open|closed|all; "open"
-    includes "expiring" (still held, settling today)."""
+) -> list[dict[str, Any]] | None:
+    """spread_positions rows as dicts, newest first, or None when the read failed (a missing
+    table on an old file). `status` is open|closed|all; "open" includes "expiring" (still
+    held, settling today)."""
     where = "mode = :mode"
     if status == "open":
         where += " AND status IN ('open', 'expiring')"
@@ -95,7 +96,15 @@ def read_spread_rows(
     ).columns(expiry=Date, opened_at=DateTime, closed_at=DateTime)
     try:
         result = session.execute(sql, {"mode": mode, "limit": limit})
-    except Exception as exc:  # noqa: BLE001 - a missing table on an old file reads as empty
+    except Exception as exc:  # noqa: BLE001 - the caller decides what unreadable means
         log.debug("api spreads_db: read failed: %s", exc)
-        return []
+        return None
     return [dict(r._mapping) for r in result]
+
+
+def read_spread_rows(
+    session: Session, *, mode: str, status: str, limit: int
+) -> list[dict[str, Any]]:
+    """`try_read_spread_rows`, with a failed read (a missing table on an old file) as empty."""
+    rows = try_read_spread_rows(session, mode=mode, status=status, limit=limit)
+    return rows if rows is not None else []

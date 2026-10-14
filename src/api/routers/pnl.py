@@ -58,7 +58,7 @@ from src.api.models.pnl import (
     VerdictAgreement,
 )
 from src.api.portfolio_source import read_portfolio
-from src.api.spreads_db import read_spread_rows, spreads_read_session
+from src.api.spreads_db import spreads_read_session, try_read_spread_rows
 from src.claude.eval.ledger import load_records
 from src.claude.eval.score_metrics import score_outcome_report
 from src.common.config import get_config
@@ -448,12 +448,15 @@ def pnl_system(
 _ET = ZoneInfo("America/New_York")
 
 
-def _spread_inputs(book: str) -> list[SpreadPayInput]:
-    """Spread positions of the running book as plain inputs; [] when spreads.db is absent."""
+def _spread_inputs(book: str) -> list[SpreadPayInput] | None:
+    """Spread positions of the running book as plain inputs; None when spreads.db could not be
+    read (absent, not a database, locked, or no spread_positions table)."""
     with spreads_read_session() as s:
         if s is None:
-            return []
-        rows = read_spread_rows(s, mode=book, status="all", limit=5000)
+            return None
+        rows = try_read_spread_rows(s, mode=book, status="all", limit=5000)
+    if rows is None:
+        return None
 
     def dt(v: object) -> datetime | None:
         if v is None:
@@ -492,13 +495,14 @@ def pnl_month(
     chosen: Literal["paper", "live"] = book or ("live" if get_config().is_live else "paper")
     filters = _filter_params(None, None, None, None, None, chosen)
     legs = _filtered_legs(db, filters)
+    spreads = _spread_inputs(chosen) if strategy in ("all", "spread") else []
     pay = build_month_pay(
         legs,
-        _spread_inputs(chosen) if strategy in ("all", "spread") else [],
+        spreads or [],
         month=first,
         strategy=strategy,
         month_start_value=month_start_value(_session_factory(db), first),
         target_pct=get_config().web.monthly_income_target_pct,
         today=today,
     )
-    return MonthPayResponse(as_of=now, book=chosen, pay=pay)
+    return MonthPayResponse(as_of=now, book=chosen, pay=pay, spreads_available=spreads is not None)

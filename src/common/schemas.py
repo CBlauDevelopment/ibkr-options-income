@@ -799,6 +799,9 @@ class PnlLeg(BaseModel):
     debit: float
     commissions: float
     commissions_complete: bool
+    # The SELL-side (opening) share of `commissions`, so a month's pay can charge each side in
+    # the month it was paid; the rest belongs to the close. None when the split is not known.
+    open_commissions: float | None = None
     net_pnl: float | None = None
     unrealized_pnl: float | None = None
     days_held: int
@@ -886,7 +889,11 @@ class AccountValueSeries(BaseModel):
 
     Daily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read
     intraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).
-    Every figure is None when unknown - never 0.0.
+    `latest` is the newer of the newest snapshot and the newest close (a journal day is a close
+    from its 16:00 ET), and every range ends on it. `previous_close` is the close before the
+    New York day `latest` belongs to; `change_today` is None unless that day is today (weekends,
+    before the day's first snapshot). A net liquidation of 0 or less is unknown. Every figure is
+    None when unknown - never 0.0.
     """
 
     range: AccountValueRange

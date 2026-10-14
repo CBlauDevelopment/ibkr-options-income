@@ -21,16 +21,31 @@ def test_empty_is_200_with_no_points(client) -> None:
     assert s["points"] == [] and s["latest"] is None and s["change_today"] is None
 
 
+# The route's clock, frozen: Tuesday 2026-10-13 13:00 EDT (01:00 Wednesday on a UTC+8 machine,
+# the window where a local "yesterday" is New York's today). Nothing below reads the wall clock
+# or the machine's timezone.
+FROZEN_NOW = datetime(2026, 10, 13, 17, 0, tzinfo=UTC)
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):  # type: ignore[override]
+        return FROZEN_NOW if tz is None else FROZEN_NOW.astimezone(tz)
+
+
 def test_one_month_series_carries_today_change(
-    client, db, seed_journal_day, seed_portfolio_snapshot
+    client, db, seed_journal_day, seed_portfolio_snapshot, monkeypatch
 ) -> None:
-    yesterday = date.today() - timedelta(days=1)
-    seed_journal_day(yesterday, net_liq=100_000.0)
-    seed_portfolio_snapshot(captured_at=datetime.now(UTC) - timedelta(minutes=2), net_liq=100_400.0)
+    monkeypatch.setattr("src.api.routers.portfolio.datetime", _FrozenDatetime)
+    seed_journal_day(date(2026, 10, 12), net_liq=100_000.0)
+    # A row for today whose 16:00 ET close has not happened yet is not a close.
+    seed_journal_day(date(2026, 10, 13), net_liq=100_900.0)
+    seed_portfolio_snapshot(captured_at=FROZEN_NOW - timedelta(minutes=2), net_liq=100_400.0)
     s = client.get("/portfolio/value?range=1m", headers=OWNER).json()["series"]
     assert s["range"] == "1m"
     assert s["latest"] == 100_400.0
     assert s["points"][-1]["value"] == 100_400.0
+    assert s["change_today"] == 400.0
 
 
 def test_an_unknown_range_is_422(client) -> None:

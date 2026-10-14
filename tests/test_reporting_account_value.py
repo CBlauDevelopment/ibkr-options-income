@@ -101,18 +101,99 @@ def test_a_newer_journal_close_beats_a_stale_snapshot(db) -> None:
     series = account_value_series(db, "1m", now=NOW)
     assert series.latest == 101_000.0
     assert series.points[-1].value == 101_000.0
-    assert series.previous_close == 101_000.0
-    assert series.change_today == 0.0
+    # Monday's close is not today's value: its change is Monday's, so "today" is unknown.
+    assert series.previous_close == 100_000.0
+    assert series.change_today is None and series.change_today_pct is None
 
 
-def test_a_same_day_snapshot_still_wins_over_that_days_close(db) -> None:
-    """Only a journal day after the snapshot's New York day replaces it, never a same-day close."""
+# Instants for the close-versus-snapshot cases (EDT = UTC-4).
+FRI_1545_ET = datetime(2026, 10, 9, 19, 45, tzinfo=UTC)
+SAT_NOON_ET = datetime(2026, 10, 10, 16, 0, tzinfo=UTC)
+TUE_1000_ET = datetime(2026, 10, 13, 14, 0, tzinfo=UTC)
+TUE_1555_ET = datetime(2026, 10, 13, 19, 55, tzinfo=UTC)
+TUE_1557_ET = datetime(2026, 10, 13, 19, 57, tzinfo=UTC)
+TUE_1900_ET = datetime(2026, 10, 13, 23, 0, tzinfo=UTC)
+
+
+def test_on_a_saturday_there_is_no_change_today(db) -> None:
+    """Friday's 15:45 snapshot to Friday's close is not "today": the change is unknown, not +300."""
+    _journal(db, date(2026, 10, 8), 100_000.0)
+    _journal(db, date(2026, 10, 9), 101_000.0)
+    _snap(db, FRI_1545_ET, 101_300.0)
+    series = account_value_series(db, "1m", now=SAT_NOON_ET)
+    assert series.latest == 101_000.0  # Friday's close, newer than its 15:45 snapshot
+    assert series.points[-1].value == 101_000.0
+    assert series.previous_close == 100_000.0  # the close before the day `latest` belongs to
+    assert series.change_today is None and series.change_today_pct is None
+
+
+def test_before_the_first_snapshot_of_the_day_there_is_no_change_today(db) -> None:
+    """Journal only, viewed Tuesday 10:00 ET: Monday's close is the value, today's change unknown."""
+    _journal(db, date(2026, 10, 9), 100_000.0)
     _journal(db, date(2026, 10, 12), 101_000.0)
-    _journal(db, date(2026, 10, 13), 101_200.0)  # plotted at 16:00 ET, after NOW
-    _snap(db, NOW - timedelta(minutes=5), 101_500.0)
+    series = account_value_series(db, "1m", now=TUE_1000_ET)
+    assert series.latest == 101_000.0
+    assert series.previous_close == 100_000.0
+    assert series.change_today is None and series.change_today_pct is None
+
+
+def test_after_the_close_the_headline_is_that_days_close(db) -> None:
+    """At 19:00 ET the EOD close (16:00) is newer than the 15:55 snapshot: headline = chart end."""
+    _journal(db, date(2026, 10, 12), 100_000.0)
+    _journal(db, date(2026, 10, 13), 100_900.0)
+    _snap(db, TUE_1555_ET, 100_400.0)
+    series = account_value_series(db, "1m", now=TUE_1900_ET)
+    assert series.latest == 100_900.0
+    assert series.points[-1].value == series.latest
+    assert series.change_today == 900.0
+
+
+def test_after_the_close_the_intraday_chart_also_ends_on_the_headline(db) -> None:
+    _journal(db, date(2026, 10, 13), 100_900.0)
+    _snap(db, TUE_1555_ET, 100_400.0)
+    for range_key in ("1d", "1w"):
+        series = account_value_series(db, range_key, now=TUE_1900_ET)
+        assert [p.value for p in series.points] == [100_400.0, 100_900.0]
+        assert series.points[-1].value == series.latest
+
+
+def test_a_close_still_in_the_future_is_not_yet_a_close(db) -> None:
+    """At 15:57 ET a journal row for today (plotted 16:00) is not a close yet: the snapshot leads
+    and the chart ends on it (the local-yesterday route-test flake on UTC+8, 00:00-04:00)."""
+    _journal(db, date(2026, 10, 12), 100_000.0)
+    _journal(db, date(2026, 10, 13), 100_900.0)
+    _snap(db, TUE_1555_ET, 100_400.0)
+    series = account_value_series(db, "1m", now=TUE_1557_ET)
+    assert series.latest == 100_400.0
+    assert series.points[-1].value == series.latest
+    assert series.change_today == 400.0
+
+
+def test_a_zero_net_liquidation_snapshot_is_unknown(db) -> None:
+    """IBKR's summary can lack NetLiquidation and 0.0 gets stored: never a point or the headline."""
+    _journal(db, date(2026, 10, 12), 99_800.0)
+    _snap(db, NOW - timedelta(hours=3), 100_000.0)
+    _snap(db, NOW - timedelta(hours=2), 0.0)
+    _snap(db, NOW - timedelta(hours=1), 100_200.0)
+    _snap(db, NOW - timedelta(minutes=5), 0.0)
+    day = account_value_series(db, "1d", now=NOW)
+    assert [p.value for p in day.points] == [100_000.0, 100_200.0]
+    assert day.latest == 100_200.0
+    month = account_value_series(db, "1m", now=NOW)
+    assert [p.value for p in month.points] == [99_800.0, 100_200.0]
+    assert month.change_today == 400.0
+
+
+def test_a_zero_journal_close_is_unknown(db) -> None:
+    _journal(db, date(2026, 10, 9), 100_000.0)
+    _journal(db, date(2026, 10, 12), 0.0)
+    _snap(db, NOW - timedelta(minutes=5), 100_300.0)
     series = account_value_series(db, "1m", now=NOW)
-    assert series.latest == 101_500.0
-    assert series.change_today == 500.0
+    assert [p.value for p in series.points] == [100_000.0, 100_300.0]
+    assert series.previous_close == 100_000.0
+    _journal(db, date(2026, 9, 29), 98_000.0)
+    _journal(db, date(2026, 9, 30), 0.0)
+    assert month_start_value(db, date(2026, 10, 1)) == 98_000.0
 
 
 def test_month_start_value_is_the_last_close_before_the_month(db) -> None:

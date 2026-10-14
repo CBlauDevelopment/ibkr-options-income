@@ -3478,7 +3478,7 @@
           "range"
         ],
         "title": "AccountValueSeries",
-        "description": "Account value (net liquidation) over a range, for the Home hero chart.\n\nDaily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read\nintraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).\nEvery figure is None when unknown - never 0.0."
+        "description": "Account value (net liquidation) over a range, for the Home hero chart.\n\nDaily ranges read the EOD journal and end with the newest intraday snapshot; 1d/1w read\nintraday portfolio snapshots (retention: `storage.portfolio_snapshot_retention_days`).\n`latest` is the newer of the newest snapshot and the newest close (a journal day is a close\nfrom its 16:00 ET), and every range ends on it. `previous_close` is the close before the\nNew York day `latest` belongs to; `change_today` is None unless that day is today (weekends,\nbefore the day's first snapshot). A net liquidation of 0 or less is unknown. Every figure is\nNone when unknown - never 0.0."
       },
       "AlternativeStrike": {
         "properties": {
@@ -8019,13 +8019,18 @@
           },
           "pay": {
             "$ref": "#/components/schemas/MonthPay"
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available"
           }
         },
         "type": "object",
         "required": [
           "as_of",
           "book",
-          "pay"
+          "pay",
+          "spreads_available"
         ],
         "title": "MonthPayResponse"
       },
@@ -9091,6 +9096,17 @@
           "commissions_complete": {
             "type": "boolean",
             "title": "Commissions Complete"
+          },
+          "open_commissions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Commissions"
           },
           "net_pnl": {
             "anyOf": [

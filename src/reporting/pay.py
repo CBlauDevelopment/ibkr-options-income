@@ -88,14 +88,20 @@ def build_month_pay(
             if kind is None or (strategy != "all" and kind != strategy):
                 continue
             opened, closed = in_month(leg.opened_at), on_day_in_month(_close_day(leg))
+            # Each side's commission in the month it was paid; a leg with no known split
+            # charges all of it to the open month, so no commission is ever counted twice.
+            open_commissions = (
+                leg.open_commissions if leg.open_commissions is not None else leg.commissions
+            )
             if opened:
                 premium += leg.credit
+                commissions += open_commissions
                 n_opened += 1
             if closed:
                 bought += leg.debit
+                commissions += leg.commissions - open_commissions
                 n_closed += 1
             if opened or closed:
-                commissions += leg.commissions
                 complete = complete and leg.commissions_complete
 
     if strategy in ("all", "spread"):

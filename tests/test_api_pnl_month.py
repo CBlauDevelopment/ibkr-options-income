@@ -69,6 +69,50 @@ def test_spreads_unavailable_still_answers(client, monkeypatch, tmp_path) -> Non
     r = client.get(f"/pnl/month?month={this_month()}&strategy=spread", headers=OWNER)
     assert r.status_code == 200
     assert r.json()["pay"]["premium_collected"] == 0.0
+    # A spreads book in scope that could not be read is not a real $0: the response says so.
+    assert r.json()["spreads_available"] is False
+
+
+def _point_spreads_at(monkeypatch, path) -> None:
+    import src.api.spreads_db as sdb
+
+    monkeypatch.setattr(sdb, "_resolve_path", lambda: str(path))
+    sdb.reset_engine()
+
+
+def _healthy_spreads_db(path) -> None:
+    from sqlalchemy import create_engine
+
+    from src.spreads.store import SpreadsBase
+
+    eng = create_engine(f"sqlite:///{path}")
+    SpreadsBase.metadata.create_all(eng)
+    eng.dispose()
+
+
+@pytest.mark.parametrize("strategy", ["spread", "all"])
+def test_an_unreadable_spreads_book_is_flagged_not_zeroed(
+    client, monkeypatch, tmp_path, strategy
+) -> None:
+    garbage = tmp_path / "spreads.db"
+    garbage.write_bytes(b"this is not a sqlite database " * 200)
+    _point_spreads_at(monkeypatch, garbage)
+    r = client.get(f"/pnl/month?month={this_month()}&strategy={strategy}", headers=OWNER)
+    assert r.status_code == 200
+    assert r.json()["spreads_available"] is False
+
+
+@pytest.mark.parametrize("strategy", ["csp", "cc"])
+@pytest.mark.parametrize("healthy", [True, False])
+def test_a_wheel_only_strategy_never_needs_the_spreads_book(
+    client, monkeypatch, tmp_path, strategy, healthy
+) -> None:
+    path = tmp_path / "spreads.db"
+    if healthy:
+        _healthy_spreads_db(path)
+    _point_spreads_at(monkeypatch, path)
+    r = client.get(f"/pnl/month?month={this_month()}&strategy={strategy}", headers=OWNER)
+    assert r.json()["spreads_available"] is True
 
 
 def test_only_the_books_own_spreads_count(client, monkeypatch, tmp_path) -> None:
@@ -107,9 +151,9 @@ def test_only_the_books_own_spreads_count(client, monkeypatch, tmp_path) -> None
     monkeypatch.setattr(sdb, "_resolve_path", lambda: str(path))
     sdb.reset_engine()
 
-    pay = client.get(f"/pnl/month?month={this_month()}&strategy=spread", headers=OWNER).json()[
-        "pay"
-    ]
+    body = client.get(f"/pnl/month?month={this_month()}&strategy=spread", headers=OWNER).json()
+    assert body["spreads_available"] is True
+    pay = body["pay"]
     assert pay["premium_collected"] == pytest.approx(84.0)
     assert pay["commissions"] == pytest.approx(2.6)
     assert pay["n_opened"] == 1
