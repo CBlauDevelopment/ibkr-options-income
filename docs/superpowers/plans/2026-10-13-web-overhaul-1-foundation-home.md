@@ -67,7 +67,7 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | 12 Positions card | done | b4cb641 | vitest 612 (592+20), tsc 0, lint clean | 2026-10-14 | Imports `PositionGroupData` (the D5 ruling; `PositionGroup` is a component in that folder). `OptionLeg.strike` and `.right` are optional in the generated type, so the title builder tests `typeof o.strike === "number"` instead of `=== null`. The strategy-follow test uses the plan's `Harness` form (renderWithQuery's `rerender` would drop the QueryClientProvider). The plan's "says nothing is open for an empty filter" test fed an UNAVAILABLE spreads book and expected "No credit spreads open.", which turns an unreadable book into an empty one (Review Focus 5, unknown is never none); its fixture is now an available-but-empty book, and the unavailable case has its own sentence, "Credit spreads are unavailable right now." (spread filter), a note under All, and no count on the spreads chip until the book has answered. 20 tests, not 12 (positions 8, card 12): added tests for the unavailable-spreads sentence, note and chip count, the per-filter empty copy ("No cash-secured puts open.", "No shares held."; the plan's `No ${label.toLowerCase()} open` read "No csps open"), the signed `−$212.00` / `+$30.00` open P&L (typographic minus, via `formatStubValue`), a `Delayed` flag word with the snapshot's age when the portfolio snapshot is degraded or older than 30 minutes (the same freshness `PositionsPanel` shows; without it an end-of-day fallback looked live), the load-error sentence and a strike/right the API left out. Filter state follows the `strategy` prop by adjusting state during render rather than in an effect; a hero-shaped skeleton while loading; "No positions captured yet." only when no row is visible |
 | 13 Proposals and review sheet | done | 0bea346; Section D review fix pass 01e1c50 | vitest 649 (612+37), tsc 0, lint clean; after the review fix pass vitest 664 (649+15), tsc 0, lint clean | 2026-10-14 | 37 tests, not the plan's 10+11 (proposal.test.ts 10, proposals.test.tsx 15, ReviewSheet.test.tsx 12). `ReviewSheet.test.tsx` runs the REAL flow (NeedsYou, Review, Sheet, DecideControls, ConfirmAction nested in the sheet; only the network is mocked) and never names the two command helpers, so `grep -rn "submitCommand\|confirmCommand" web/features` prints nothing: nothing is sent before the confirmation; Escape and Tab inside the nested confirmation never close or leave the sheet; Approve and Reject each send one intent; the LIVE second confirmation appears inside the sheet, Escape leaves the intent unreleased and Release sends the token once; Escape closes the sheet and focus returns to Review; Tab and Shift+Tab wrap Close/Reject with the Why disclosure closed and open (no focusable sits in a hidden panel). Plan deviations: (1) the sheet keeps the decision after the card leaves the pending list: `ReviewSheet` reads the approval's own status from `["options","approval",id]` (the detail page's key, which `DecideControls` already invalidates when its command settles), because with the plan's captured `approval` the Approve and Reject buttons came back enabled beside an applied receipt (mutation-checked: reverting the line turns that test RED); (2) `daysToExpiry` counts from today in New York, not today in UTC (at 09:00 Singapore the UTC date is already tomorrow, so an Oct 14 expiry read as today), +1 test; "Return in 1 day" not "1 days", +1 test; (3) `ProposalsBanner` Open link is `aria-label="Open Trades"`, +1 test; (4) Details and Open links get the 0.98 press scale of every other button, Review and Details carry `aria-describedby` the card title (the button's name stays "Review"); (5) NeedsYou's loading state is a labelled status block, +tests for an unknown premium (n/a in the sentence and the three derived stub lines), roll cards, the heading count, the load-error sentence, the singular banner and the banner under Credit spreads. `DecideControls` and `ConfirmAction` are untouched (their bordered, non-pill buttons show inside the sheet: a Task 14 Step 5a note). **Section D review fix pass (one extra commit `fix(web): hero chart same-second points, sheet decided-elsewhere state, focus after a confirmed decision`, so the later entry-check commit counts shift by a further +1: E1 expects 18).** I1: `chartPoints` (hero.ts) hands the chart one point per second (the later instant wins; the later row wins an exact tie), strictly ascending, unreadable timestamps left out, each point remembering its row; the crosshair and the keyboard slider map back through it and the slider steps only through plotted points (the real lightweight-charts 4.2.3 threw "data must be asc ordered by time" on two snapshots in one second, which would have taken the whole Home page down on the 1D and 1W chips). I2: the open sheet polls the approval's status every 5s (`DETAIL_POLL_MS`, stops once it is no longer pending); a status that is not pending with no command created by this sheet reads "This proposal was decided elsewhere." (or "has expired."), and `DecideControls`' own decided branch removes Approve and Reject, which is stronger than disabling them; a decision made from this sheet keeps its receipt and shows no such sentence. I3: `useFocusTrap` watches the panel and puts focus back on it when it falls to `<body>` with no nested dialog open (ConfirmAction hands focus to Approve, which `DecideControls` has just disabled), so Escape closes the sheet and Tab stays inside after a confirmed Approve or Reject; a cancelled confirmation still returns focus to its trigger. 15 new tests, each RED first; the polling, own-command and focus fixes are mutation-checked |
 | **E entry checks** | done | main..HEAD = 18 (head 01e1c50) | pytest 3572+1 skip, vitest 664, tsc/lint/ruff/mypy green, scratch build green, E1-E5 pass | 2026-10-14 | E1 counts 18 commits, not 13 (the Section A-D review fix passes and the orchestrator's 020f00d); E2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`); E5 via the Claude-in-Chrome tools (the Playwright MCP is locked by another instance) |
-| 14 Home assembly, docs, finish | not started | | | | |
+| 14 Home assembly, docs, finish | done (DESIGN.md `status=ratified` awaits the operator) | 84137de (Steps 1-4: Home at `/`, api-types), b01abf8 (Home hydration), a1d8aa8 (Step 5a da-vinci polish), 64a4d4b (finish: sheet keyboard ring, em dash), 3aa8407 (Steps 6-7: docs + DESIGN.md reconcile); the Progress-log commit is the one after 3aa8407 (the only commit that edits this row) | vitest 678 (664+14), tsc 0, lint clean, da-vinci lint exit 0, design_md_check exit 0; pytest 3572+1 skip, ruff/mypy clean (261), fences 51; scratch `next build` green (`/` 10.6 kB); protected files identical to main; `grep -rn "submitCommand\|confirmCommand" web/features` empty; browser: 1440/390 x light/dark against a mock on :8799 (bot sheet, Why, review sheet, LIVE dialog) | 2026-10-14 | Commits split: feature, two fixes, docs (orchestrator ruling: Step 5a/carry-forward in their own commits). M14: the HomePage test clicks CSPs within the Strategy group. +sr-only `h1` Home (craft floor), +1 test. Home rendered a hydration mismatch under `next dev` (its Suspense boundary hydrates after the rail, whose approvals query shares its key): HomePage renders the bare page until hydration is over, +1 test (renderToString + hydrateRoot). Step 5a (da-vinci critique + audit + polish; Nielsen 31/40, audit 15/20 before): 44px phone hit areas at the `SegmentedControl` primitive (pill look kept, row gaps, range chips spread), Disclosure padding on its button (44px), stub lines 24px (DESIGN.md exception), Sheet portaled to `<body>` (+1 test) with the `--shadow-sheet` token and a 44px Close, ink `::selection` (+1 test), Button 17px/700, StatusWord 600/0.04em, Stub figures 500, press scale only under motion-safe (Button, Details, Open), bot card `aria-haspopup` + loading block (+2 tests), Review `aria-haspopup` (+1), More current on Research/News pages on the phone tab bar (+5), hatched n/a in "n/a today" and "n/a of target", pay title never wraps, card titles 17px, legacy `hover:text-focus` no-ops underline instead, "Status unavailable" in muted ink. Declined with rulings: the 180ms sheet exit (needs the review sheet to keep its approval; DESIGN.md Open Decision), darkening the `unknown` token (a colour change: operator concern, `#61685d` proposed), OutcomePill/Tag/Callout/bars keep ink (words carry the meaning), the TradingView attribution, desktop rail links at 36px, legacy page styling (Parts 2-4). Finish: the sheet panel shows an inset ring for keyboard focus (lint OUTLINE_NONE fixed, not ruled away); the mixed-book sentence lost its em dash. Step 6 uses the corrected pay attribution rule (Section C), not the plan's stale "once per month it touches"; SETUP's console table moved to the new paths. Step 7: DESIGN.md reconciled (tokens `control`, `on-primary-dark`, `sunk-deep-dark`, `button-quiet`, `filter-chip`, `meter`, `bot-card`, `halted-banner`; the legacy decide/bot controls exception; the proposal card's real states, no stale-data state; 44px/24px targets; Open Decisions; Decision Log) with the marker left at `draft` for the operator; `render_preview.py` not run (it rewrites the untracked `design-preview.html`); the finish review ran in-thread (no agent may be launched): ship. Section D's D1-D5 and Task 10-13 step boxes ticked here (their ledger lines and commits show them done) |
 
 ## Roadmap (this plan is Part 1 of 4)
 
@@ -3891,12 +3891,12 @@ Task 14.
 
 **Entry checks (run before Task 10):**
 
-- [ ] **D1. Section C landed.** `git log --oneline main..HEAD` shows nine commits; Tasks 7–9 are ticked.
-- [ ] **D2. Both gates green.** `python -m pytest -q && ruff check . && mypy src` and
+- [x] **D1. Section C landed.** `git log --oneline main..HEAD` shows nine commits; Tasks 7–9 are ticked.
+- [x] **D2. Both gates green.** `python -m pytest -q && ruff check . && mypy src` and
   `cd web && npx vitest run && npx tsc --noEmit && npm run lint`.
-- [ ] **D3. The routes answer.** `python -m pytest -q tests/test_api_portfolio_value.py tests/test_api_spreads.py tests/test_api_pnl_month.py tests/test_reporting_account_value.py tests/test_reporting_pay.py`
+- [x] **D3. The routes answer.** `python -m pytest -q tests/test_api_portfolio_value.py tests/test_api_spreads.py tests/test_api_pnl_month.py tests/test_reporting_account_value.py tests/test_reporting_pay.py`
   passes.
-- [ ] **D4. The hand-written client types will match the contract.** This prints the field names
+- [x] **D4. The hand-written client types will match the contract.** This prints the field names
   Task 10's `web/features/home/types.ts` must use; compare them with Task 10 Step 1 and fix the
   types there (not the API) if any differ, recording the ruling:
 
@@ -3910,7 +3910,7 @@ Task 14.
   EOF
   ```
 
-- [ ] **D5. The existing types Section D imports exist.** `grep -nE "export type (ApprovalSummary|ApprovalListResponse|ControlsResponse|ClaudeReviewPayload)\b" web/components/options/types.ts`
+- [x] **D5. The existing types Section D imports exist.** `grep -nE "export type (ApprovalSummary|ApprovalListResponse|ControlsResponse|ClaudeReviewPayload)\b" web/components/options/types.ts`
   lists four lines, and `grep -nE "export type (PositionsResponse|PositionGroup)\b" web/components/portfolio/types.ts`
   lists two. Different names → use the real ones in Tasks 12–13 and record the ruling.
 
@@ -3934,7 +3934,7 @@ Task 14.
   - `heroFigures(series, hoverIndex: number | null): { value: number | null; delta: number | null; deltaPct: number | null; caption: string }`
   - `HeroChart({ points, onHover })`, `AccountHero()`
 
-- [ ] **Step 1: Types** — `web/features/home/types.ts`
+- [x] **Step 1: Types** — `web/features/home/types.ts`
 
 ```ts
 /** Mirrors src/api/models (portfolio.py AccountValueResponse, pnl.py MonthPayResponse,
@@ -4008,7 +4008,7 @@ export type SpreadPositionsResponse = {
 };
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `web/features/home/hero.test.ts`:
 
@@ -4121,12 +4121,12 @@ describe("AccountHero", () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `cd web && npx vitest run features/home`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `web/features/home/hero.ts`:
 
@@ -4336,14 +4336,14 @@ export function AccountHero() {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run features/home`
 Expected: PASS (7 tests). If the `+$500.00 (0.50%) today` assertion fails on rounding
 (0.495 → "0.50" vs "0.49"), `toFixed(2)` of 0.495 is "0.49" in V8 (binary float). Change the
 fixture's `change_today_pct` to `0.496`, keep the expected "0.50%", and record the ruling.
 
-- [ ] **Step 6: Gate and commit**
+- [x] **Step 6: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
@@ -4363,7 +4363,7 @@ git commit -m "feat(web): Home hero - account value with a scrubbable chart and 
   `StrategyFilter` (Task 4); `MonthPayResponse` (Task 10 types).
 - Produces: `PayCard({ strategy: StrategyFilter })`, `payStubLines(pay: MonthPay): StubLineData[]`
 
-- [ ] **Step 1: Write the failing tests** — `web/features/home/PayCard.test.tsx`
+- [x] **Step 1: Write the failing tests** — `web/features/home/PayCard.test.tsx`
 
 ```tsx
 import { fireEvent, screen } from "@testing-library/react";
@@ -4438,12 +4438,12 @@ describe("PayCard", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run features/home/PayCard.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — `web/features/home/PayCard.tsx`
+- [x] **Step 3: Implement** — `web/features/home/PayCard.tsx`
 
 ```tsx
 "use client";
@@ -4546,12 +4546,12 @@ strategy includes spreads (`all` or `spread`), the card says in a sentence that 
 unavailable (data/spreads.db could not be read) rather than showing `$0` for it or presenting the
 wheel total as the whole month; add a test for it.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run features/home/PayCard.test.tsx`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
@@ -4577,7 +4577,7 @@ git commit -m "feat(web): collapsible monthly pay card with target meter and stu
   - `buildPositionRows(groups, spreads, todayIso: string): PositionRow[]`
   - `PositionsCard({ strategy: StrategyFilter })`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Open `web/components/portfolio/types.ts` and confirm the exported names for the positions
 response (`PositionsResponse`, `PositionGroup`, `OptionLeg`, `StockLeg`); use those names below
@@ -4768,12 +4768,12 @@ function Harness() {
 
 and click "to csp" instead of calling `rerender`. Record which form was used.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run features/home/positions.test.ts features/home/PositionsCard.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `web/features/home/positions.ts`:
 
@@ -5000,12 +5000,12 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run features/home/positions.test.ts features/home/PositionsCard.test.tsx`
 Expected: PASS (12 tests).
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
@@ -5033,7 +5033,7 @@ git commit -m "feat(web): positions card with strategy chips and status words"
     `ReviewSheet({ approval, open, onClose })`, `NeedsYou({ strategy })`,
     `ProposalsBanner({ strategy })`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `web/features/home/proposal.test.ts`:
 
@@ -5230,12 +5230,12 @@ Before Step 2, open `web/components/options/DecideControls.test.tsx` and confirm
 button's accessible name (e.g. "Approve" vs "Approve trade"); adjust the `/Approve/` matchers above
 only if it differs.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd web && npx vitest run features/home/proposal.test.ts features/home/proposals.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `web/features/home/proposal.ts`:
 
@@ -5572,12 +5572,12 @@ export function ProposalsBanner({ strategy }: { strategy: StrategyFilter }) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd web && npx vitest run features/home`
 Expected: PASS.
 
-- [ ] **Step 5: Gate and commit**
+- [x] **Step 5: Gate and commit**
 
 ```bash
 cd web && npx vitest run && npx tsc --noEmit && npm run lint
@@ -5770,14 +5770,14 @@ cd .. && python -m pytest -q && ruff check . && mypy src
 Expected: everything PASS; `next build` succeeds (no "useSearchParams should be wrapped in a
 suspense boundary" error).
 
-- [ ] **Step 5: Look at it**
+- [x] **Step 5: Look at it**
 
 Start the API and `cd web && npm run dev -- -p 3001` (port 3001 so the operator's running 3000 is
 untouched), then screenshot `/` at 1440×900 and 390×844 in light and dark (Bot sheet open once,
 one proposal's Why open once). Compare against `web/DESIGN.md` § Surfaces → Home's FIRST VIEWPORT.
 Fix any drift before continuing; record each fix as a ruling.
 
-- [ ] **Step 5a: da-vinci critique and audit of every surface built without it**
+- [x] **Step 5a: da-vinci critique and audit of every surface built without it**
 
 Sections A and B (and their review fix passes) built UI without invoking da-vinci. Invoke the
 `da-vinci` skill (Skill tool; `web/DESIGN.md` is `draft`, so no interview) and run `critique`, then
@@ -5800,7 +5800,7 @@ from DESIGN.md and the 180ms sheet exit, the 44px theme-toggle targets, the miss
 state for `/research` and `/news`, and `aria-haspopup` on the bot card. Record each fix and each
 declined item as a ruling; re-run the web gate after the fixes.
 
-- [ ] **Step 6: Documentation (mandatory doc-update table, root CLAUDE.md)**
+- [x] **Step 6: Documentation (mandatory doc-update table, root CLAUDE.md)**
 
 - `ARCHITECTURE.md`:
   - `web/` folder guide: the new structure (`components/ui/` primitives, `components/shell/` rail /
@@ -5826,14 +5826,14 @@ declined item as a ruling; re-run the web gate after the fixes.
   `trades/`, `activity/`, `research/`, `more/`, `features/home/`, `components/ui/`, the new
   `components/shell/` members, and mark `options/`, `pnl/`, `universe/` as moved.
 
-- [ ] **Step 7: da-vinci finish**
+- [x] **Step 7: da-vinci finish**
 
 Run `/da-vinci` (it loads `reference/finish.md`): reconcile `web/DESIGN.md`'s tokens and
 component prose to what was built, show the diff, and on the operator's approval set the marker
 to `status=ratified` with a Decision Log entry. Re-run
 `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md` (exit 0).
 
-- [ ] **Step 8: Commit and update the Progress log**
+- [x] **Step 8: Commit and update the Progress log**
 
 ```bash
 git add -A web docs ARCHITECTURE.md STATUS.md CLAUDE.md SETUP.md
