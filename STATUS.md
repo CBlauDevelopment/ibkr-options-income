@@ -373,6 +373,46 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Fixed (2026-10-15 — `/resume` re-halted at once; rolls blocked by a breaker halt; roll-mode setting)
+
+**What the 14–15 Oct logs showed.** (1) The daily-loss breaker tripped on a $25K mark-to-market
+loss; `/resume` (web and Telegram) cleared the flag and the next 30-second poll re-measured the same
+loss against the same prior-EOD baseline and halted again, for as long as the loss stood. (2) The
+roll fix of 2026-10-14 (`cf379c6`: leveraged ETFs roll, the loss line rolls first, rolls run on
+FULL autonomy) never ran that day: the main checkout sat on `feat/web-overhaul-1` until 23:30 SGT
+and every daemon had started at 21:23 from that branch, which lacks the commit — hence the
+"Leveraged ETF: never rolled" text, a GOOGL roll left PENDING, and TQQQ puts bought back with no
+roll attempt. **Daemons do not hot-reload: restart them (`./ibkr restart`) after any merge or
+branch switch.** The fix itself was already on `main`.
+
+**Changed.**
+- **`/resume` on a breaker halt records an acknowledgement** (`system_settings` key
+  `breaker_ack`, one ET day). The next evaluation stores the loss/drawdown level the operator
+  resumed through; the breaker halts again only after a *further full threshold* of loss
+  (`daily_loss_halt_pct` × net liq, or `drawdown_halt_pct` × high-water mark), or on the next ET
+  day. An operator `/halt` → `/resume` acknowledges nothing. New
+  `circuit_breakers.evaluate_breakers` (called by `process_queued_orders`) holds the rule;
+  `mark_based_loss` / `drawdown_breached` keep their old contracts.
+- **The mark-to-market loss now counts what today's closes realized.** It used to sum current
+  `unrealized_pnl` against the prior snapshot's, so a closed position's unrealized dropped out of
+  the sum (a profit-take read as a loss, a loss exit as relief). `_mark_delta` compares like for
+  like and prices a vanished position from today's `close:` buy-back fill against the snapshot
+  mark. **Limitation:** a position that vanished with no `close:` fill (a roll, an assignment, an
+  expiry, a manual trade) counts as neutral, and one opened and closed within the same day is
+  missed.
+- **A circuit-breaker halt no longer blocks rolls.** `process_queued_orders` runs a rolls-only pass
+  while halted with source `breaker` (the re-gate and `execute_roll`'s send-time checks are
+  unchanged; new entries stay blocked), and `may_auto_roll` ignores a breaker halt. An operator
+  `/halt` still blocks every roll.
+- **Roll mode (web Bot controls and the `/trades` controls strip).** `set_roll_mode` command →
+  `system_settings` key `roll_mode`: `auto` (default; a roll the policy picks is approved and
+  queued without a tap when the autonomy rung allows) or `propose` (left PENDING for an Approve
+  tap). `GET /options/controls` returns `roll_mode`. Moving to `propose` applies at once; moving to
+  `auto` is click-through confirmed. No Telegram command.
+
+Tests: `tests/test_breaker_ack.py` (new), `test_command_schemas.py`, `test_api_controls.py`,
+`web/components/options/RollModeControl.test.tsx`.
+
 ## Changed (2026-10-14 — 13 Oct log review: rolls, EOD report, spreads thread, news digest)
 
 From the 2026-10-13 session's logs. Operator rulings in quotes.

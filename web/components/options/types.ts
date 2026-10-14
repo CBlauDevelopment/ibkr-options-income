@@ -188,6 +188,8 @@ export type ControlsResponse = {
   halted: boolean;
   halt_reason: string | null;
   halted_at: string | null;
+  // Optional so a fixture predating the setting still type-checks; the API always sends it.
+  roll_mode?: "auto" | "propose";
   mode: "paper" | "live";
   drain_healthy: boolean;
   drain_last_seen: string | null;

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from ib_async import IB
+from sqlalchemy import ColumnElement, func
 from sqlalchemy.orm import Session
 from telegram import Bot
 
@@ -23,16 +24,12 @@ from src.common.config import get_config
 from src.common.market_hours import is_rth
 from src.common.schemas import ApprovalStatus, OrderState, Strategy, TradeCandidate, Verdict
 from src.engine.risk_engine import validate_candidates
-from src.execution.circuit_breakers import (
-    drawdown_breached,
-    mark_based_loss,
-    remaining_entry_allowance,
-)
+from src.execution.circuit_breakers import evaluate_breakers, remaining_entry_allowance
 from src.execution.executor import execute_candidate
 from src.ibkr.portfolio import get_account_snapshot_async, get_positions
 from src.storage.db import session_scope
 from src.storage.models import ApprovalRow, CandidateRow, OrderRow
-from src.storage.system_settings import is_halted, set_halted
+from src.storage.system_settings import get_halt_source, is_halted, set_halted
 from src.strategies.covered_call import uncovered_call_capacity
 
 log = logging.getLogger(__name__)
@@ -60,6 +57,11 @@ def _load_candidate(session: Session, order_row: OrderRow) -> TradeCandidate | N
     return TradeCandidate.model_validate(row.payload)
 
 
+def _is_roll_order() -> ColumnElement[bool]:
+    """SQL predicate: the order's frozen snapshot is a roll candidate."""
+    return func.json_extract(OrderRow.snapshot, "$.strategy") == Strategy.ROLL.value
+
+
 async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
     """Pick up QUEUED orders, TTL-expire stale ones, re-validate, and execute.
 
@@ -74,9 +76,23 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
     # Kill switch: when halted, transmit nothing. Orders stay QUEUED and  #
     # resume when /resume is sent (or TTL-expire). (SYSTEM_REVIEW Phase 2) #
     # ------------------------------------------------------------------ #
+    # A circuit-breaker halt still lets QUEUED rolls through (2026-10-15): the breaker trips on
+    # the move that breaches shorts, and a roll swaps a short for another of the same size —
+    # no new exposure. Every roll goes through the same re-gate and send-time checks below. An
+    # operator /halt blocks them like everything else.
+    rolls_only = False
     if is_halted():
-        log.warning("Execution halted (kill switch engaged) — skipping order processing")
-        return
+        if get_halt_source() == "breaker":
+            with session_scope() as _s:
+                rolls_only = bool(
+                    _s.query(OrderRow)
+                    .filter(OrderRow.state == OrderState.QUEUED, _is_roll_order())
+                    .count()
+                )
+        if not rolls_only:
+            log.warning("Execution halted (kill switch engaged) — skipping order processing")
+            return
+        log.info("Circuit-breaker halt: processing queued roll orders only")
 
     # ------------------------------------------------------------------ #
     # Fast check: any QUEUED orders at all?                                #
@@ -105,22 +121,17 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
     # the old cashflow-based breaker, which read a drawdown as a profit    #
     # on a day the system sold premium.) (SYSTEM_REVIEW Phase 2)           #
     # ------------------------------------------------------------------ #
-    loss = mark_based_loss(positions, account_snap.net_liquidation)
-    dd = drawdown_breached(account_snap.net_liquidation)
     with session_scope() as _s:
         cap_remaining = remaining_entry_allowance(_s)
-    if loss is not None:
-        reason = f"Daily mark-to-market loss ${loss:,.0f}"
-    elif dd is not None:
-        reason = f"Drawdown ${dd:,.0f} from high-water mark"
-    else:
-        reason = None
+    # Already halted (rolls-only pass): the breaker has nothing left to trip.
+    reason = None if rolls_only else evaluate_breakers(positions, account_snap.net_liquidation)
     if reason is not None:
         set_halted(True, reason, source="breaker")
         log.critical("Circuit breaker tripped — %s. Execution halted.", reason)
         text = (
             f"🛑 Circuit breaker: execution HALTED — {reason}. New-entry scans are paused "
-            "until you send /resume (profit-take and loss exits keep running)."
+            "until you send /resume (profit-take and loss exits keep running; queued rolls "
+            "still go through; /resume lets it run until the loss grows by another full step)."
         )
         # The main chat, and the scan thread where every skipped cycle now shows (2026-10-12:
         # the main-chat alert alone was missed and the scans stopped for the session).
@@ -142,7 +153,10 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
     thread58_failures: list[tuple[int, TradeCandidate | None, str]] = []
 
     with session_scope() as session:
-        queued = session.query(OrderRow).filter(OrderRow.state == OrderState.QUEUED).all()
+        queued_q = session.query(OrderRow).filter(OrderRow.state == OrderState.QUEUED)
+        if rolls_only:
+            queued_q = queued_q.filter(_is_roll_order())
+        queued = queued_q.all()
         if not queued:
             return
 

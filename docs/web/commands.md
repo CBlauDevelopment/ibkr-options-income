@@ -21,7 +21,7 @@ means:
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `POST` | `/commands` | owner | Enqueue an intent. `201` if new, `200` if dedupe returned the existing row (kinds with no dedupe key — halt/resume/set_autonomy/refresh/universe_add/universe_remove/news_brief — always get `201`). For `kind: "universe_add"`/`"universe_remove"` specifically, an unknown `symbol` (not in the research symbol directory) is `404` here too, and a `universe_add` of a spreads-book underlying (SPY/SPX/XSP) is `422` `reserved_for_spreads_book`, before a command row can exist — the same check `POST`/`DELETE /universe/{list_name}/{symbol}` already do, closing a path that would otherwise let this generic route bypass those thin wrappers' validation. |
+| `POST` | `/commands` | owner | Enqueue an intent. `201` if new, `200` if dedupe returned the existing row (kinds with no dedupe key — halt/resume/set_autonomy/set_roll_mode/refresh/universe_add/universe_remove/news_brief — always get `201`). For `kind: "universe_add"`/`"universe_remove"` specifically, an unknown `symbol` (not in the research symbol directory) is `404` here too, and a `universe_add` of a spreads-book underlying (SPY/SPX/XSP) is `422` `reserved_for_spreads_book`, before a command row can exist — the same check `POST`/`DELETE /universe/{list_name}/{symbol}` already do, closing a path that would otherwise let this generic route bypass those thin wrappers' validation. |
 | `GET` | `/commands/{id}` | owner | Read one command's status (through the read-only engine). `404` if unknown. |
 | `POST` | `/commands/{id}/confirm` | owner | Supply the `confirm_token` for a live-mode order-reaching intent. `204` on success. `403` on a wrong or missing token (the token is NOT cleared). `409` when the command is not awaiting confirmation. |
 | `POST` | `/universe/{list_name}/{symbol}` | owner | Thin wrapper: creates a `universe_add` intent. `422` if `list_name` is not `would_own`/`watchlist`. `404` if `symbol` is not a known SEC filer. `422` (`reserved_for_spreads_book`) for a spreads-book underlying (SPY/SPX/XSP). Response is the same `CommandStatus` shape as `POST /commands`. See `docs/web/api.md` and the `universe_add` section below. |
@@ -292,6 +292,22 @@ strike or expiry would rank on a fresh chain.
 - **Notification:** the handler sends a Telegram message.
 - **Failure modes:** none (beyond a dead drain).
 - **Milestone:** M6, built.
+
+### `set_roll_mode` — auto-execute rolls or propose them
+
+- **Payload:** `{ mode: "auto" | "propose" }` — anything else, or an unknown key, is `422` at
+  parse time.
+- **Dedupe key:** `None` (repeatable; setting the same mode twice is harmless).
+- **Applied by:** `command_drain._set_roll_mode`. Persists `system_settings.roll_mode`, which
+  `may_auto_roll` reads each time `roll_pipeline.evaluate_roll` queues a roll: `auto` (default)
+  approves and queues it without a tap when the autonomy rung allows; `propose` leaves it PENDING
+  for an Approve tap. The Rules Engine gate, the queue re-gate and the send-time check are the same
+  either way. No evidence gate: `propose` is the conservative side.
+- **Live mode:** No confirmation needed (control kind — it cannot reach an order by itself).
+- **Notification:** the handler sends a Telegram message.
+- **Failure modes:** none (beyond a dead drain). Never needs the broker.
+- **Web:** `RollModeControl`, beside `AutonomyControl` in the controls strip and the Bot sheet;
+  `GET /options/controls` returns `roll_mode`.
 
 ### `set_autonomy` — change the autonomy level
 

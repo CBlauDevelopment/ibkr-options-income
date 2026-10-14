@@ -5385,6 +5385,7 @@
           "halt",
           "resume",
           "set_autonomy",
+          "set_roll_mode",
           "universe_add",
           "universe_remove",
           "refresh",
@@ -5632,6 +5633,15 @@
               }
             ],
             "title": "Halted At"
+          },
+          "roll_mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "propose"
+            ],
+            "title": "Roll Mode",
+            "default": "auto"
           },
           "mode": {
             "type": "string",

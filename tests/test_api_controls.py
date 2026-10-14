@@ -237,3 +237,11 @@ def test_halted_at_does_not_leak_a_stale_timestamp_from_a_prior_halt_cycle(clien
         assert body["halted_at"] is None
     finally:
         set_halted(False)
+
+
+def test_roll_mode_defaults_to_auto_and_reads_the_setting(client) -> None:
+    from src.storage.system_settings import set_roll_mode
+
+    assert client.get("/options/controls", headers=AUTH).json()["roll_mode"] == "auto"
+    set_roll_mode("propose")
+    assert client.get("/options/controls", headers=AUTH).json()["roll_mode"] == "propose"

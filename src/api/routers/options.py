@@ -1106,6 +1106,7 @@ def controls(
     from src.storage.system_settings import (
         get_autonomy_level,
         get_halt_reason,
+        get_roll_mode,
         is_halted,
     )
 
@@ -1168,6 +1169,7 @@ def controls(
         halted=halted,
         halt_reason=halt_reason,
         halted_at=halted_at,
+        roll_mode=get_roll_mode(),  # type: ignore[arg-type]
         mode=mode,  # type: ignore[arg-type]
         drain_healthy=drain_healthy,
         drain_last_seen=drain_last_seen,

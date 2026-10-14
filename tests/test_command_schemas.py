@@ -300,3 +300,19 @@ def test_ledger_import_content_over_the_configured_limit_is_rejected(monkeypatch
     # Still accepts content at or under the (lowered) limit.
     m = validate_payload(CommandKind.LEDGER_IMPORT, {"filename": "s.csv", "content": "x" * 10})
     assert m.content == "x" * 10
+
+
+def test_set_roll_mode_parses_and_is_repeatable() -> None:
+    from src.api.models.commands import SetRollModePayload
+
+    m = validate_payload(CommandKind.SET_ROLL_MODE, {"mode": "propose"})
+    assert isinstance(m, SetRollModePayload)
+    assert m.mode == "propose"
+    assert dedupe_key_for(CommandKind.SET_ROLL_MODE, m) is None
+
+
+def test_set_roll_mode_rejects_an_unknown_mode_and_extra_keys() -> None:
+    with pytest.raises(ValidationError):
+        validate_payload(CommandKind.SET_ROLL_MODE, {"mode": "yolo"})
+    with pytest.raises(ValidationError):
+        validate_payload(CommandKind.SET_ROLL_MODE, {"mode": "auto", "x": 1})

@@ -527,6 +527,41 @@ def _set_autonomy(*, command: Any, bot: Any, chat_id: str, **_: Any) -> dict:
     return {"level": payload.level.value, "previous": get_autonomy_level().value}
 
 
+@register("set_roll_mode")
+def _set_roll_mode(*, command: Any, bot: Any, chat_id: str, **_: Any) -> dict:
+    """Choose whether breach rolls auto-execute (``auto``) or wait for a tap (``propose``).
+
+    Idempotent and broker-free, like ``set_autonomy``. It only flips ``system_settings``
+    ``roll_mode``, which ``may_auto_roll`` reads when a roll is queued — the Rules Engine,
+    the re-gate and the send-time checks are the same either way, and ``propose`` is the more
+    conservative side, so there is no evidence gate.
+    """
+    from src.api.models.commands import SetRollModePayload
+    from src.storage.system_settings import get_roll_mode, set_roll_mode
+
+    payload = SetRollModePayload(**command.payload)
+    previous = get_roll_mode()
+    set_roll_mode(payload.mode)
+    log.warning(
+        "Roll mode set to %s via web command %s (by %s)",
+        payload.mode,
+        command.id,
+        command.requested_by,
+    )
+    _notify(
+        bot,
+        chat_id,
+        "Rolls will now "
+        + (
+            "execute automatically on FULL autonomy"
+            if payload.mode == "auto"
+            else "wait for your approval"
+        )
+        + " (set from the web console).",
+    )
+    return {"mode": payload.mode, "previous": previous}
+
+
 # ---------------------------------------------------------------------------
 # M7 Task 7.4 — universe_add / universe_remove.
 #

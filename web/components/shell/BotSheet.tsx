@@ -3,6 +3,7 @@
 import { AutonomyControl } from "@/components/options/AutonomyControl";
 import { DrainWarning } from "@/components/options/ControlsStrip";
 import { HaltControl } from "@/components/options/HaltControl";
+import { RollModeControl } from "@/components/options/RollModeControl";
 import type { ControlsResponse } from "@/components/options/types";
 import { Sheet } from "@/components/ui/Sheet";
 
@@ -35,6 +36,7 @@ export function BotSheet({
           drainHealthy={controls.drain_healthy}
         />
         <AutonomyControl autonomy={controls.autonomy} rungs={controls.rungs} drainHealthy={controls.drain_healthy} />
+        <RollModeControl mode={controls.roll_mode ?? "auto"} drainHealthy={controls.drain_healthy} />
       </div>
     </Sheet>
   );

@@ -43,7 +43,7 @@ from src.storage.db import session_scope
 from src.storage.models import ApprovalRow, CandidateRow, OrderRow
 from src.storage.orders import has_active_order
 from src.storage.roll_chains import chain_state
-from src.storage.system_settings import may_auto_open
+from src.storage.system_settings import may_auto_roll
 from src.strategies.roll_policy import decide
 from src.strategies.rolling import RollContext
 
@@ -278,7 +278,7 @@ async def evaluate_roll(
     id of the roll already pending for this short). *manual* marks an operator-requested
     evaluation (web ``roll_request``) in the log; the policy is the same. *on_no_roll*
     ``"close"`` is the loss line's variant (``roll_policy.decide``): roll if one qualifies,
-    otherwise close. On FULL autonomy (``may_auto_open``) a roll is approved and queued
+    otherwise close. On FULL autonomy with roll mode "auto" (``may_auto_roll``) a roll is approved and queued
     without a tap. Never raises.
     """
     underlying = pos.underlying or pos.symbol
@@ -400,7 +400,7 @@ async def evaluate_roll(
                 cand,
                 chat_id=chat_id,
                 ttl_minutes=ttl_minutes,
-                auto_approve=may_auto_open(underlying),
+                auto_approve=may_auto_roll(underlying),
             )
     _log_decision(pos, decision, manual)
     return decision, approval_id

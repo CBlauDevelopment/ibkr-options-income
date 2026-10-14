@@ -272,6 +272,9 @@ class ControlsResponse(Envelope):
     # console then renders the banner without a time rather than fabricating one
     # (M6 Task 6.3). No separate settings key exists for this, by design.
     halted_at: datetime | None = None
+    # How a breach roll the policy picked is handled: "auto" = approved and queued without a
+    # tap (autonomy rung permitting), "propose" = left PENDING for an Approve tap.
+    roll_mode: Literal["auto", "propose"] = "auto"
     mode: Literal["paper", "live"]
     drain_healthy: bool
     drain_last_seen: datetime | None = None

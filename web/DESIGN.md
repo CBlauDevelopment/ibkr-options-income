@@ -404,7 +404,7 @@ type and spacing frame them.
 service is not draining commands; a labelled loading block holds its place. It opens the Bot sheet
 (`aria-haspopup`): Halt is one tap; Resume needs the typed word RESUME; rung changes confirm first;
 the not-draining warning sits above the controls. The same exception as the review sheet applies:
-`HaltControl` and `AutonomyControl` keep their legacy bordered Halt and native rung select. Halted
+`HaltControl`, `AutonomyControl` and `RollModeControl` (Auto-execute or Propose only; a native select like the rung's, confirmed only when moving to Auto-execute) keep their legacy bordered Halt and native selects. Halted
 state also shows a full-width flag banner on every page, worded for the wheel ("Wheel trading is
 halted"), since credit spreads have their own halt.
 
@@ -619,3 +619,6 @@ sibling keys; re-run the check after edits.
   collapsible Why above the stub, a collapsible October pay card, and positions beneath it. Theme:
   light default with a dark toggle and a follow-OS option. Navigation: Home, Trades, Portfolio,
   Activity, Research, News, More. Monthly target is a percentage of account value.
+- 2026-10-15: Added `RollModeControl` (Auto-execute or Propose only) beside `AutonomyControl` in the
+  controls strip and the Bot sheet, at the user's request. It reuses the rung select's native
+  styling and receipt, no new tokens.

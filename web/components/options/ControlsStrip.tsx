@@ -6,6 +6,7 @@ import { relativeAge } from "@/lib/format";
 import type { ControlsResponse } from "./types";
 import { AutonomyControl } from "./AutonomyControl";
 import { HaltControl } from "./HaltControl";
+import { RollModeControl } from "./RollModeControl";
 
 /**
  * The controls strip (M2 Task 2.6, read-only then; M6 Task 6.3 makes it live).
@@ -37,6 +38,7 @@ export function ControlsStrip() {
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border bg-surface px-4 py-3 text-sm">
         <ControlPill label="Mode" value={data.mode} />
         <AutonomyControl autonomy={data.autonomy} rungs={data.rungs} drainHealthy={data.drain_healthy} />
+        <RollModeControl mode={data.roll_mode ?? "auto"} drainHealthy={data.drain_healthy} />
         <HaltControl
           halted={data.halted}
           haltReason={data.halt_reason}

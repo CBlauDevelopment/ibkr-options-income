@@ -144,7 +144,9 @@ app/                App Router pages and the root layout
                     confirm-then-receipt shape; no_qualifying_roll renders as a plain
                     answer, roll_already_working links to the in-flight approval.
                     Since M6 the strip is live: <HaltControl/> and <AutonomyControl/>
-                    sit in it, and a halted system renders an unmissable banner at
+                    sit in it (plus <RollModeControl/>, 2026-10-15: Auto-execute or
+                    Propose only for breach rolls, `set_roll_mode`, read from
+                    `controls.roll_mode`), and a halted system renders an unmissable banner at
                     the top of the console with the reason and the time as text.
                     The page owns a `submitted: Map<approvalId, CommandStatus>` state:
                     the Approvals tab's <ApprovalsList/> filters OUT any id present in

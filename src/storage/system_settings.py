@@ -6,9 +6,10 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,6 +26,10 @@ AUTONOMY_WHITELIST_KEY = "autonomy_whitelist"
 HALT_KEY = "execution_halted"
 HALT_REASON_KEY = "execution_halt_reason"
 HALT_SOURCE_KEY = "execution_halt_source"
+# The operator's acknowledgement of a circuit-breaker halt (2026-10-15): JSON
+# {"date": <ET day>, "loss": float|None, "drawdown": float|None}. See `arm_breaker_ack`.
+BREAKER_ACK_KEY = "breaker_ack"
+ROLL_MODE_KEY = "roll_mode"
 SCAN_LEASE_KEY = "scan_lease_expiry"
 # USD since 099fd0a (net liq reported in USD, not the account's base currency). The old
 # "nlv_high_water_mark" row holds a base-currency (SGD) figure and is deliberately never
@@ -106,6 +111,46 @@ def may_auto_open(symbol: str) -> bool:
     opening it never is.
     """
     if is_halted():
+        return False
+    level = get_autonomy_level()
+    if level in (AutonomyLevel.OBSERVE, AutonomyLevel.MANUAL):
+        return False
+    if level == AutonomyLevel.FULL:
+        return True
+    return symbol.upper() in _autonomy_whitelist()
+
+
+ROLL_MODE_AUTO = "auto"
+ROLL_MODE_PROPOSE = "propose"
+ROLL_MODES = (ROLL_MODE_AUTO, ROLL_MODE_PROPOSE)
+
+
+def get_roll_mode() -> str:
+    """``"auto"`` (default) or ``"propose"`` — whether a breach roll the policy picked is
+    approved and queued without a tap (subject to the autonomy rung) or left PENDING for an
+    Approve tap. A web control (`set_roll_mode`); never an input to the Rules Engine."""
+    raw = get_setting(ROLL_MODE_KEY, ROLL_MODE_AUTO).strip().lower()
+    return raw if raw in ROLL_MODES else ROLL_MODE_AUTO
+
+
+def set_roll_mode(mode: str) -> None:
+    if mode not in ROLL_MODES:
+        raise ValueError(f"unknown roll mode {mode!r}")
+    set_setting(ROLL_MODE_KEY, mode)
+
+
+def may_auto_roll(symbol: str) -> bool:
+    """True when a roll proposed for *symbol* may be approved and queued without a human tap.
+
+    Differs from ``may_auto_open`` in two ways: it honours ``roll_mode`` (``propose`` always
+    waits for a tap), and a **circuit-breaker** halt does not block it — a roll swaps a short
+    for another of the same size, and the breaker trips on exactly the move that breaches
+    shorts, so blocking rolls would stop the one protective action. An **operator** halt
+    (``/halt``, the web Halt button) still blocks every roll.
+    """
+    if get_roll_mode() != ROLL_MODE_AUTO:
+        return False
+    if is_halted() and get_halt_source() != "breaker":
         return False
     level = get_autonomy_level()
     if level in (AutonomyLevel.OBSERVE, AutonomyLevel.MANUAL):
@@ -273,9 +318,49 @@ def set_halted(enabled: bool, reason: str = "", *, source: str = "operator") -> 
     """Engage or release the kill switch, recording why it tripped and who tripped it:
     ``"operator"`` (/halt, the web console) or ``"breaker"`` (the circuit breakers). The
     watchdog keeps alerting on a breaker halt; an operator halt is a deliberate pause."""
+    if not enabled and is_halted() and get_halt_source() == "breaker":
+        # /resume on a breaker halt is the operator saying "I have seen this loss". Without a
+        # record of that, the next 30-second poll re-measures the same loss, finds it still over
+        # the line and halts again (2026-10-15).
+        arm_breaker_ack()
     set_setting(HALT_KEY, "true" if enabled else "false")
     set_setting(HALT_REASON_KEY, reason if enabled else "")
     set_setting(HALT_SOURCE_KEY, source if enabled else "")
+
+
+def arm_breaker_ack() -> None:
+    """Note that today's breaker breach was acknowledged. The loss/drawdown level itself is
+    recorded by the next breaker evaluation (``circuit_breakers.evaluate_breakers``) — the
+    resume handlers have no broker connection to measure it with."""
+    from src.common.market_hours import today_et
+
+    set_setting(
+        BREAKER_ACK_KEY,
+        json.dumps({"date": today_et().isoformat(), "loss": None, "drawdown": None}),
+    )
+
+
+def get_breaker_ack(day: date) -> dict[str, float | None] | None:
+    """Today's acknowledgement, or None (never acknowledged, or acknowledged on an earlier ET
+    day — an ack lasts one trading day). A ``None`` ``loss``/``drawdown`` means armed but not
+    yet measured."""
+    raw = get_setting(BREAKER_ACK_KEY, "")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if data.get("date") != day.isoformat():
+            return None
+        return {"loss": data.get("loss"), "drawdown": data.get("drawdown")}
+    except (ValueError, AttributeError):
+        return None
+
+
+def record_breaker_ack(day: date, *, loss: float | None, drawdown: float | None) -> None:
+    set_setting(
+        BREAKER_ACK_KEY,
+        json.dumps({"date": day.isoformat(), "loss": loss, "drawdown": drawdown}),
+    )
 
 
 def get_halt_reason() -> str:

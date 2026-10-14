@@ -31,6 +31,7 @@ class CommandKind(StrEnum):
     HALT = "halt"
     RESUME = "resume"
     SET_AUTONOMY = "set_autonomy"
+    SET_ROLL_MODE = "set_roll_mode"
     UNIVERSE_ADD = "universe_add"
     UNIVERSE_REMOVE = "universe_remove"
     REFRESH = "refresh"
@@ -80,6 +81,14 @@ class ResumePayload(BaseModel):
 class SetAutonomyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     level: AutonomyLevel
+
+
+class SetRollModePayload(BaseModel):
+    """``auto``: a roll the policy picks is approved and queued without a tap (autonomy rung
+    permitting). ``propose``: it waits as a PENDING approval for an Approve tap."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["auto", "propose"]
 
 
 class UniversePayload(BaseModel):
@@ -160,6 +169,7 @@ PAYLOAD_FOR: dict[CommandKind, type[BaseModel]] = {
     CommandKind.HALT: HaltPayload,
     CommandKind.RESUME: ResumePayload,
     CommandKind.SET_AUTONOMY: SetAutonomyPayload,
+    CommandKind.SET_ROLL_MODE: SetRollModePayload,
     CommandKind.UNIVERSE_ADD: UniversePayload,
     CommandKind.UNIVERSE_REMOVE: UniversePayload,
     CommandKind.REFRESH: RefreshPayload,
@@ -178,7 +188,7 @@ def validate_payload(kind: CommandKind, raw: dict) -> BaseModel:
 def dedupe_key_for(kind: CommandKind, payload: BaseModel) -> str | None:
     """The ``f"{kind}:{target}"`` convention from Task 1.1.
 
-    ``None`` for the ten repeatable kinds (halt, resume, set_autonomy, refresh,
+    ``None`` for the eleven repeatable kinds (halt, resume, set_autonomy, set_roll_mode, refresh,
     universe_add, universe_remove, ledger_import, ledger_annotate, ledger_ca_reviewed,
     news_brief) —
     repeating them is harmless, so they are never deduped. The universe kinds joined this
@@ -203,6 +213,7 @@ def dedupe_key_for(kind: CommandKind, payload: BaseModel) -> str | None:
         CommandKind.HALT,
         CommandKind.RESUME,
         CommandKind.SET_AUTONOMY,
+        CommandKind.SET_ROLL_MODE,
         CommandKind.REFRESH,
         CommandKind.UNIVERSE_ADD,
         CommandKind.UNIVERSE_REMOVE,
