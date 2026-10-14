@@ -1,0 +1,110 @@
+import { fireEvent, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { apiFetchMock, renderWithQuery } from "@/lib/test-query";
+import { PayCard } from "./PayCard";
+
+function pay(over: Record<string, unknown> = {}, spreadsAvailable = true) {
+  return {
+    as_of: new Date().toISOString(),
+    book: "paper",
+    spreads_available: spreadsAvailable,
+    pay: {
+      month: "2026-10-01",
+      strategy: "all",
+      premium_collected: 1642,
+      bought_back: 210,
+      commissions: 18.4,
+      commissions_complete: true,
+      net: 1413.6,
+      n_opened: 9,
+      n_closed: 3,
+      month_start_value: 200000,
+      target_pct: 1,
+      target: 2000,
+      progress_pct: 70.68,
+      days_left: 18,
+      ...over,
+    },
+  };
+}
+
+describe("PayCard", () => {
+  it("is collapsed by default and shows net, target and pace on one line", async () => {
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay() });
+    const toggle = await screen.findByRole("button", { name: /October pay/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Scoped to the toggle: the closed stub's total ("Net so far") is in the DOM, hidden.
+    expect(within(toggle).getByText("+$1,413.60")).toBeInTheDocument();
+    expect(screen.getByText("of $2,000.00")).toBeInTheDocument();
+    expect(screen.getByText("71% of target · 18 days left")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "October target" })).toHaveAttribute("aria-valuenow", "71");
+  });
+  it("opens to the month's stub", async () => {
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay() });
+    fireEvent.click(await screen.findByRole("button", { name: /October pay/ }));
+    expect(screen.getByRole("group", { name: "October pay stub" })).toBeInTheDocument();
+    expect(screen.getByText("+$1,642.00")).toBeInTheDocument();
+    expect(screen.getByText("−$210.00")).toBeInTheDocument();
+    expect(screen.getByText("−$18.40")).toBeInTheDocument();
+  });
+  it("says No target set rather than a zero target", async () => {
+    renderWithQuery(<PayCard strategy="all" />, {
+      "/pnl/month": pay({ target: null, target_pct: null, progress_pct: null }),
+    });
+    expect(await screen.findByText("No target set · 18 days left")).toBeInTheDocument();
+    expect(screen.queryByText(/of \$0/)).toBeNull();
+  });
+  it("never turns an unknown progress into 0% of a known target", async () => {
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({ progress_pct: null }) });
+    expect(await screen.findByText("n/a of target · 18 days left")).toBeInTheDocument();
+    expect(screen.queryByText(/^0% of target/)).toBeNull();
+  });
+  it("marks commissions gross when some are missing", async () => {
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({ commissions_complete: false }) });
+    fireEvent.click(await screen.findByRole("button", { name: /October pay/ }));
+    expect(screen.getByText("Commissions (incomplete)")).toBeInTheDocument();
+  });
+  it("asks for the selected strategy", async () => {
+    renderWithQuery(<PayCard strategy="csp" />, { "/pnl/month": pay({ strategy: "csp" }) });
+    await screen.findByRole("button", { name: /October pay/ });
+    expect(apiFetchMock.mock.calls.some((c) => c[0] === "/pnl/month?strategy=csp")).toBe(true);
+  });
+  it("says so in a sentence when the fetch fails", async () => {
+    renderWithQuery(<PayCard strategy="all" />, {});
+    expect(await screen.findByText("Could not load this month's pay.")).toBeInTheDocument();
+    expect(screen.getByText("It tries again every minute.")).toBeInTheDocument();
+  });
+
+  describe("when the spreads book cannot be read", () => {
+    it("flags it on the closed card instead of presenting the wheel total as the whole month", async () => {
+      renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay({}, false) });
+      expect(await screen.findByText(/Spread income is unavailable/)).toBeInTheDocument();
+      // The wheel's own figures still show; the sentence is outside the closed disclosure.
+      const toggle = screen.getByRole("button", { name: /October pay/ });
+      expect(within(toggle).getByText("+$1,413.60")).toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
+    it("shows the spread-only month as n/a, never $0", async () => {
+      renderWithQuery(<PayCard strategy="spread" />, {
+        "/pnl/month": pay(
+          { strategy: "spread", premium_collected: 0, bought_back: 0, commissions: 0, net: 0, n_opened: 0, n_closed: 0 },
+          false,
+        ),
+      });
+      expect(await screen.findByText(/Spread income is unavailable/)).toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: /October pay/ });
+      expect(within(toggle).getByText("n/a")).toBeInTheDocument();
+      expect(within(toggle).getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+      expect(screen.queryByText("$0")).toBeNull();
+      fireEvent.click(toggle);
+      const stub = screen.getByRole("group", { name: "October pay stub" });
+      expect(within(stub).getAllByText("n/a")).toHaveLength(4);
+      expect(screen.queryByText("$0")).toBeNull();
+    });
+    it("stays quiet for a wheel strategy, which never needs the spreads book", async () => {
+      renderWithQuery(<PayCard strategy="csp" />, { "/pnl/month": pay({ strategy: "csp" }, false) });
+      await screen.findByRole("button", { name: /October pay/ });
+      expect(screen.queryByText(/Spread income is unavailable/)).toBeNull();
+    });
+  });
+});
