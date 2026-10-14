@@ -206,7 +206,7 @@ components:
     textColor: "{colors.on-flag}"
     typography: "{typography.body}"
 ---
-<!-- da-vinci schema=1 status=draft updated=2026-10-14 -->
+<!-- da-vinci schema=1 status=ratified updated=2026-10-14 -->
 # Design System: IBKR Income
 
 ## Overview
@@ -586,6 +586,12 @@ sibling keys; re-run the check after edits.
 
 ## Decision Log
 
+- 2026-10-14: Ratified. The operator approved this file on 2026-10-14 after the Section E
+  reconcile of the Part 1 build (web overhaul Part 1: Home, the three read-only routes, the shell
+  and the primitives), including the `unknown` darkening below. Two recorded exceptions to the
+  contract stand: the legacy bordered Approve, Reject and Halt buttons (and the native rung select)
+  inside the sheets, which are protected safety files, and the 24px stub lines (WCAG 2.5.8). Two
+  decisions stay open: the sheet's 180ms exit animation and the restyle of the decide controls.
 - 2026-10-14: The operator darkened the light `unknown` token from `#6e7569` to `#61685d`
   (5.20:1 on paper, 4.72:1 on pressed sage, 5.76:1 on white, up from 4.30, 3.90 and 4.76), so small
   "n/a" text passes AA on every surface, including about 30 legacy files that set it on paper or
