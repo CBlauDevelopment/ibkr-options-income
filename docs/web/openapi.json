@@ -2744,6 +2744,86 @@
         ]
       }
     },
+    "/spreads/positions": {
+      "get": {
+        "tags": [
+          "spreads"
+        ],
+        "summary": "Spread Positions",
+        "operationId": "spread_positions_spreads_positions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
+              "type": "string",
+              "default": "open",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "paper",
+                "shadow",
+                "baseline"
+              ],
+              "type": "string",
+              "default": "paper",
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadPositionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/universe": {
       "get": {
         "tags": [
@@ -9992,6 +10072,183 @@
           "as_of"
         ],
         "title": "Sourced[float]"
+      },
+      "SpreadPositionOut": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "spread_id": {
+            "type": "string",
+            "title": "Spread Id"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "put",
+              "call"
+            ],
+            "title": "Side"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "short_strike": {
+            "type": "number",
+            "title": "Short Strike"
+          },
+          "long_strike": {
+            "type": "number",
+            "title": "Long Strike"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width"
+          },
+          "contracts_opened": {
+            "type": "integer",
+            "title": "Contracts Opened"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "entry_credit": {
+            "type": "number",
+            "title": "Entry Credit"
+          },
+          "entry_commission": {
+            "type": "number",
+            "title": "Entry Commission"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "exit_debit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Debit"
+          },
+          "exit_commission": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Commission"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "realized_pnl_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Realized Pnl Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "spread_id",
+          "mode",
+          "side",
+          "expiry",
+          "short_strike",
+          "long_strike",
+          "width",
+          "contracts_opened",
+          "contracts",
+          "entry_credit",
+          "entry_commission",
+          "opened_at",
+          "status"
+        ],
+        "title": "SpreadPositionOut"
+      },
+      "SpreadPositionsResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "underlying": {
+            "type": "string",
+            "title": "Underlying"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadPositionOut"
+            },
+            "type": "array",
+            "title": "Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "available",
+          "underlying",
+          "mode"
+        ],
+        "title": "SpreadPositionsResponse"
       },
       "StockLeg": {
         "properties": {

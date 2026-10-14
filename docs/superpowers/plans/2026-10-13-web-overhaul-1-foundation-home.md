@@ -58,8 +58,8 @@ The direction mockups live outside the repo; `web/DESIGN.md` § Surfaces → Hom
 | 5 Routes and redirects | done | 8fab3c3 | vitest 552 (548+4), tsc 0, lint clean | 2026-10-13 | Step 5 link rewrite touched navigation links only: `app/trades/[approvalId]/page.tsx`, `components/options/{ApprovalCard,ApprovalDetail,AssessedRow,ShortsRow}.tsx`, `components/shell/RailSection.tsx`; tests `components/options/AssessedRow.test.tsx` (1 href) and `ShortsTable.test.tsx` (2 hrefs). The grep's other hits are API paths (`apiFetch("/options/...")`, `/pnl/...`, `/universe`, `lib/api-types.ts`, `lib/commands.ts`) and code comments; they stay, since rewriting them would break the API calls. More test fixture uses `rows: []` (SystemStatusCard's real body), as Step 1 directs |
 | 6 Shell | done | 429511f; Section B review fix pass in one extra commit after it | vitest 565 (552+4 nav+10 shell+1 More-2 ControlsStrip; Rail's 3 replaced 3), tsc 0, lint clean; after the review fix pass vitest 571 (565+6), tsc 0, lint clean, scratch-copy `next build` green; `next build` green (15 routes); real browser: 307s, five pages render, halt / RESUME / rung change from the bot sheet against a mock API | 2026-10-13 | `HaltedBanner` also says "No new orders will be queued or transmitted; profit-take closes still run": Step 1's copied ControlsStrip wording assertion failed against the plan's banner (RED then GREEN). `ControlsStrip.test.tsx`: dropped the `halted-banner` null check and the two banner tests (the null-time case is now `shell.test` "omits the time"; the banner omits the time instead of saying "unknown time", and `HaltControl` still says it). `text-on-flag` on sunk measured 6.95/10.17 (hover 6.19/8.90): kept. Build gate run in a scratch copy of `web/` (node_modules symlinked) because the operator's own `next dev` on :3000 shares `web/.next`. HaltControl, AutonomyControl, ConfirmAction and DecideControls (via ApprovalCard.test) tests unchanged and green. **Section B review fix pass (one extra commit `fix(web): scope halt copy to the wheel, drain warning in the sheet, dialog keys over the sheet, Universe and Ledger links`), so the later entry-check commit counts shift by a further +1: C1 expects 8 commits on `main..HEAD`, D1 11, E1 15.** I1: the plan's banner text "Trading is halted" is amended to "Wheel trading is halted" plus "No new CSP or covered-call orders will be queued or sent. Credit spreads have their own halt and are not stopped by this one." (the profit-take clause is dropped); the bot card's halted state reads "Wheel halted · paper" (the web halt is the wheel's `system_settings` switch; the spreads service honours only its own halt file). I2: the plan's `BotSheet` code is amended to render the "not draining" warning above the controls, through `DrainWarning`, now exported from `ControlsStrip.tsx` and shared by both surfaces. I3: `useFocusTrap` hands Escape (unstopped) and Tab (into the nested dialog) to a nested `[role=dialog]` while one is open, even with focus on the panel. I4: More also links Universe (`/research/universe`) and Ledger (`/ledger`) |
 | **C entry checks** | done | main..HEAD = 8 (323cd4f f7ccc23 93c7814 5b165f8 f1e5a67 8fab3c3 429511f d055ef4) | pytest 3520+1 skip, vitest 571, tsc/lint/ruff/mypy green, build green, fences 50, C1-C5 pass | 2026-10-14 | C1 counts eight commits, not six (Section A and Section B review fix passes, +2); C2's `next build` ran in a scratch copy of `web/` (the operator's `next dev` shares `web/.next`) |
-| 7 Account value API | done | (this commit; Task 8's commit records the hash) | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
-| 8 Spreads read API | not started | | | | |
+| 7 Account value API | done | 375242b | pytest 3532 (3520+12) + 1 skip, ruff/mypy clean, fences 50, OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | `latest` is the newest snapshot unless the journal holds a close from a later New York day (the plan took any snapshot first, so a monitor stopped for days made today's change = stale snapshot minus yesterday's close); compared by ET day, not timestamp, so a same-day close plotted at 16:00 ET cannot beat a live snapshot (and the route test cannot flake on a UTC+8 machine); +2 builder tests (8, not 6). Route parameter is `Annotated[AccountValueRange, Query(alias="range")] = "1m"` (ruff B008; same OpenAPI). Module docstring avoids the literal `src.claude` (the reporting fence greps raw text) |
+| 8 Spreads read API | done | (this commit; Task 9's commit records the hash) | pytest 3539 (3532+7) + 1 skip, ruff/mypy clean, fences 51 (50+1), OpenAPI regenerated, vitest 571, tsc 0, lint clean | 2026-10-14 | The open probe is `SELECT count(*) FROM sqlite_master`, not `SELECT 1` (which never reads the file, so a non-SQLite `spreads.db` answered `available: true` with an empty book), and a failed probe closes its session. `read_spread_rows` types its `text()` select (`expiry` Date, `opened_at`/`closed_at` DateTime): raw SQL returned strings, so the router's `as_utc` branch never ran and timestamps left the API without an offset. +2 tests (6, not 4), each RED against the plan's code first |
 | 9 Monthly pay API | not started | | | | |
 | **D entry checks** | not started | | | | |
 | 10 Home hero | not started | | | | |
@@ -3025,7 +3025,7 @@ Expected: full suite PASS (including `test_openapi_current` after regeneration a
   - `read_spread_rows(session, *, mode: str, status: str, limit: int) -> list[dict]` (used again
     by Task 9)
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_api_spreads.py`
+- [x] **Step 1: Write the failing tests** — `tests/test_api_spreads.py`
 
 ```python
 """GET /spreads/positions — a read-only window onto data/spreads.db.
@@ -3140,12 +3140,12 @@ def test_only_spreads_db_opens_the_spreads_file_in_the_api() -> None:
 (Use the module-level `ROOT` constant `tests/test_web_fence.py` already defines; if it is named
 differently there, use that name.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `python -m pytest tests/test_api_spreads.py tests/test_web_fence.py -q`
 Expected: FAIL (`src.api.spreads_db` missing; fence test finds no `spreads_db.py`).
 
-- [ ] **Step 3: Implement `src/api/spreads_db.py`**
+- [x] **Step 3: Implement `src/api/spreads_db.py`**
 
 ```python
 """Read-only access to data/spreads.db for the web API (web overhaul Part 1, Task 8).
@@ -3243,7 +3243,7 @@ def read_spread_rows(session: Session, *, mode: str, status: str, limit: int) ->
 (`where` is built only from the fixed literals above, never from request text; `mode`, `limit` are
 bound parameters.)
 
-- [ ] **Step 4: Models and router**
+- [x] **Step 4: Models and router**
 
 `src/api/models/spreads.py`:
 
@@ -3345,7 +3345,7 @@ Raw SQLite returns dates and datetimes as ISO strings through `text()`; Pydantic
 `src/api/main.py`: add `spreads` to the routers import and `app.include_router(spreads.router)`
 after `app.include_router(news.router)`.
 
-- [ ] **Step 5: Run tests, regenerate OpenAPI, gate, commit**
+- [x] **Step 5: Run tests, regenerate OpenAPI, gate, commit**
 
 ```bash
 python -m pytest tests/test_api_spreads.py tests/test_web_fence.py tests/test_spreads_fence.py -q

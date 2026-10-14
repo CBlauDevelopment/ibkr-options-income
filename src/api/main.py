@@ -21,6 +21,7 @@ from src.api.routers import (
     pnl,
     portfolio,
     research,
+    spreads,
     system,
     universe,
     watchlist,
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(pnl.router, prefix="/pnl")
     app.include_router(ledger.router)
     app.include_router(news.router)
+    app.include_router(spreads.router)
     app.include_router(universe.router)
     app.include_router(watchlist.router)
     app.include_router(commands.router)

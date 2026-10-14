@@ -325,3 +325,11 @@ def test_only_the_ledger_package_writes_the_ledger_tables() -> None:
             assert writer not in text, (
                 f"{rel} constructs {writer[:-1]} — only src/ledger/ may write it"
             )
+
+
+def test_only_spreads_db_opens_the_spreads_file_in_the_api() -> None:
+    """The API reaches data/spreads.db through one read-only module (web overhaul Task 8)."""
+    api = ROOT / "src" / "api"
+    users = [p.name for p in api.rglob("*.py") if "spreads_db_url_abs" in p.read_text()]
+    assert users == ["spreads_db.py"]
+    assert "mode=ro" in (api / "spreads_db.py").read_text()
