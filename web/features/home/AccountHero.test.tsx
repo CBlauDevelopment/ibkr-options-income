@@ -6,20 +6,25 @@ const chart = vi.hoisted(() => ({
   handlers: [] as Array<(p: { time?: number }) => void>,
   /** every series.setData(...) argument, in call order */
   data: [] as Array<Array<{ time: number; value: number }>>,
+  /** every createChart(...) options argument, in call order */
+  options: [] as Array<{ layout?: { attributionLogo?: boolean } }>,
 }));
 
 vi.mock("lightweight-charts", () => ({
   ColorType: { Solid: "solid" },
   CrosshairMode: { Magnet: 1 },
   LineType: { Simple: 0 },
-  createChart: () => ({
-    addLineSeries: () => ({ setData: (d: Array<{ time: number; value: number }>) => chart.data.push(d), applyOptions: vi.fn() }),
-    subscribeCrosshairMove: (h: (p: { time?: number }) => void) => chart.handlers.push(h),
-    unsubscribeCrosshairMove: vi.fn(),
-    timeScale: () => ({ fitContent: vi.fn() }),
-    applyOptions: vi.fn(),
-    remove: vi.fn(),
-  }),
+  createChart: (_el: unknown, opts: { layout?: { attributionLogo?: boolean } }) => {
+    chart.options.push(opts);
+    return {
+      addLineSeries: () => ({ setData: (d: Array<{ time: number; value: number }>) => chart.data.push(d), applyOptions: vi.fn() }),
+      subscribeCrosshairMove: (h: (p: { time?: number }) => void) => chart.handlers.push(h),
+      unsubscribeCrosshairMove: vi.fn(),
+      timeScale: () => ({ fitContent: vi.fn() }),
+      applyOptions: vi.fn(),
+      remove: vi.fn(),
+    };
+  },
 }));
 
 import { AccountHero } from "./AccountHero";
@@ -179,6 +184,14 @@ describe("AccountHero", () => {
       expect(screen.getByText("$100,250.00")).toBeInTheDocument();
       expect(screen.queryByText("$100,000.00")).toBeNull();
     });
+  });
+  it("credits TradingView with a link beside the chart, never with a logo over the line", async () => {
+    // The chart library's licence asks for a link to tradingview.com on the page; its default
+    // logo sat on the line's first points, so the logo is off and the link sits in the chip row.
+    renderWithQuery(<AccountHero />, { "/portfolio/value": body("1m") });
+    const link = await screen.findByRole("link", { name: /TradingView/ });
+    expect(link).toHaveAttribute("href", "https://www.tradingview.com/");
+    expect(chart.options.at(-1)?.layout?.attributionLogo).toBe(false);
   });
   it("says there is no history yet instead of drawing an empty frame", async () => {
     const empty = body("1m");

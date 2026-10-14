@@ -1184,10 +1184,11 @@ reskinned without an edit. The structure it added:
   LIVE second confirmation included; below 1024px a one-line `ProposalsBanner` links to Trades.
 - **Routes:** `/` Home, `/trades` (+ `/trades/[approvalId]`, the old options console), `/portfolio`,
   `/activity` (the old P&L console), `/research` (the old landing page) and `/research/universe`,
-  `/news`, `/more` (theme, bot controls, system status, links to Universe, Ledger, How it works and
-  statement import), plus `/stock/[symbol]`, `/ledger/*` and `/explain` unchanged. `next.config.ts`
-  redirects the old URLs with a 307: `/options` → `/trades`, `/options/:id` → `/trades/:id`,
-  `/pnl` → `/activity`, `/universe` → `/research/universe`. The rail and tab bar come from
+  `/news`, `/more` (the bot card, the theme toggle, links to Research, Universe, News, Ledger, How it
+  works and statement import, and system status), plus `/stock/[symbol]`, `/ledger/*` and
+  `/explain` unchanged. `next.config.ts` redirects the old URLs with a 307: `/options` →
+  `/trades`, `/options/:id` → `/trades/:id`, `/pnl` → `/activity`, `/universe` →
+  `/research/universe`. The rail and tab bar come from
   `lib/nav.ts`; `GET /nav` is no longer read (removed in Part 4). Parts 2-4 recompose Trades,
   Portfolio/Activity and Research/News/More and fold the legacy `components/<domain>` folders into
   `features/`.

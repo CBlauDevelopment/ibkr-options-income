@@ -1049,15 +1049,18 @@ journal close, at that day's 16:00 New York time. The rules:
   not yet a close: it neither plots nor competes with a live snapshot.
 - **`latest` is the newer of the newest known snapshot and the newest close, compared as
   instants.** After the close the official close leads; a monitor that stopped days ago never
-  does. Every range ends on `latest` when it is newer than its last point.
+  does. `1m`/`3m`/`ytd`/`all` end on `latest` whenever it is newer than their last close;
+  `1d`/`1w` end on it only when `latest_at` also falls inside the window (on a Monday before the
+  first snapshot, `1d` has no points and does not reach back to Friday's close).
 - **`previous_close` is the close before the New York day `latest` belongs to**, and
   **`change_today` / `change_today_pct` are `null` unless that day is today** (a weekend,
   or before today's first snapshot): the day's change is unknown then, never `0`.
 
 **Response — `AccountValueResponse`:** `{ as_of, series: AccountValueSeries }`.
 `AccountValueSeries`: `{ range, points: AccountValuePoint[], latest: float | null, latest_at: datetime | null, previous_close: float | null, change_today: float | null, change_today_pct: float | null }`.
-`AccountValuePoint`: `{ at, value }` (strictly by time; the web client also folds two points in
-one second into one before charting).
+`AccountValuePoint`: `{ at, value }`, in ascending time order but not strictly: two snapshot rows
+captured at the same `captured_at` both appear, so the web client folds points that share a second
+into one (the later row wins) before charting.
 
 ---
 
@@ -1222,16 +1225,20 @@ The attribution rule, every date read in New York time:
 - **Premium counts in the month the leg was SOLD** (opened); **buybacks count in the month they
   were BOUGHT** (closed). An expired or assigned leg closes on its expiry date.
 - **Commissions are charged by side, once each:** the sell-side commission
-  (`PnlLeg.open_commissions`) in the month the leg opened, the rest in the month it closed. A
-  leg with no known split charges all of its commissions to the open month, so no commission
-  is ever counted in two months and a past month's stub never changes after the fact.
+  (`PnlLeg.open_commissions`) in the month the leg opened, the rest in the month it closed, so
+  no commission is counted in two months. A leg with no known split (`open_commissions` null)
+  would charge all of its commissions to the open month, which means a closing commission
+  recorded later would land in that past month; `build_legs` always sets the split today. A
+  past month's stub can still change when a commission is recorded after the month ends.
 - Spreads count only positions whose `mode` equals the book (shadow and baseline are
-  simulations): entry credit and entry commission in the month opened, the closed contracts'
-  exit debit and exit commission in the month closed.
+  simulations): entry credit and entry commission in the month opened; the exit debit and exit
+  commission of every closed contract in the month the spread finally closed (a partial close
+  waits for the final close).
 - `net = premium_collected − bought_back − commissions`.
 - **`target` is `web.monthly_income_target_pct` of `month_start_value`**, the last known
-  journal close before the month's first day. Either unknown makes `target_pct` / `target` /
-  `progress_pct` `null` (the card says "No target set"), never `0`.
+  journal close before the month's first day. `target_pct` echoes the setting as configured
+  (`null` when unset); when either the setting or `month_start_value` is unknown, `target` and
+  `progress_pct` are `null` (the card says "No target set"), never `0`.
 - `commissions_complete` is `false` when any counted leg lacks a commission (the figure is a
   lower bound).
 - **`spreads_available`** is `false` only when a spreads book is in scope (`strategy` `all` or
@@ -1260,7 +1267,10 @@ with SQLite `mode=ro` and plain SQL. Owner-only; writes nothing; never reaches I
 - **`available: false` with no positions** when the file does not exist yet (a fresh install)
   or cannot be read (not a SQLite database, unopenable): a `200`, never a `500`, and never an
   "empty book" claim. An old file without the `spread_positions` table reads as an empty book.
-- `realized_pnl_usd` and `exit_debit` are `null` while a spread is open, never `0`.
+- `realized_pnl_usd` is `null` until the spread is closed, never `0`. A spread that is still open
+  can already carry `exit_debit` (the qty-weighted debit of the contracts closed so far, `null`
+  only until the first close) and a non-zero `exit_commission` (which starts at `0`) after a
+  partial close; `contracts` below `contracts_opened` is what marks the partial close.
 - `opened_at` / `closed_at` are served as UTC with an offset.
 
 **Response — `SpreadPositionsResponse`:** `{ as_of, available, underlying, mode, positions: SpreadPositionOut[] }`.

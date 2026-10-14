@@ -59,6 +59,11 @@ typography:
     fontSize: 0.875rem
     fontWeight: 400
     lineHeight: 1.5
+  caption:
+    fontFamily: "Hanken Grotesk, system-ui, sans-serif"
+    fontSize: 0.8125rem
+    fontWeight: 400
+    lineHeight: 1.45
   control:
     fontFamily: "Hanken Grotesk, system-ui, sans-serif"
     fontSize: 0.84375rem
@@ -193,7 +198,7 @@ components:
   bot-card:
     backgroundColor: "{colors.sunk}"
     textColor: "{colors.ink}"
-    typography: "{typography.body}"
+    typography: "{typography.caption}"
     rounded: "{rounded.md}"
     padding: 10px
   halted-banner:
@@ -268,7 +273,8 @@ the stub voice: every perforated sum, the ledger, and fill prices, where the typ
 
 Scale (fixed rem, ratio about 1.2, no fluid headings on these Operate surfaces): display 46px for
 the hero number (38px on phones), headline 24px for page titles, title 17px for card titles and
-buttons, body 14px, control 13.5px semibold for the strategy switcher and the theme toggle (four
+buttons, body 14px, caption 13px for secondary lines (sub-lines under a row or a figure, the
+"Account value" label, the pay pace line, the bot card), control 13.5px semibold for the strategy switcher and the theme toggle (four
 segments at 17px do not fit a 390px phone), label 12px semibold with slight tracking for eyebrows,
 chips and status words, figure 13.5px mono at 500. Prose (the Explain pages, Claude's review text, news explanations) keeps a 65 to
 75 character measure; tables may run wider.
@@ -334,8 +340,8 @@ frozen scan quote, which the card never presents as a live price.
 Each line is a button (at least 24px tall) that toggles a one-sentence explanation beneath it. Unknown inputs render
 "n/a" with hatch; a total built on an unknown says so in words instead of summing.
 
-**October pay card** (Home): collapsible. Closed, it shows the title (never wrapped; "of $target"
-may drop under the figure on a phone), net so far against target, the lime meter, and "71% of
+**October pay card** (Home): collapsible. Closed, it shows the title (never wrapped; on a narrow
+phone the whole figure drops below the title, and "of $target" never splits from its amount), net so far against target, the lime meter, and "71% of
 target · 18 days left". Open, it shows the month's stub. The target is
 `web.monthly_income_target_pct` of the month-start account value; with none it says "No target
 set" and the meter is hatched. An unknown progress reads "n/a of target" (hatched n/a). When the
@@ -354,7 +360,9 @@ The Positions card carries the same tabs as smaller chips, plus Shares.
 **Account hero** (Home): "Account value", the number (display, 38px on phones, 46px from 768px),
 then today's signed change in words ("+$1,234.50 (0.50%) today"; a genuine zero is neutral ink; an
 unknown change reads "n/a today · last value <date>", hatched n/a), then the line chart (ink, no
-fill, never animated in) and the range chips. The chart scrubs by pointer and, as a slider, by
+fill, never animated in) and the range chips, with a muted "Chart by TradingView" link at the end
+of the chip row: the chart library's licence asks for a link, and its own logo is off so nothing
+sits on the line. The chart scrubs by pointer and, as a slider, by
 keyboard (arrows, Home, End); the number follows the scrub. Loading is a hero-shaped skeleton.
 
 **Positions card** (Home): the title, "Sorted by expiry", filter chips (All, CSPs, CCs, Credit
@@ -571,6 +579,10 @@ sibling keys; re-run the check after edits.
 
 ## Decision Log
 
+- 2026-10-14: Section E review: added the `caption` type step (13px, the size every secondary
+  line and the bot card already use; the `bot-card` token said 14px); the pay figure drops below
+  its title as a whole on a narrow phone, never splitting "of" from its amount; the chart's
+  TradingView credit is a text link beside the range chips instead of a logo over the line.
 - 2026-10-14: Reconciled to the Part 1 build (web overhaul Task 14 Step 7), awaiting the
   operator's ratification: added the `control` type token (13.5px/600, the strategy switcher and
   theme toggle; 17px does not fit four segments at 390px) and the tokens `on-primary-dark`,

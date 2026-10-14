@@ -92,17 +92,32 @@ export function AccountHero() {
       ) : (
         <HeroChart points={series.points} onHover={setHover} />
       )}
-      <SegmentedControl
-        label="Chart range"
-        appearance="quiet"
-        options={RANGES}
-        value={range}
-        onChange={(r) => {
-          setHover(null);
-          setRange(r);
-        }}
-        className="mt-2 max-md:flex max-md:w-full max-md:justify-between"
-      />
+      {/* The 10px row gap clears the chips' 44px phone hit areas when the credit wraps below. */}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
+        <SegmentedControl
+          label="Chart range"
+          appearance="quiet"
+          options={RANGES}
+          value={range}
+          onChange={(r) => {
+            setHover(null);
+            setRange(r);
+          }}
+          className="max-md:flex max-md:w-full max-md:justify-between"
+        />
+        {series.points.length > 0 && (
+          // The chart library's licence asks for a link to tradingview.com on the page; the
+          // chart's own logo is off so it never covers the line.
+          <a
+            href="https://www.tradingview.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-6 items-center text-xs text-muted underline-offset-2 hover:underline max-md:ml-auto"
+          >
+            Chart by TradingView<span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
+      </div>
     </section>
   );
 }

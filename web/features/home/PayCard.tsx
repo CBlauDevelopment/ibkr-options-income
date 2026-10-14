@@ -87,12 +87,19 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
         tone="plain"
         summary={
           <span className="block">
-            <span className="flex items-baseline justify-between gap-2.5">
+            {/* Each phrase is unbreakable: the figure block drops below the title when they do not
+                fit side by side (320px), and "of $target" drops under the net as one unit. */}
+            <span className="flex flex-wrap items-baseline justify-between gap-x-2.5">
               <span className="whitespace-nowrap text-[1.0625rem] font-bold">{month} pay</span>
-              <span className="tabular text-right font-mono font-semibold">
-                <span className={clsx(net === null && "hatch text-unknown")}>{formatStubValue(net, "signed-money")}</span>
+              <span className="tabular ml-auto text-right font-mono font-semibold">
+                <span className={clsx("whitespace-nowrap", net === null && "hatch text-unknown")}>
+                  {formatStubValue(net, "signed-money")}
+                </span>
                 {!wholeUnknown && pay.target !== null && (
-                  <span className="ml-1 font-normal text-muted">of {formatMoneyCell(pay.target)}</span>
+                  <>
+                    {" "}
+                    <span className="whitespace-nowrap font-normal text-muted">of {formatMoneyCell(pay.target)}</span>
+                  </>
                 )}
               </span>
             </span>

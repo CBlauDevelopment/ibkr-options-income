@@ -41,7 +41,13 @@ export function HeroChart({
     const chart: IChartApi = createChart(el, {
       autoSize: true,
       height: 160,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: cssVar("--text-muted") },
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: cssVar("--text-muted"),
+        // The library's logo sat on the line's first points. Its licence asks for a link to
+        // tradingview.com on the page, which AccountHero renders as text beside the range chips.
+        attributionLogo: false,
+      },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { visible: false },
       timeScale: { visible: false, borderVisible: false },
