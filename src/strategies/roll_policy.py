@@ -8,10 +8,13 @@ Two questions, kept separate (docs/research/2026-10-11-rolling-short-options.md)
   of time value left often recovers. A short call is also acted on before an ex-dividend date
   when its extrinsic no longer covers the dividend (early assignment becomes rational). The
   calendar timers are informational elsewhere; they never reach this module.
-* **What** — ``decide``: leveraged ETFs hold (their 2× buyback is the exit); a put on a name the
-  operator would not own is closed; a would-own put rolls for a net credit when one exists
-  (``csp.when_assignable: roll_if_credit``), else is assigned; a covered call rolls up-and-out
-  (``cc.keep_shares``, debit capped), else is called away above basis or held below it.
+* **What** — ``decide``: a would-own put rolls for a net credit when one exists
+  (``csp.when_assignable: roll_if_credit``), else is assigned; a put on a name the operator
+  would not own rolls if it can and is closed only when no roll qualifies; a covered call rolls
+  up-and-out (``cc.keep_shares``, debit capped), else is called away above basis or held below
+  it. Leveraged ETFs follow the same tree (operator ruling 2026-10-14, replacing "never roll").
+  ``on_no_roll="close"`` is the loss-line variant: roll if one qualifies, otherwise close —
+  "prefer rolling over closing in a loss; if there are no viable rolls, reluctantly close".
 
 ``RollDecision.reason`` is a stable code and ``rejections`` counts every construction
 rejection, so a decision that proposes nothing still says why.
@@ -21,6 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import date
+from typing import Literal
 
 from src.common.config import RollCfg
 from src.common.schemas import (
@@ -112,11 +116,15 @@ def decide(
     tech_stats: TechnicalStats,
     cfg: RollCfg,
     *,
-    is_leveraged: bool,
     would_own: bool,
     cc_basis: float | None,
+    on_no_roll: Literal["policy", "close"] = "policy",
 ) -> RollDecision:
-    """Roll, assign, let called away, close, hold or defer — see the module docstring."""
+    """Roll, assign, let called away, close, hold or defer — see the module docstring.
+
+    *on_no_roll* ``"close"`` (the loss line) skips assignment and keeping shares: a qualifying
+    roll is taken, anything else becomes a close.
+    """
     pos = ctx.position
     strike = pos.strike or 0.0
     if ctx.current.strict_mid is None:
@@ -125,19 +133,52 @@ def decide(
             reason="current_unpriced",
             detail="No two-sided quote for the short itself — retrying next cycle.",
         )
-    if is_leveraged:
+
+    if on_no_roll == "close":
+        cand, rej = construct_roll(
+            dataclasses.replace(
+                ctx, allow_debit=pos.right == OptionRight.CALL and cfg.cc.keep_shares
+            ),
+            quotes,
+            iv_stats,
+            tech_stats,
+            cfg,
+        )
+        if cand is not None:
+            kind = "debit" if cand.premium < 0 else "credit"
+            return RollDecision(
+                action="roll",
+                reason="loss_line_roll",
+                candidate=cand,
+                rejections=rej,
+                detail=f"At the loss line: roll for a ${abs(cand.premium):.2f}/sh net {kind} "
+                "instead of buying back.",
+            )
         return RollDecision(
-            action="hold",
-            reason="leveraged_etf_no_roll",
-            detail="Leveraged ETF: never rolled. The 2× loss-line buyback remains the exit.",
+            action="close",
+            reason=_top(rej, "no_qualifying_roll"),
+            rejections=rej,
+            detail=f"At the loss line and no roll qualifies ({_rej_text(rej)}) — buying back.",
         )
 
     if pos.right == OptionRight.PUT:
         if not would_own:
+            cand, rej = construct_roll(ctx, quotes, iv_stats, tech_stats, cfg)
+            if cand is not None:
+                return RollDecision(
+                    action="roll",
+                    reason="credit_roll",
+                    candidate=cand,
+                    rejections=rej,
+                    detail=f"Not on the would-own list — rolling for a ${cand.premium:.2f}/sh "
+                    "net credit rather than closing.",
+                )
             return RollDecision(
                 action="close",
                 reason="not_would_own",
-                detail=f"Not on the would-own list — close rather than take shares at ${strike:g}.",
+                rejections=rej,
+                detail=f"Not on the would-own list and no roll qualifies ({_rej_text(rej)}) — "
+                f"close rather than take shares at ${strike:g}.",
             )
         if cfg.csp.when_assignable == "assign":
             return RollDecision(

@@ -1994,8 +1994,12 @@ def format_roll_decision(
     *,
     max_rolls: int,
     review: RollReview | None = None,
+    auto_approved: bool = False,
 ) -> str:
     """The roll policy's decision for one breached short, in MarkdownV2 (2026-10-11).
+
+    *auto_approved* (FULL autonomy, 2026-10-14) says the roll is already queued — the card
+    carries no buttons then.
 
     A ``roll`` card names exactly what Approve would send: both legs with their mids, the net
     per share and in total, the contract count, the chain's roll number and the breakeven —
@@ -2037,6 +2041,8 @@ def format_roll_decision(
             f"Roll {origin.seq} of {max_rolls} · breakeven {_md(f'{cand.breakeven:.2f}')}",
             "",
         ]
+        if auto_approved:
+            parts += ["🤖 _Auto\\-approved \\(full autonomy\\) — sending now_", ""]
     parts.append(_md(decision.detail or decision.reason))
     if decision.rejections:
         skipped = ", ".join(

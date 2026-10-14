@@ -124,16 +124,16 @@ def _ctx(right=OptionRight.PUT, strike=100.0, cur_mid=5.50, seq=0) -> RollContex
     )
 
 
-def _decide(ctx, quotes, cfg=None, *, lev=False, own=True, basis=None):
+def _decide(ctx, quotes, cfg=None, *, own=True, basis=None, on_no_roll="policy"):
     return decide(
         ctx,
         quotes,
         _IV,
         _TECH,
         cfg or RollCfg(csp={"when_assignable": "roll_if_credit"}, cc={"keep_shares": True}),
-        is_leveraged=lev,
         would_own=own,
         cc_basis=basis,
+        on_no_roll=on_no_roll,
     )
 
 
@@ -141,13 +141,31 @@ _PUT_ROLL = [_q(100.0, 12, 5.90, -0.62)]
 _CALL_ROLL_DEBIT = [_q(105.0, 12, 5.30, 0.55, OptionRight.CALL)]  # net −0.20
 
 
-def test_leveraged_etfs_hold() -> None:
-    d = _decide(_ctx(), _PUT_ROLL, lev=True)
-    assert (d.action, d.reason) == ("hold", "leveraged_etf_no_roll")
+def test_a_put_on_a_name_we_would_not_own_rolls_when_it_can() -> None:
+    # 2026-10-14 ruling: prefer rolling over closing in a loss.
+    d = _decide(_ctx(), _PUT_ROLL, own=False)
+    assert d.action == "roll" and d.candidate is not None
 
 
-def test_a_put_on_a_name_we_would_not_own_is_closed() -> None:
-    assert _decide(_ctx(), _PUT_ROLL, own=False).action == "close"
+def test_a_put_on_a_name_we_would_not_own_is_closed_when_no_roll_qualifies() -> None:
+    d = _decide(_ctx(), [], own=False)
+    assert (d.action, d.reason) == ("close", "not_would_own")
+
+
+def test_the_loss_line_rolls_when_a_roll_qualifies() -> None:
+    d = _decide(_ctx(), _PUT_ROLL, on_no_roll="close")
+    assert (d.action, d.reason) == ("roll", "loss_line_roll")
+    assert d.candidate is not None and d.candidate.premium == 0.40
+
+
+def test_the_loss_line_closes_when_no_roll_qualifies_instead_of_assigning() -> None:
+    d = _decide(_ctx(), [_q(100.0, 12, 5.45, -0.62)], on_no_roll="close")
+    assert (d.action, d.reason) == ("close", "net_below_floor")
+
+
+def test_the_loss_line_on_a_covered_call_allows_the_capped_debit_roll() -> None:
+    d = _decide(_ctx(OptionRight.CALL, 100.0), _CALL_ROLL_DEBIT, basis=90.0, on_no_roll="close")
+    assert d.action == "roll" and d.candidate is not None and d.candidate.premium < 0
 
 
 def test_a_would_own_put_rolls_for_a_credit() -> None:
@@ -198,5 +216,10 @@ def test_an_unpriced_current_leg_defers() -> None:
 
 
 def test_every_decision_explains_itself() -> None:
-    for d in (_decide(_ctx(), _PUT_ROLL), _decide(_ctx(), []), _decide(_ctx(), [], own=False)):
+    for d in (
+        _decide(_ctx(), _PUT_ROLL),
+        _decide(_ctx(), []),
+        _decide(_ctx(), [], own=False),
+        _decide(_ctx(), [], on_no_roll="close"),
+    ):
         assert d.detail

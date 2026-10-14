@@ -112,7 +112,6 @@ async def test_the_decision_card_is_reviewed_with_the_proposal(db) -> None:
     bot = AsyncMock()
     with (
         patch.object(intraday, "_alert_window_open", return_value=True),
-        patch.object(intraday, "is_leveraged_etf", return_value=False),
         patch.object(intraday, "review_roll", side_effect=_review),
         patch(
             "src.execution.roll_pipeline.evaluate_roll",

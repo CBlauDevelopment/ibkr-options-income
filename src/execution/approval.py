@@ -309,7 +309,12 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
 
             # Daily trade-count circuit breaker: once today's entry cap is reached,
             # cancel further entry orders rather than transmit them. (SYSTEM_REVIEW Phase 2)
-            if cap_remaining is not None and cap_remaining <= 0:
+            # A roll is exempt: it swaps one short for another of the same size (2026-10-14).
+            if (
+                cap_remaining is not None
+                and cap_remaining <= 0
+                and candidate.strategy != Strategy.ROLL
+            ):
                 log.warning(
                     "Daily trade cap reached — cancelling order_id=%s candidate=%s",
                     order_row.id,
@@ -331,7 +336,7 @@ async def process_queued_orders(ib: IB, bot: Bot, chat_id: str) -> None:
             order_row.state = OrderState.SUBMITTED
             order_row.detail = "Queued for async execution"
             to_execute.append((order_row.id, candidate))
-            if cap_remaining is not None:
+            if cap_remaining is not None and candidate.strategy != Strategy.ROLL:
                 cap_remaining -= 1
 
     # ------------------------------------------------------------------ #

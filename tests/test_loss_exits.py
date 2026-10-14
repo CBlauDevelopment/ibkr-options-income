@@ -25,6 +25,16 @@ def _short_put(strike=100.0, qty=-1, underlying="TQQQ"):
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_viable_roll(request: pytest.FixtureRequest):
+    """The buy-back tests below assume no roll qualifies; the roll path has its own tests."""
+    if request.node.name.startswith("test_the_loss_line"):
+        yield
+        return
+    with patch("src.execution.profit_take._roll_at_loss_line", new=AsyncMock(return_value=False)):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_loss_exit_does_not_close_a_non_leveraged_short():
     """2026-10-02: a GOOGL CSP (a name the operator would own) was bought back at 2.35x the
@@ -222,3 +232,108 @@ async def test_loss_exit_result_escapes_float_fill_qty():
     text = bot.send_message.call_args.kwargs["text"]
     assert "2 filled" in text
     assert not re.search(r"(?<!\\)\.", text), text  # every '.' escaped for MarkdownV2
+
+
+# ---------------------------------------------------------------------------
+# Roll first (operator ruling 2026-10-14)
+# ---------------------------------------------------------------------------
+
+
+def _decision(action: str, reason: str):
+    from src.common.schemas import RollDecision
+
+    return RollDecision(action=action, reason=reason, detail=f"{action} detail")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_the_loss_line_rolls_instead_of_closing_when_a_roll_qualifies(db):
+    from src.execution.profit_take import check_loss_exits
+
+    ib_scan, ib_exec, bot = MagicMock(), MagicMock(), AsyncMock()
+    with (
+        patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
+        patch(
+            "src.execution.roll_pipeline.evaluate_roll",
+            new=AsyncMock(return_value=(_decision("roll", "loss_line_roll"), 42)),
+        ) as ev,
+        patch("src.execution.profit_take.close_short_position", new=AsyncMock()) as close,
+    ):
+        await check_loss_exits(ib_scan, ib_exec, bot, "chat")
+    assert ev.await_args.kwargs["on_no_roll"] == "close"
+    close.assert_not_awaited()
+    kwargs = bot.send_message.await_args.kwargs
+    assert "rolling instead of closing" in kwargs["text"]
+    assert kwargs["reply_markup"] is not None  # approval 42 does not exist → not auto-approved
+
+
+@pytest.mark.asyncio
+async def test_the_loss_line_waits_while_a_roll_is_pending(db):
+    from src.execution.profit_take import check_loss_exits
+
+    ib_scan, ib_exec, bot = MagicMock(), MagicMock(), AsyncMock()
+    with (
+        patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
+        patch(
+            "src.execution.roll_pipeline.evaluate_roll",
+            new=AsyncMock(return_value=(_decision("defer", "roll_pending"), 42)),
+        ),
+        patch("src.execution.profit_take.close_short_position", new=AsyncMock()) as close,
+    ):
+        await check_loss_exits(ib_scan, ib_exec, bot, "chat")
+    close.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("action", "reason"),
+    [
+        ("close", "net_below_floor"),
+        ("defer", "roll_declined_today"),
+        ("defer", "chain_unavailable"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_loss_line_buys_back_when_no_roll_is_available(db, action, reason):
+    from src.execution.profit_take import check_loss_exits
+
+    ib_scan, ib_exec, bot = MagicMock(), MagicMock(), AsyncMock()
+    result = MagicMock(status="filled", filled_qty=1, avg_price=5.2)
+    with (
+        patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
+        patch(
+            "src.execution.roll_pipeline.evaluate_roll",
+            new=AsyncMock(return_value=(_decision(action, reason), None)),
+        ),
+        patch(
+            "src.execution.profit_take.close_short_position", new=AsyncMock(return_value=result)
+        ) as close,
+    ):
+        await check_loss_exits(ib_scan, ib_exec, bot, "chat")
+    close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_the_loss_line_buys_back_after_a_failed_roll_without_re_evaluating(db):
+    from src.execution.profit_take import check_loss_exits
+
+    ib_scan, ib_exec, bot = MagicMock(), MagicMock(), AsyncMock()
+    result = MagicMock(status="filled", filled_qty=1, avg_price=5.2)
+    with (
+        patch("src.ibkr.portfolio.get_positions", return_value=[_short_put()]),
+        patch("src.execution.profit_take.chain_entry_credit_per_share", return_value=2.50),
+        patch("src.execution.profit_take._quote_short", new=AsyncMock(return_value=(5.10, 5.30))),
+        patch("src.execution.roll_pipeline.roll_failed_today", return_value=True),
+        patch("src.execution.roll_pipeline.evaluate_roll", new=AsyncMock()) as ev,
+        patch(
+            "src.execution.profit_take.close_short_position", new=AsyncMock(return_value=result)
+        ) as close,
+    ):
+        await check_loss_exits(ib_scan, ib_exec, bot, "chat")
+    ev.assert_not_awaited()
+    close.assert_awaited_once()

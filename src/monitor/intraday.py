@@ -43,7 +43,6 @@ from src.common.schemas import (
     RollDecision,
     RollReview,
 )
-from src.common.universe import is_leveraged_etf
 from src.ibkr.connection import AutoReconnect, connect_with_retry
 from src.ibkr.contracts import build_option, qualify_options_async
 from src.ibkr.market_data import req_fresh_mkt_data
@@ -108,9 +107,9 @@ def _ticker_to_quote(ticker: Any, pos: PositionSnapshot) -> OptionQuote:
 def _load_entry_credit(pos: PositionSnapshot) -> float | None:
     """Net entry credit per share for the loss-line trigger, or None to skip it.
 
-    None for a leveraged ETF: the approval service's loss exit still closes those outright
-    (they can run against a short too fast to roll), so the monitor must not also propose a
-    roll for them.
+    None for a leveraged ETF: the approval service's loss exit owns their loss line (it tries a
+    roll first and buys back only when none qualifies, 2026-10-14), so the monitor must not
+    also act on it.
     """
     from src.common.universe import is_leveraged_etf
     from src.storage.roll_chains import chain_entry_credit_per_share
@@ -411,6 +410,20 @@ def _persist_decision(
         )
 
 
+def _approval_auto_approved(approval_id: int) -> bool:
+    """True when the roll's approval was written APPROVED (FULL autonomy) — no buttons then."""
+    from src.common.schemas import ApprovalStatus
+    from src.storage.models import ApprovalRow
+
+    try:
+        with session_scope() as s:
+            row = s.get(ApprovalRow, approval_id)
+            return row is not None and row.status == ApprovalStatus.APPROVED
+    except Exception:
+        log.exception("roll: approval lookup failed for %s", approval_id)
+        return False
+
+
 def _decision_markup(
     decision: RollDecision, approval_id: int | None, pos: PositionSnapshot, cfg: Config
 ) -> Any:
@@ -450,7 +463,7 @@ async def handle_roll_trigger(
 
     Runs only inside the alert window, only when ``roll_policy.roll_trigger`` fires, and at most
     once per ``roll.trigger.reevaluate_minutes`` per position — a breach is re-checked while it
-    holds rather than alerted once. Leveraged ETFs hold without a fetch. ``defer`` decisions
+    holds rather than alerted once. ``defer`` decisions
     send nothing; any other decision is sent once per ET day per action/reason (a newly queued
     roll approval always gets its own card). Returns the decision, or None when nothing ran.
     """
@@ -477,13 +490,10 @@ async def handle_roll_trigger(
         # get_positions carries no greeks; the policy compares the live delta.
         live = pos.model_copy(update={"delta": quote.delta}) if pos.delta is None else pos
         approval_id: int | None = None
-        if is_leveraged_etf(pos.underlying or pos.symbol):
-            decision = RollDecision(
-                action="hold",
-                reason="leveraged_etf_no_roll",
-                detail="Leveraged ETF: never rolled. The 2× loss-line buyback remains the exit.",
-            )
-        elif ib is None:
+        # Leveraged ETFs follow the same decision tree since 2026-10-14 (operator ruling: roll
+        # where possible, else assign). Their 2× loss line stays in the approval service, which
+        # now also tries a roll before buying back (profit_take.check_loss_exits).
+        if ib is None:
             decision = RollDecision(action="defer", reason="broker_unavailable")
         else:
             decision, approval_id = await evaluate_roll(
@@ -511,6 +521,7 @@ async def handle_roll_trigger(
                 )
             except Exception:
                 log.exception("Claude review failed for roll decision %s", pos.symbol)
+        auto = approval_id is not None and _approval_auto_approved(approval_id)
         text = format_roll_decision(
             pos,
             quote,
@@ -518,13 +529,14 @@ async def handle_roll_trigger(
             decision,
             max_rolls=cfg.roll.limits.max_rolls_per_chain,
             review=review,
+            auto_approved=auto,
         )
         try:
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode="MarkdownV2",
-                reply_markup=_decision_markup(decision, approval_id, pos, cfg),
+                reply_markup=None if auto else _decision_markup(decision, approval_id, pos, cfg),
             )
         except Exception:
             log.exception("Telegram send failed for roll decision %s", pos.symbol)

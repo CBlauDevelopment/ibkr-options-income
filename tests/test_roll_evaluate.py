@@ -155,7 +155,67 @@ async def test_a_missing_quote_for_the_short_itself_defers(wired) -> None:
     assert (decision.action, decision.reason) == ("defer", "current_unpriced")
 
 
-async def test_a_put_we_would_not_own_is_closed_without_an_approval(wired) -> None:
+async def test_a_put_we_would_not_own_rolls_when_a_credit_roll_exists(wired) -> None:
+    # 2026-10-14 ruling: prefer rolling over closing in a loss.
     wired["would_own"] = []
     decision, approval_id = await _evaluate()
+    assert decision.action == "roll" and approval_id is not None
+
+
+async def test_a_put_we_would_not_own_is_closed_without_an_approval_when_no_roll(wired) -> None:
+    wired["would_own"] = []
+    wired["quotes"] = [_q(_OLD, 5.50, -0.70), _q(_NEW, 5.45, -0.62)]  # only a debit roll
+    decision, approval_id = await _evaluate()
     assert (decision.action, approval_id) == ("close", None)
+
+
+async def test_full_autonomy_approves_and_queues_the_roll(wired, db) -> None:
+    from src.common.schemas import AutonomyLevel
+    from src.storage.models import ApprovalRow, OrderRow
+    from src.storage.system_settings import set_autonomy_level
+
+    set_autonomy_level(AutonomyLevel.FULL)
+    decision, approval_id = await _evaluate()
+    assert decision.action == "roll" and approval_id is not None
+    with db() as s:
+        assert s.get(ApprovalRow, approval_id).status == "approved"
+        order = s.query(OrderRow).filter_by(approval_id=approval_id).one()
+        assert order.state == "queued" and order.snapshot["strategy"] == "roll"
+
+
+async def test_the_loss_line_closes_when_no_roll_qualifies(wired) -> None:
+    wired["quotes"] = [_q(_OLD, 5.50, -0.70), _q(_NEW, 5.45, -0.62)]
+    decision, approval_id = await _evaluate(on_no_roll="close")
+    assert (decision.action, approval_id) == ("close", None)
+
+
+async def test_the_loss_line_closes_when_the_rules_engine_refuses_the_roll(
+    wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import src.execution.roll_pipeline as rp
+    from src.common.schemas import RiskVerdict, Verdict
+
+    monkeypatch.setattr(
+        rp,
+        "validate_candidates",
+        lambda cands, *a, **k: [
+            RiskVerdict(candidate_id=cands[0].candidate_id, verdict=Verdict.REJECT, reasons=["x"])
+        ],
+    )
+    decision, _ = await _evaluate(on_no_roll="close")
+    assert (decision.action, decision.reason) == ("close", "rules_engine:x")
+
+
+async def test_a_cancelled_roll_order_today_counts_as_failed(wired, db) -> None:
+    from src.execution.roll_pipeline import roll_failed_today
+    from src.storage.models import OrderRow
+
+    _, approval_id = await _evaluate()
+    assert not roll_failed_today(_pos())
+    with db() as s:
+        from src.storage.models import ApprovalRow
+
+        snap = s.get(ApprovalRow, approval_id).snapshot
+        s.add(OrderRow(candidate_id="x", approval_id=approval_id, state="cancelled", snapshot=snap))
+        s.commit()
+    assert roll_failed_today(_pos())

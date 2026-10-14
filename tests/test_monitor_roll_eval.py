@@ -111,7 +111,7 @@ def _roll_decision() -> RollDecision:
     return RollDecision(action="assign", reason="net_below_floor", detail="No credit roll.")
 
 
-async def _handle(pos, quote, state, now, *, decision=None, approval_id=None, lev=False):
+async def _handle(pos, quote, state, now, *, decision=None, approval_id=None):
     from src.common.config import get_config
     from src.monitor import intraday
 
@@ -120,7 +120,6 @@ async def _handle(pos, quote, state, now, *, decision=None, approval_id=None, le
     with (
         patch.object(intraday, "_alert_window_open", return_value=True),
         patch("src.execution.roll_pipeline.evaluate_roll", new=ev),
-        patch.object(intraday, "is_leveraged_etf", return_value=lev),
         patch.object(intraday, "review_roll", return_value=None),  # never shell out to claude
     ):
         await intraday.handle_roll_trigger(
@@ -190,12 +189,33 @@ async def test_deferrals_send_nothing(db) -> None:
     bot.send_message.assert_not_awaited()
 
 
-async def test_a_leveraged_etf_holds_without_a_fetch(db) -> None:
+async def test_a_leveraged_etf_is_evaluated_like_any_other_short(db) -> None:
+    # 2026-10-14 ruling: leveraged ETFs roll where possible (was: always hold, no fetch).
     from src.monitor.intraday import RollEvalState
 
-    ev, bot = await _handle(_pos(), _quote(95.0), RollEvalState(), now=0.0, lev=True)
-    ev.assert_not_awaited()
-    assert "Hold" in bot.send_message.await_args.kwargs["text"]
+    with patch("src.common.universe.is_leveraged_etf", return_value=True):
+        ev, _ = await _handle(_pos(), _quote(95.0), RollEvalState(), now=0.0)
+    ev.assert_awaited_once()
+
+
+async def test_an_auto_approved_roll_card_has_no_buttons(db) -> None:
+    from src.common.schemas import ApprovalStatus
+    from src.monitor.intraday import RollEvalState
+    from src.storage.db import session_scope
+    from src.storage.models import ApprovalRow
+
+    with session_scope() as s:
+        row = ApprovalRow(candidate_id="r1", status=ApprovalStatus.APPROVED, chat_id="1")
+        s.add(row)
+        s.flush()
+        approval_id = row.id
+    decision = RollDecision(action="roll", reason="credit_roll", detail="Roll for a credit.")
+    _, bot = await _handle(
+        _pos(), _quote(95.0), RollEvalState(), now=0.0, decision=decision, approval_id=approval_id
+    )
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["reply_markup"] is None
+    assert "Auto" in kwargs["text"] or "Roll for a credit" in kwargs["text"]
 
 
 async def test_an_unbreached_short_is_not_evaluated(db) -> None:

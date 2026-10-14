@@ -22,7 +22,14 @@ from telegram import Bot
 
 from src.common.config import SchedulerCfg, get_config
 from src.common.market_hours import today_et
-from src.common.schemas import CloseReason, OptionRight, PositionSnapshot, Strategy
+from src.common.schemas import (
+    ApprovalStatus,
+    CloseReason,
+    OptionRight,
+    PositionSnapshot,
+    RollDecision,
+    Strategy,
+)
 from src.common.universe import is_leveraged_etf
 from src.execution.position_manager import close_short_position
 from src.ibkr.contracts import build_option
@@ -291,6 +298,106 @@ async def check_profit_takes(
             await _send_profit_alert(pos, entry_price, mid, profit_pct, bot, chat_id)
 
 
+async def _roll_at_loss_line(
+    ib: IB, pos: PositionSnapshot, bot: Bot, chat_id: str, *, entry: float, mid: float
+) -> bool:
+    """Try to roll a short at the loss line. True = a roll is queued/working (do not close).
+
+    Never raises: any failure falls through to the buy-back, which is the safe direction.
+    """
+    from src.execution.roll_pipeline import evaluate_roll, roll_failed_today
+    from src.notify.formatters import _md, contract_label
+
+    try:
+        if roll_failed_today(pos):
+            log.warning("loss-line roll: a roll for %s already failed today — closing", pos.symbol)
+            return False
+        cfg = get_config()
+        decision, approval_id = await evaluate_roll(
+            ib, pos, chat_id=chat_id, ttl_minutes=cfg.approval.ttl_minutes, on_no_roll="close"
+        )
+    except Exception:
+        log.exception("loss-line roll: evaluation failed for %s — closing", pos.symbol)
+        return False
+
+    if decision.action == "defer" and decision.reason == "roll_pending":
+        return True  # a roll is already awaiting approval or working
+    _persist_loss_line_decision(pos, decision, approval_id)
+    if decision.action != "roll" or approval_id is None:
+        log.info(
+            "loss-line roll: none for %s (%s:%s) — closing",
+            pos.symbol,
+            decision.action,
+            decision.reason,
+        )
+        return False
+
+    from src.storage.models import ApprovalRow
+
+    with session_scope() as s:
+        row = s.get(ApprovalRow, approval_id)
+        auto = row is not None and row.status == ApprovalStatus.APPROVED
+    assert pos.strike is not None and pos.right is not None and pos.expiry is not None
+    label = _md(
+        contract_label(pos.underlying or pos.symbol, pos.strike, pos.right.value, pos.expiry)
+    )
+    status = (
+        "🤖 _Auto\\-approved \\(full autonomy\\) — sending now_"
+        if auto
+        else "_Approve to roll; reject and the buy\\-back runs on the next cycle_"
+    )
+    text = (
+        f"🔁 *Loss line — rolling instead of closing* — {label}\n"
+        f"Entry {_md(f'${entry:.2f}')} · now {_md(f'${mid:.2f}')} "
+        f"\\({_md(f'{mid / entry:.1f}')}×\\)\n"
+        f"{_md(decision.detail or decision.reason)}\n{status}"
+    )
+    markup = None
+    if not auto:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Approve roll", callback_data=f"approve:{approval_id}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"reject:{approval_id}"),
+                ]
+            ]
+        )
+    try:
+        await bot.send_message(
+            chat_id=chat_id, text=text, parse_mode="MarkdownV2", reply_markup=markup
+        )
+    except Exception:
+        log.exception("Failed to send loss-line roll card for %s", pos.symbol)
+    return True
+
+
+def _persist_loss_line_decision(
+    pos: PositionSnapshot, decision: RollDecision, approval_id: int | None
+) -> None:
+    """Log the loss-line decision beside the monitor's (``roll_alerts``, roll_decision)."""
+    from src.storage.models import RollAlertRow
+
+    try:
+        with session_scope() as s:
+            s.add(
+                RollAlertRow(
+                    position_symbol=pos.symbol,
+                    underlying=pos.underlying or pos.symbol,
+                    trigger="roll_decision",
+                    detail=f"{decision.action}:{decision.reason}",
+                    payload={
+                        "trigger": "loss_line",
+                        "decision": decision.model_dump(mode="json"),
+                        "approval_id": approval_id,
+                    },
+                )
+            )
+    except Exception:
+        log.exception("Failed to persist loss-line decision for %s", pos.symbol)
+
+
 async def check_loss_exits(
     ib_scan: IB,
     ib_exec: IB | None,
@@ -312,7 +419,13 @@ async def check_loss_exits(
     turned a temporary drawdown into a realised one (GOOGL $335P: closed at 2.35× the credit
     on a 4% dip, still out of the money). For those, the intraday monitor's ``loss_multiple``
     trigger proposes a defensive roll at the same line instead; a leveraged product can run
-    against a short too fast to manage, so it is still bought back here.
+    against a short too fast to manage, so it is still exited here.
+
+    **Roll first** (operator ruling 2026-10-14: "prefer rolling over closing in a loss; if there
+    are no viable rolls, reluctantly close"). At the line the roll pipeline is asked for a roll
+    (``evaluate_roll(on_no_roll="close")``, gated by the Rules Engine); on FULL autonomy it is
+    queued without a tap. The buy-back runs only when no roll qualifies, the roll was refused
+    or expired, or a roll order for this short already failed today.
     """
     cfg = get_config()
     if not getattr(cfg.automation, "auto_close_enabled", True):
@@ -354,12 +467,15 @@ async def check_loss_exits(
             continue
 
         log.warning(
-            "Loss exit triggered: %s — entry=%.2f mid=%.2f (%.1fx)",
+            "Loss line reached: %s — entry=%.2f mid=%.2f (%.1fx)",
             pos.symbol,
             entry,
             mid,
             mid / entry,
         )
+        if await _roll_at_loss_line(ib_scan, pos, bot, chat_id, entry=entry, mid=mid):
+            continue
+        log.warning("Loss exit triggered: %s — no viable roll, buying back", pos.symbol)
         result = await close_short_position(ib_exec, pos, bid, ask, reason=CloseReason.LOSS_EXIT)
 
         if result.status == "skipped":

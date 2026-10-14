@@ -16,6 +16,7 @@ import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from ib_async import IB
 
@@ -33,7 +34,7 @@ from src.common.schemas import (
     TradeCandidate,
     Verdict,
 )
-from src.common.universe import effective_universe, is_leveraged_etf
+from src.common.universe import effective_universe
 from src.engine.risk_engine import validate_candidates
 from src.ibkr.market_data import get_roll_chain_quotes_async
 from src.ibkr.portfolio import get_account_snapshot_async, get_positions
@@ -42,14 +43,23 @@ from src.storage.db import session_scope
 from src.storage.models import ApprovalRow, CandidateRow, OrderRow
 from src.storage.orders import has_active_order
 from src.storage.roll_chains import chain_state
+from src.storage.system_settings import may_auto_open
 from src.strategies.roll_policy import decide
 from src.strategies.rolling import RollContext
 
 log = logging.getLogger(__name__)
 
 
-def queue_roll_candidate(cand: TradeCandidate, *, chat_id: str, ttl_minutes: int) -> int | None:
-    """Persist *cand* and raise a PENDING approval for it (frozen snapshot, N2a).
+def queue_roll_candidate(
+    cand: TradeCandidate, *, chat_id: str, ttl_minutes: int, auto_approve: bool = False
+) -> int | None:
+    """Persist *cand* and raise an approval for it (frozen snapshot, N2a).
+
+    PENDING (waits for the Approve tap) unless *auto_approve*, in which case the approval is
+    written APPROVED with its QUEUED ``OrderRow`` in the same transaction — exactly what the
+    Approve tap would have produced, and what the entry auto-queue writes on FULL autonomy
+    (operator ruling 2026-10-14: "it should roll on full autonomy"). ``process_queued_orders``
+    still re-gates it and ``execute_roll`` re-checks it on fresh quotes before anything is sent.
 
     None when an order is already working for the candidate. Never raises.
     """
@@ -80,18 +90,31 @@ def queue_roll_candidate(cand: TradeCandidate, *, chat_id: str, ttl_minutes: int
                     payload=snapshot,
                 )
             )
+            now = datetime.now(UTC)
             approval = ApprovalRow(
                 candidate_id=cand.candidate_id,
-                status=ApprovalStatus.PENDING,
+                status=ApprovalStatus.APPROVED if auto_approve else ApprovalStatus.PENDING,
                 chat_id=chat_id,
-                expires_at=datetime.now(UTC) + timedelta(minutes=ttl_minutes),
+                decided_at=now if auto_approve else None,
+                expires_at=now + timedelta(minutes=ttl_minutes),
                 snapshot=snapshot,  # freeze the approved payload (N2a)
             )
             s.add(approval)
             s.flush()
             approval_id = approval.id
+            if auto_approve:
+                s.add(
+                    OrderRow(
+                        candidate_id=cand.candidate_id,
+                        approval_id=approval_id,
+                        state=OrderState.QUEUED,
+                        snapshot=snapshot,
+                        is_live=bool(get_config().is_live),
+                    )
+                )
         log.info(
-            "roll: queued candidate %s for approval (approval_id=%s)",
+            "roll: %s candidate %s (approval_id=%s)",
+            "auto-approved and queued" if auto_approve else "queued for approval",
             cand.candidate_id,
             approval_id,
         )
@@ -176,12 +199,50 @@ def roll_declined_today(pos: PositionSnapshot) -> bool:
     return False
 
 
+def roll_failed_today(pos: PositionSnapshot) -> bool:
+    """True when a roll order for *pos* was sent (or queued) today and did not fill.
+
+    The loss line tries a roll before buying back; a roll that was cancelled, rejected or timed
+    out must not be retried every cycle while the loss grows — the next pass closes instead.
+    """
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    day_start = (
+        datetime.combine(today_et(), dtime.min, tzinfo=et).astimezone(UTC).replace(tzinfo=None)
+    )
+    with session_scope() as s:
+        rows = (
+            s.query(OrderRow)
+            .filter(
+                OrderRow.state.in_([OrderState.CANCELLED, OrderState.REJECTED]),
+                OrderRow.created_at >= day_start,
+            )
+            .all()
+        )
+        return any(_same_short(o.snapshot, pos) for o in rows)
+
+
 def _gate_fallback(
-    decision: RollDecision, pos: PositionSnapshot, cc_basis: float | None, reasons: list[str]
+    decision: RollDecision,
+    pos: PositionSnapshot,
+    cc_basis: float | None,
+    reasons: list[str],
+    *,
+    on_no_roll: str = "policy",
 ) -> RollDecision:
     """The decision when the Rules Engine refuses a constructed roll: the no-roll branch."""
     reason = "rules_engine:" + ",".join(reasons)
     strike = pos.strike or 0.0
+    if on_no_roll == "close":
+        return RollDecision(
+            action="close",
+            reason=reason,
+            rejections=decision.rejections,
+            detail=f"Rules Engine refused the roll ({', '.join(reasons)}) — buying back at the "
+            "loss line.",
+        )
     if pos.right == OptionRight.PUT:
         action = "assign"
         detail = f"Rules Engine refused the roll ({', '.join(reasons)}) — letting it assign."
@@ -206,6 +267,7 @@ async def evaluate_roll(
     chat_id: str,
     ttl_minutes: int,
     manual: bool = False,
+    on_no_roll: Literal["policy", "close"] = "policy",
 ) -> tuple[RollDecision, int | None]:
     """Decide what to do with one breached short; queue an approval when the answer is a roll.
 
@@ -214,7 +276,10 @@ async def evaluate_roll(
     Engine pass (the first of three: this one, the approval-queue re-gate, and the executor's
     send-time check) → a PENDING approval. Returns the decision and the approval id (or the
     id of the roll already pending for this short). *manual* marks an operator-requested
-    evaluation (web ``roll_request``) in the log; the policy is the same. Never raises.
+    evaluation (web ``roll_request``) in the log; the policy is the same. *on_no_roll*
+    ``"close"`` is the loss line's variant (``roll_policy.decide``): roll if one qualifies,
+    otherwise close. On FULL autonomy (``may_auto_open``) a roll is approved and queued
+    without a tap. Never raises.
     """
     underlying = pos.underlying or pos.symbol
     existing = pending_roll_approval_for(pos)
@@ -317,9 +382,9 @@ async def evaluate_roll(
         iv_stats,
         tech_stats,
         rc,
-        is_leveraged=is_leveraged_etf(underlying),
         would_own=would_own,
         cc_basis=cc_basis,
+        on_no_roll=on_no_roll,
     )
 
     cand = decision.candidate
@@ -327,9 +392,16 @@ async def evaluate_roll(
         account = await get_account_snapshot_async(ib, cfg.secrets.ibkr_account)
         verdict = validate_candidates([cand], account, positions)[0]
         if verdict.verdict != Verdict.PASS:
-            decision = _gate_fallback(decision, pos, cc_basis, list(verdict.reasons))
+            decision = _gate_fallback(
+                decision, pos, cc_basis, list(verdict.reasons), on_no_roll=on_no_roll
+            )
         else:
-            approval_id = queue_roll_candidate(cand, chat_id=chat_id, ttl_minutes=ttl_minutes)
+            approval_id = queue_roll_candidate(
+                cand,
+                chat_id=chat_id,
+                ttl_minutes=ttl_minutes,
+                auto_approve=may_auto_open(underlying),
+            )
     _log_decision(pos, decision, manual)
     return decision, approval_id
 

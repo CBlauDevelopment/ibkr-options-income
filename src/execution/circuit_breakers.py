@@ -29,7 +29,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from src.common.config import get_config
@@ -61,8 +61,13 @@ def _et_day_window_utc(today: date | None = None) -> tuple[datetime, datetime]:
 
 
 def entry_orders_today(session: Session) -> int:
-    """Count new-exposure entry orders opened today (excludes `close:` buy-to-close orders)."""
+    """Count new-exposure entry orders opened today.
+
+    Excludes ``close:`` buy-to-close orders and rolls (a roll swaps one short for another of
+    the same size — no new exposure, 2026-10-14).
+    """
     start, end = _et_day_window_utc()
+    strategy = func.json_extract(OrderRow.snapshot, "$.strategy")
     return int(
         session.execute(
             select(func.count())
@@ -72,6 +77,7 @@ def entry_orders_today(session: Session) -> int:
                 OrderRow.created_at < end,
                 OrderRow.state.in_(_OPENED_STATES),
                 OrderRow.candidate_id.notlike("close:%"),
+                or_(strategy.is_(None), strategy != "roll"),
             )
         ).scalar_one()
     )
