@@ -6,6 +6,7 @@ import { BotCard } from "@/components/shell/BotCard";
 import { SystemStatusCard } from "@/components/shell/SystemStatusCard";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { Card } from "@/components/ui/Card";
+import { TargetCard } from "@/features/more/TargetCard";
 
 const LINKS = [
   { href: "/research", label: "Research", sub: "Search, watchlist, sectors, universe" },
@@ -32,6 +33,8 @@ export default function MorePage() {
           <ThemeToggle />
         </div>
       </Card>
+
+      <TargetCard />
 
       <Card className="mt-4" as="div">
         <ul>

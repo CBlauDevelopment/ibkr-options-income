@@ -24,7 +24,7 @@ const responses = {
     as_of: "",
     book: "paper",
     spreads_available: true,
-    pay: { month: "2026-10-01", strategy: "all", premium_collected: 0, bought_back: 0, commissions: 0, commissions_complete: true, net: 0, n_opened: 0, n_closed: 0, month_start_value: null, target_pct: null, target: null, progress_pct: null, days_left: 18 },
+    pay: { month: "2026-10-01", strategy: "all", premium_collected: 0, bought_back: 0, commissions: 0, commissions_complete: true, net: 0, n_opened: 0, n_closed: 0, month_start_value: null, target_pct: null, target_mode: "off", target_amount: null, target_base: null, target: null, progress_pct: null, days_left: 18 },
   },
   "/portfolio/positions": { as_of: "", source: "none", degraded: true, groups: [] },
   "/spreads/positions": { as_of: "", available: false, underlying: "SPY", mode: "paper", positions: [] },

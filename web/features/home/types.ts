@@ -30,6 +30,10 @@ export type MonthPay = {
   n_closed: number;
   month_start_value: number | null;
   target_pct: number | null;
+  /** How the target is set; "off" means no target. */
+  target_mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount";
+  target_amount: number | null;
+  target_base: number | null;
   target: number | null;
   progress_pct: number | null;
   days_left: number;

@@ -23,7 +23,7 @@ The operator's words, numbered as they were:
 |---|---|---|---|---|---|
 | 0 Worktree and baseline | done | n/a | pytest `test_api_pnl_month` + `test_command_schemas` 43 passed; vitest `features/home` 113 passed | 2026-10-15 | venv and `web/node_modules` symlinked, `init_db()` run |
 | 1 Income target: setting, command, API | done | (this commit) | pytest 3669 passed + 1 skip, ruff/mypy clean, OpenAPI + `api-types.ts` regenerated, fences green | 2026-10-15 | `IncomeTarget` lives in `schemas.py` (the command payload subclasses it, so the stored and the posted shape cannot differ); `src/common/income_target.py` holds the stored form, the resolution order and the arithmetic so the API can read the row through its own read-only session; `MonthPay.target_pct` kept, `target_mode` / `target_amount` / `target_base` added. **Fix outside the brief:** `POST /commands` answered 500 when a validator raised `ValueError` (the error's `ctx` held the exception object); it now serialises through `exc.json()`, which also fixes the latent ledger-upload-limit path. `ruff format src tests` also touched `routers/portfolio.py`, `routers/system.py` and `tests/test_config_keys.py` (pre-existing drift); reverted, not mine |
-| 2 Income target: More card, pay card copy | todo | | | | |
+| 2 Income target: More card, pay card copy | done | (this commit) | vitest `features` + `app/more` 137 passed (+18 new), tsc 0, `next lint` clean, da-vinci lint exit 0 | 2026-10-15 | `features/more/target.ts` holds the form rules (text in, payload out) apart from the card; the pay card's "No target set" now keys on `target_mode === "off"` (a fixed target has no percent), and the link to More sits below the disclosure because a link inside the disclosure's button would nest interactive elements. The field's focus ring is on its wrapper via `has-[input:focus-visible]` (the linter's OUTLINE_NONE rule found `outline-none` on the bare input; a real fix, not an exception). Visual inspection is batched into Task 10 with the other surfaces |
 | 3 Day trades API (`GET /pnl/day`) | todo | | | | |
 | 4 Day trades on Home | todo | | | | |
 | 5 Realised calendar API (`GET /pnl/calendar`) | todo | | | | |
@@ -89,9 +89,9 @@ Files: `src/common/schemas.py` (`IncomeTarget`, `MonthPay` target fields), `src/
 Files: `web/features/more/TargetCard.tsx` (+ test), `web/app/more/page.tsx`,
 `web/features/home/PayCard.tsx`, `web/features/home/types.ts`.
 
-- [ ] da-vinci loaded. Card on More: segmented control (Fixed amount, % of account, % of an amount),
+- [x] da-vinci loaded. Card on More: segmented control (Fixed amount, % of account, % of an amount),
       labelled inputs, a plain-English preview of what it means this month, Save, receipt.
-- [ ] Pay card: "No target set" gains a link to More; copy per mode.
+- [x] Pay card: "No target set" gains a link to More; copy per mode.
 
 ## Task 3 - Day trades API
 

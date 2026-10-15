@@ -20,6 +20,9 @@ function pay(over: Record<string, unknown> = {}, spreadsAvailable = true) {
       n_closed: 3,
       month_start_value: 200000,
       target_pct: 1,
+      target_mode: "pct_of_account",
+      target_amount: null,
+      target_base: null,
       target: 2000,
       progress_pct: 70.68,
       days_left: 18,
@@ -49,10 +52,35 @@ describe("PayCard", () => {
   });
   it("says No target set rather than a zero target", async () => {
     renderWithQuery(<PayCard strategy="all" />, {
-      "/pnl/month": pay({ target: null, target_pct: null, progress_pct: null }),
+      "/pnl/month": pay({ target: null, target_pct: null, target_mode: "off", progress_pct: null }),
     });
     expect(await screen.findByText("No target set · 18 days left")).toBeInTheDocument();
     expect(screen.queryByText(/of \$0/)).toBeNull();
+  });
+  it("links to More from 'No target set', and from nowhere else", async () => {
+    const { unmount } = renderWithQuery(<PayCard strategy="all" />, {
+      "/pnl/month": pay({ target: null, target_pct: null, target_mode: "off", progress_pct: null }),
+    });
+    expect(await screen.findByRole("link", { name: "Set a target in More" })).toHaveAttribute("href", "/more");
+    unmount();
+    renderWithQuery(<PayCard strategy="all" />, { "/pnl/month": pay() });
+    await screen.findByRole("button", { name: /October pay/ });
+    expect(screen.queryByRole("link", { name: /Set a target/ })).toBeNull();
+  });
+  it("shows a fixed amount as a target even though it has no percent", async () => {
+    renderWithQuery(<PayCard strategy="all" />, {
+      "/pnl/month": pay({
+        month_start_value: null,
+        target_pct: null,
+        target_mode: "fixed",
+        target_amount: 1500,
+        target: 1500,
+        progress_pct: 94.24,
+      }),
+    });
+    expect(await screen.findByText("of $1,500.00")).toBeInTheDocument();
+    expect(screen.getByText("94% of target · 18 days left")).toBeInTheDocument();
+    expect(screen.queryByText(/No target set/)).toBeNull();
   });
   // Final review m4: the setting can be set while the month-start account value is unknown
   // (the first month after install, a journal gap). "No target set" would read as a config that
@@ -75,7 +103,7 @@ describe("PayCard", () => {
   });
   it("says 1 day left when no target is set", async () => {
     renderWithQuery(<PayCard strategy="all" />, {
-      "/pnl/month": pay({ target: null, target_pct: null, progress_pct: null, days_left: 1 }),
+      "/pnl/month": pay({ target: null, target_pct: null, target_mode: "off", progress_pct: null, days_left: 1 }),
     });
     expect(await screen.findByText("No target set · 1 day left")).toBeInTheDocument();
   });

@@ -19,28 +19,37 @@ const controls = {
   pending_commands: 0,
 };
 
+const target = { as_of: new Date().toISOString(), source: "none", target: { mode: "off", amount: null, pct: null, base: null } };
+const month = { as_of: new Date().toISOString(), book: "paper", spreads_available: true, pay: { month: "2026-10-01", month_start_value: null } };
+const served = { "/system/status": status, "/options/controls": controls, "/pnl/target": target, "/pnl/month": month };
+
 describe("More page", () => {
   it("offers light, dark and follow-OS themes and persists the choice", () => {
-    renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
+    renderWithQuery(<MorePage />, served);
     const group = screen.getByRole("group", { name: "Theme" });
     expect(group).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Follow OS" }));
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("system");
   });
   it("links to the pages that have no tab on a phone", () => {
-    renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
+    renderWithQuery(<MorePage />, served);
     expect(screen.getByRole("link", { name: /How it works/ })).toHaveAttribute("href", "/explain");
     expect(screen.getByRole("link", { name: /Research/ })).toHaveAttribute("href", "/research");
     expect(screen.getByRole("link", { name: /News/ })).toHaveAttribute("href", "/news");
     expect(screen.getByRole("link", { name: /Import a statement/ })).toHaveAttribute("href", "/ledger/import");
   });
   it("links to Universe and Ledger, which have no tab or rail entry", () => {
-    renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
+    renderWithQuery(<MorePage />, served);
     expect(screen.getByRole("link", { name: /^Universe/ })).toHaveAttribute("href", "/research/universe");
     expect(screen.getByRole("link", { name: /^Ledger/ })).toHaveAttribute("href", "/ledger");
   });
+  it("is where the monthly income target is set", async () => {
+    renderWithQuery(<MorePage />, served);
+    expect(await screen.findByRole("heading", { name: "Monthly income target" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Target type" })).toBeInTheDocument();
+  });
   it("reaches the bot controls on a phone, where the rail is hidden", async () => {
-    renderWithQuery(<MorePage />, { "/system/status": status, "/options/controls": controls });
+    renderWithQuery(<MorePage />, served);
     expect(await screen.findByRole("button", { name: /Bot running/ })).toBeInTheDocument();
   });
 });
