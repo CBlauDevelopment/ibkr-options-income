@@ -185,12 +185,13 @@ describe("AccountHero", () => {
       expect(screen.queryByText("$100,000.00")).toBeNull();
     });
   });
-  it("credits TradingView with a link beside the chart, never with a logo over the line", async () => {
-    // The chart library's licence asks for a link to tradingview.com on the page; its default
-    // logo sat on the line's first points, so the logo is off and the link sits in the chip row.
+  it("ends the range row with the calendar button, and credits TradingView nowhere on the chart", async () => {
+    // The licence link moved to More (Credits). The chart's own logo stays off so nothing sits on the line.
     renderWithQuery(<AccountHero />, { "/portfolio/value": body("1m") });
-    const link = await screen.findByRole("link", { name: /TradingView/ });
-    expect(link).toHaveAttribute("href", "https://www.tradingview.com/");
+    const button = await screen.findByRole("button", { name: "Daily realised P&L calendar" });
+    expect(button).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.queryByText(/TradingView/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /TradingView/ })).toBeNull();
     expect(chart.options.at(-1)?.layout?.attributionLogo).toBe(false);
   });
   // Final review m5: a stale headline during market hours carries the positions card's flag

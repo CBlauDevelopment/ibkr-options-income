@@ -48,6 +48,12 @@ describe("More page", () => {
     expect(await screen.findByRole("heading", { name: "Monthly income target" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Target type" })).toBeInTheDocument();
   });
+  it("carries the chart library's licence link, which is no longer on the chart", () => {
+    renderWithQuery(<MorePage />, served);
+    const link = screen.getByRole("link", { name: /TradingView/ });
+    expect(link).toHaveAttribute("href", "https://www.tradingview.com/");
+    expect(screen.getByRole("heading", { name: "Credits" })).toBeInTheDocument();
+  });
   it("reaches the bot controls on a phone, where the rail is hidden", async () => {
     renderWithQuery(<MorePage />, served);
     expect(await screen.findByRole("button", { name: /Bot running/ })).toBeInTheDocument();
