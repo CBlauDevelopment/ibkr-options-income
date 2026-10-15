@@ -42,12 +42,18 @@ export function monthWeeks(month: string): Cell[][] {
   return weeks;
 }
 
-/** A day's result as it fits a calendar cell: always signed, whole dollars, K from $10,000. */
-export function compactMoney(v: number): string {
-  if (v === 0) return "$0";
+/**
+ * A day's result as it fits a calendar cell, always signed and without the currency sign (the month
+ * total above the grid carries it): whole dollars under 1,000 ("+413"), one decimal of thousands to
+ * 9,999 ("+1.7K"), whole thousands from 10,000 ("+12K"). A cell is about 37px wide at 320px; the
+ * exact figure is the cell's accessible name and the tapped day's list.
+ */
+export function cellFigure(v: number): string {
+  if (v === 0) return "0";
   const sign = v > 0 ? "+" : MINUS;
   const a = Math.abs(v);
-  if (a < 1) return `${sign}$${a.toFixed(2)}`;
-  if (a >= 10_000) return `${sign}$${(a / 1000).toFixed(1)}K`;
-  return `${sign}$${Math.round(a).toLocaleString("en-US")}`;
+  if (a < 1) return `${sign}${a.toFixed(2)}`;
+  if (a >= 10_000) return `${sign}${Math.round(a / 1000)}K`;
+  if (a >= 1000) return `${sign}${(a / 1000).toFixed(1)}K`;
+  return `${sign}${Math.round(a)}`;
 }

@@ -75,10 +75,10 @@ describe("RealisedCalendar", () => {
 
   it("shows each day with a close as a signed figure and leaves the rest blank", async () => {
     const dialog = await openIt();
-    const nine = await within(dialog).findByRole("button", { name: /Fri, Oct 9: \+\$1,718 realised from 3 closes/ });
-    expect(nine).toHaveTextContent("+$1,718");
-    expect(within(dialog).getByRole("button", { name: /Tue, Oct 13: −\$1,604 realised from 1 close$/ })).toHaveTextContent("−$1,604");
-    expect(within(dialog).getByRole("button", { name: /Wed, Oct 14: \+\$12\.4K/ })).toBeInTheDocument();
+    const nine = await within(dialog).findByRole("button", { name: /Fri, Oct 9: \+\$1,717\.88 realised from 3 closes/ });
+    expect(nine).toHaveTextContent("+1.7K");
+    expect(within(dialog).getByRole("button", { name: /Tue, Oct 13: −\$1,603\.70 realised from 1 close$/ })).toHaveTextContent("−1.6K");
+    expect(within(dialog).getByRole("button", { name: /Wed, Oct 14: \+\$12,400\.00/ })).toBeInTheDocument();
     // a day nothing closed is plain text, not a button, and never "$0"
     expect(within(dialog).getAllByRole("button", { name: /realised from/ })).toHaveLength(3);
     expect(within(dialog).queryByText("$0")).toBeNull();

@@ -125,7 +125,7 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
             type="button"
             aria-label="Clear search"
             onClick={() => setQuery("")}
-            className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-sunk hover:text-content"
+            className="absolute right-0 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-sunk hover:text-content md:right-1 md:h-9 md:w-9"
           >
             <X size={16} aria-hidden="true" />
           </button>

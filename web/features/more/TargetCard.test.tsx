@@ -66,9 +66,9 @@ describe("TargetCard", () => {
     renderWithQuery(<TargetCard />, serve({}));
     await screen.findByRole("button", { name: "None", pressed: true });
     expect(screen.queryByRole("textbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Fixed amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fixed" }));
     expect(screen.getByLabelText("Amount a month")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "% of an amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "% of amount" }));
     expect(screen.getByLabelText("Percent a month")).toBeInTheDocument();
     expect(screen.getByLabelText("Of this amount")).toBeInTheDocument();
     expect(screen.queryByLabelText("Amount a month")).toBeNull();
@@ -86,7 +86,7 @@ describe("TargetCard", () => {
     submitCommand.mockResolvedValue(applied());
     renderWithQuery(<TargetCard />, serve({}));
     await screen.findByRole("button", { name: "None", pressed: true });
-    fireEvent.click(screen.getByRole("button", { name: "% of an amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "% of amount" }));
     fireEvent.change(screen.getByLabelText("Percent a month"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("Of this amount"), { target: { value: "100,000" } });
     expect(screen.getByText("2% of $100,000 is $2,000 a month.")).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe("TargetCard", () => {
     submitCommand.mockRejectedValue(new Error("boom"));
     renderWithQuery(<TargetCard />, serve({}));
     await screen.findByRole("button", { name: "None", pressed: true });
-    fireEvent.click(screen.getByRole("button", { name: "Fixed amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fixed" }));
     fireEvent.change(screen.getByLabelText("Amount a month"), { target: { value: "1000" } });
     fireEvent.click(screen.getByRole("button", { name: "Save target" }));
     expect(await screen.findByTestId("command-error")).toHaveTextContent("Nothing was changed");

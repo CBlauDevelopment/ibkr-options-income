@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactMoney, currentMonth, dayLabel, monthTitle, monthWeeks, shiftMonth } from "./calendar";
+import { cellFigure, currentMonth, dayLabel, monthTitle, monthWeeks, shiftMonth } from "./calendar";
 
 describe("months", () => {
   it("names the current month in New York time, not the viewer's", () => {
@@ -39,21 +39,23 @@ describe("monthWeeks", () => {
   });
 });
 
-describe("compactMoney", () => {
-  it("signs every figure and keeps whole dollars where they fit", () => {
-    expect(compactMoney(412.5)).toBe("+$413");
-    expect(compactMoney(-230.04)).toBe("−$230");
-    expect(compactMoney(1717.88)).toBe("+$1,718");
+describe("cellFigure", () => {
+  it("signs every figure, with no currency sign, and keeps whole dollars under a thousand", () => {
+    expect(cellFigure(412.5)).toBe("+413");
+    expect(cellFigure(-230.04)).toBe("−230");
+    expect(cellFigure(999.4)).toBe("+999");
   });
-  it("shortens five figures so a cell never overflows", () => {
-    expect(compactMoney(12400)).toBe("+$12.4K");
-    expect(compactMoney(-10050)).toBe("−$10.1K");
+  it("shortens thousands so a cell never overflows", () => {
+    expect(cellFigure(1717.88)).toBe("+1.7K");
+    expect(cellFigure(-1603.7)).toBe("−1.6K");
+    expect(cellFigure(12400)).toBe("+12K");
+    expect(cellFigure(-10050)).toBe("−10K");
   });
   it("keeps cents under a dollar, so a real result never reads as zero", () => {
-    expect(compactMoney(0.3)).toBe("+$0.30");
-    expect(compactMoney(-0.04)).toBe("−$0.04");
+    expect(cellFigure(0.3)).toBe("+0.30");
+    expect(cellFigure(-0.04)).toBe("−0.04");
   });
   it("a genuine zero is plain", () => {
-    expect(compactMoney(0)).toBe("$0");
+    expect(cellFigure(0)).toBe("0");
   });
 });

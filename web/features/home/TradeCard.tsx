@@ -64,12 +64,17 @@ export function TradeCard({
         <span className="text-xs font-bold uppercase tracking-[0.04em] text-muted">{tradeEyebrow(trade)}</span>
         <span className="text-[0.8125rem] text-muted">{when === "date" ? dateLabel(trade) : timeLabel(trade)}</span>
       </div>
-      <h3
-        id={titleId}
-        className={heading === "none" ? "sr-only" : "mt-1 text-[1.0625rem] font-extrabold tracking-[-0.01em]"}
-      >
-        {tradeTitle(trade)}
-      </h3>
+      {heading === "none" ? (
+        // The position page already names the contract in its h1, so the card's own title is
+        // for screen readers only, one level down (h2) so the outline does not skip a level.
+        <h2 id={titleId} className="sr-only">
+          {tradeTitle(trade)}
+        </h2>
+      ) : (
+        <h3 id={titleId} className="mt-1 text-[1.0625rem] font-extrabold tracking-[-0.01em]">
+          {tradeTitle(trade)}
+        </h3>
+      )}
       <p className="mt-2 text-sm">{tradeSentence(trade)}</p>
       {trade.action === "opened" ? (
         <WhyDisclosure review={trade.review} />

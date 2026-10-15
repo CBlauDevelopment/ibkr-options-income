@@ -8,7 +8,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { StatusWord } from "@/components/ui/StatusWord";
 import { formatStubValue } from "@/components/ui/Stub";
 import { apiFetch } from "@/lib/api";
-import { compactMoney, currentMonth, dayLabel, monthTitle, monthWeeks, shiftMonth } from "./calendar";
+import { cellFigure, currentMonth, dayLabel, monthTitle, monthWeeks, shiftMonth } from "./calendar";
 import { tradeTitle } from "./trades";
 import type { DayTradesResponse, MonthCalendar, RealisedCalendarResponse } from "./types";
 
@@ -66,7 +66,7 @@ function Grid({
 }) {
   const byDate = new Map(cal.days.map((d) => [d.date, d]));
   return (
-    <table className="mt-3 w-full table-fixed border-separate border-spacing-1">
+    <table className="mt-3 w-full table-fixed border-separate border-spacing-x-0.5 border-spacing-y-1">
       <caption className="sr-only">{`Realised P&L by day, ${monthTitle(month)}`}</caption>
       <thead>
         <tr>
@@ -102,19 +102,21 @@ function Grid({
                   <button
                     type="button"
                     aria-pressed={on}
-                    aria-label={`${dayLabel(cell.date)}: ${compactMoney(day.realized)} realised from ${day.n_closed} close${day.n_closed === 1 ? "" : "s"}`}
+                    aria-label={`${dayLabel(cell.date)}: ${formatStubValue(day.realized, "signed-money")} realised from ${day.n_closed} close${day.n_closed === 1 ? "" : "s"}`}
                     onClick={() => onSelect(on ? null : cell.date)}
                     className={clsx(
                       "flex h-[52px] w-full flex-col items-start rounded-xl px-1 pt-1 text-left",
-                      on ? "bg-content" : "bg-sunk hover:bg-sunk-deep",
+                      // No fill at rest: gain and loss colours on pressed sage measure under 4.5:1 at 12px,
+                      // on white they clear 5.3:1. Hover is a ring, selected is the ink fill.
+                      on ? "bg-content" : "hover:ring-1 hover:ring-control",
                     )}
                   >
                     <span className={clsx("text-xs", on ? "text-background" : isToday ? "font-extrabold text-content underline underline-offset-2" : "text-muted")}>
                       {cell.day}
                     </span>
                     {/* The sign is in the figure; selected swaps to paper-on-ink, so colour is never the signal. */}
-                    <span className={clsx("tabular mt-auto w-full pb-1 text-center text-xs font-bold", on ? "text-background" : tone(day.realized))}>
-                      {compactMoney(day.realized)}
+                    <span className={clsx("tabular mt-auto w-full overflow-hidden pb-1 text-center text-xs font-bold", on ? "text-background" : tone(day.realized))}>
+                      {cellFigure(day.realized)}
                     </span>
                   </button>
                 </td>

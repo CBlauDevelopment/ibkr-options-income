@@ -212,7 +212,7 @@ components:
     rounded: "{rounded.md}"
     padding: 8px 12px
   calendar-day:
-    backgroundColor: "{colors.sunk}"
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.ink-muted}"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
@@ -458,8 +458,9 @@ lime: nothing on it decides anything. The filter pills above the stack are filte
 
 **Realised calendar** (Home chart, a sheet): each day's realised P&L for a month, as a labelled
 table (Mon to Sun), a month total ("Realised in October"), previous and next month (44px). A day
-with closes is a `calendar-day` button (pressed sage, ink fill when selected) showing the day and a
-signed figure ("+$413", "−$231", "+$12.4K"; the gain and loss colours never carry it alone); a day
+with closes is a `calendar-day` button (no fill at rest, because gain and loss at 12px need white
+under them to clear 4.5:1; a ring on hover; an ink fill when selected) showing the day and a
+signed figure without the currency sign, which the month total carries ("+413", "−231", "+1.7K", "+12K"; the gain and loss colours never carry it alone); a day
 nothing closed is plain text, never "$0". A tapped day lists what closed with each reason and its
 result. A footnote says it is options and credit spreads after commissions, that share sales are
 not included, and that a blank day is not a flat one.

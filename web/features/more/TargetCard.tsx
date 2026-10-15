@@ -26,9 +26,9 @@ type TargetResponse = { as_of: string; target: IncomeTarget; source: "web" | "co
 
 const MODES: { value: TargetMode; label: string }[] = [
   { value: "off", label: "None" },
-  { value: "fixed", label: "Fixed amount" },
+  { value: "fixed", label: "Fixed" },
   { value: "pct_of_account", label: "% of account" },
-  { value: "pct_of_amount", label: "% of an amount" },
+  { value: "pct_of_amount", label: "% of amount" },
 ];
 
 const MONTH = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" });
