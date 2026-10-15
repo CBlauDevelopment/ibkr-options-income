@@ -18,7 +18,7 @@ from datetime import datetime
 
 from pydantic import ValidationError
 
-from src.claude.runner import _build_cmd, _run_cli
+from src.claude.runner import _build_cmd, _run_cli_outcome
 from src.common.config import get_config
 from src.research.summary.context import ResearchContext
 from src.research.summary.prompt import build_prompt
@@ -91,11 +91,15 @@ class ClaudeCliSummaryProvider:
         return get_config().research.summary.model or "claude-cli"
 
     def generate(self, context: ResearchContext) -> Summary | None:
+        return self.generate_with_error(context)[0]
+
+    def generate_with_error(self, context: ResearchContext) -> tuple[Summary | None, str | None]:
+        """The summary plus why it failed (``cli.should_fall_back`` decides on Ollama)."""
         cfg = get_config().research.summary
         claude_cfg = get_config().claude
         if not claude_cfg.enabled:
             log.info("summary: claude disabled by config — skipping")
-            return None
+            return None, "disabled"
         prompt = build_prompt(context)
         model = self._model_name
         data_as_of = context.data_as_of
@@ -111,7 +115,7 @@ class ClaudeCliSummaryProvider:
         # disallowedTools) as the strategist review, but the summary's own
         # research.summary.timeout_seconds budget and a single attempt (enrichment
         # triggered live from a page load should fail fast, not retry).
-        return _run_cli(
+        return _run_cli_outcome(
             prompt,
             "summary claude_cli",
             _parse,

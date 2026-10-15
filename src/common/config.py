@@ -470,7 +470,7 @@ class ResearchSummaryCfg(BaseModel):
     @field_validator("backend")
     @classmethod
     def _known_backend(cls, v: str) -> str:
-        allowed = {"claude_cli", "anthropic", "openai", "ollama"}
+        allowed = {"claude_cli", "claude_cli_then_ollama", "anthropic", "openai", "ollama"}
         if v not in allowed:
             raise ValueError(
                 f"research.summary.backend must be one of {sorted(allowed)}, got {v!r}"
@@ -1159,7 +1159,7 @@ class NewsDigestCfg(BaseModel):
 
 class NewsLlmCfg(BaseModel):
     backend: Literal["cli", "ollama", "cli_then_ollama"] = (
-        "cli"  # claude -p only (operator preference 2026-10-14)
+        "cli"  # claude -p only; cli_then_ollama also falls back when it fails (not on a timeout)
     )
     model: str = "claude-sonnet-5-5"
     ollama_model: str = ""  # empty = claude.ollama_model

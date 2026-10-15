@@ -1,4 +1,5 @@
-"""Backend chain for news explanations: claude -p → Ollama, with a daily call cap (spec §6.5).
+"""Backend chain for news explanations: claude -p → Ollama (on any claude failure but a timeout),
+with a daily call cap (spec §6.5).
 
 Reuses the trading pipeline's hardened CLI invocation (single turn, tool denylist) and the
 Ollama /api/generate call with a JSON-schema grammar — never a third copy. Every attempt
@@ -13,6 +14,7 @@ from datetime import datetime
 from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
+from src.claude.cli import should_fall_back
 from src.common.config import NewsLlmCfg, get_config
 from src.news.store.state import incr_llm_calls, llm_calls
 
@@ -30,12 +32,12 @@ class LlmResult(NamedTuple):
     backend: Literal["cli", "ollama"]
 
 
-def _cli(prompt: str, prefix: str, cfg: NewsLlmCfg) -> str | None:
+def _cli(prompt: str, prefix: str, cfg: NewsLlmCfg) -> tuple[str | None, str | None]:
     from src.claude import runner
     from src.claude.parser import _unwrap_cli
 
     ccfg = get_config().claude.model_copy(update={"model": cfg.model})
-    return runner._run_cli(
+    return runner._run_cli_outcome(
         prompt,
         prefix,
         lambda out: _unwrap_cli(out, prefix),
@@ -69,11 +71,17 @@ def call_llm(prompt: str, *, schema: dict, prefix: str, now: datetime) -> LlmRes
             )
             return None
         incr_llm_calls(day)
+        error: str | None = None
         try:
-            text = _cli(prompt, prefix, cfg) if backend == "cli" else _ollama(prompt, schema, cfg)
+            if backend == "cli":
+                text, error = _cli(prompt, prefix, cfg)
+            else:
+                text = _ollama(prompt, schema, cfg)
         except Exception:
             log.exception("news llm: %s backend raised", backend)
-            text = None
+            text, error = None, "cli_error"
         if text:
             return LlmResult(text, backend)
+        if backend == "cli" and not should_fall_back(error):
+            return None  # a timeout (or Claude disabled): the budget is spent, skip Ollama
     return None

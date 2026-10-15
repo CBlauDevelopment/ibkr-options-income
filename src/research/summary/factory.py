@@ -28,6 +28,10 @@ def get_summary_provider() -> SummaryProvider:
         from src.research.summary.claude_cli import ClaudeCliSummaryProvider
 
         return ClaudeCliSummaryProvider()
+    if backend == "claude_cli_then_ollama":
+        from src.research.summary.chain import ClaudeCliThenOllamaSummaryProvider
+
+        return ClaudeCliThenOllamaSummaryProvider()
     if backend == "anthropic":
         from src.research.summary.anthropic import AnthropicSummaryProvider
 
