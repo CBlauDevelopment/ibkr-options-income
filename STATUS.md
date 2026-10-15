@@ -373,6 +373,51 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Built (2026-10-15 — web Home follow-ups: Done today, the realised calendar, position pages, search, a settable income target)
+
+Five changes the operator asked for after web overhaul Part 1
+(`docs/superpowers/plans/2026-10-15-web-home-followups.md`, whose Progress log has every commit,
+gate and ruling).
+
+- **Done today (Home).** The day's executed trades as cards in the proposal card's anatomy, with
+  All / Opened / Closed / Rolled pills, under Needs you from 1024px and under Positions on a phone.
+  Every card sums its whole trade in a stub (opened: premium, commission, return on what is held,
+  a year; closed and rolled: premium collected, bought back, commissions, realised P&L). Closed and
+  rolled cards say why: the close reason stamped on the buy-back fill, the roll policy's logged
+  decision and trigger, the roll terms, with Claude's stored view labelled as Claude's. A roll is one
+  card, paired on its combo order id. `GET /pnl/day` (`src/reporting/day.py`); spreads included.
+- **Income target on More.** None, a fixed amount, a percent of the account's value, or a percent
+  of an amount you name; `set_income_target` command, `system_settings.income_target`,
+  `GET /pnl/target`. A web setting wins (an explicit "none" beats the config), and
+  `web.monthly_income_target_pct` remains the fallback. The pay card links to More when there is none.
+- **Position pages.** Each Positions row opens `/positions/{underlying}/{slug}`: the underlying's
+  chart with the strike (or cost basis) drawn across it, the initial trade and how it ended (the same
+  card as Done today), a Now card from the snapshot, and the headlines directly under the chart.
+  `GET /portfolio/positions/{underlying}/{slug}`, `GET /research/{symbol}/headlines`.
+- **Positions search.** Ticker or contract, commas for several names; the chips' counts follow it.
+- **Realised calendar.** A calendar button replaces "Chart by TradingView" at the end of the chart's
+  range row: each day's realised P&L for a month, a month total, and a tapped day's closes.
+  `GET /pnl/calendar`. The chart library's licence link moved to a Credits card on More.
+
+**Known limitations (Home follow-ups):**
+
+- **Restart owed.** The API process (new routes) and `approval_service` (the new `set_income_target`
+  command kind) run stale code until `./ibkr restart`; until then the target card's Save sits
+  pending ("the trading service is not draining commands" says so), and the new pages 404.
+- The calendar and Done today read the system's own fills and the spreads book. Share sales, manual
+  trades and anything the system did not place are not in them (they live in the trade ledger);
+  the calendar says so. A day nothing closed is blank, not flat. Realised P&L follows the wheel's
+  convention: an assigned put realises its premium, the shares' gain or loss waits in the basis.
+- Done today shows today (New York) only; earlier days are reached through the calendar. An expiry or
+  an assignment on the day is listed under Closed although it is not an execution.
+- A roll's "Claude's view" appears only when a roll alert row stored one; a roll with no logged
+  decision says the log was not found rather than inventing a trigger. The new leg of a roll is
+  repeated on the position page of its own contract, not on the rolled card.
+- The position page's chart is daily closes over 1M, 3M, 6M or 1Y (the research bars endpoint); a
+  position the system did not open shows no initial trade. Headlines come from the keyless news
+  provider and are an empty list when it is unreachable.
+- The calendar is account-wide, not scoped by the strategy switcher (the hero is account-wide too).
+
 ## Fixed (2026-10-15 — `/resume` re-halted at once; rolls blocked by a breaker halt; roll-mode setting)
 
 **What the 14–15 Oct logs showed.** (1) The daily-loss breaker tripped on a $25K mark-to-market
@@ -486,7 +531,7 @@ commit, gate and ruling). Visual authority: `web/DESIGN.md` (ratified by the ope
   keyboard-operable chart and range chips (a "Delayed" flag word and the age when, in market
   hours, its headline is older than the positions card's 30 minutes; market holidays and early
   closes are not known to the web, so a holiday, or a half-day's afternoon, reads as delayed), the collapsible month's pay stub against
-  `web.monthly_income_target_pct`, positions with status words (wheel and spreads), and on desktop
+  the income target (`web.monthly_income_target_pct` until one is set on More), positions with status words (wheel and spreads), and on desktop
   the "Needs you" proposal cards whose Review opens the review sheet: the existing
   `DecideControls` → `ConfirmAction` flow, LIVE second confirmation included.
 - **Read-only API.** `GET /portfolio/value` (`src/reporting/account_value.py`), `GET /pnl/month`

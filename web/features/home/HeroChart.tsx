@@ -45,7 +45,7 @@ export function HeroChart({
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: cssVar("--text-muted"),
         // The library's logo sat on the line's first points. Its licence asks for a link to
-        // tradingview.com on the page, which AccountHero renders as text beside the range chips.
+        // tradingview.com somewhere users can reach: the Credits card on More carries it.
         attributionLogo: false,
       },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },

@@ -15,7 +15,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.common.config import get_config
-from src.common.schemas import AutonomyLevel
+from src.common.income_target import (
+    INCOME_TARGET_KEY,
+    dump_income_target,
+    parse_income_target,
+)
+from src.common.schemas import AutonomyLevel, IncomeTarget
 from src.storage.db import session_scope
 from src.storage.models import SystemSettingRow
 
@@ -118,6 +123,16 @@ def may_auto_open(symbol: str) -> bool:
     if level == AutonomyLevel.FULL:
         return True
     return symbol.upper() in _autonomy_whitelist()
+
+
+def get_income_target() -> IncomeTarget | None:
+    """The monthly income target the operator set from the web, or None when never set (the
+    config's legacy percentage then applies; see ``resolve_income_target``). Display only."""
+    return parse_income_target(get_setting(INCOME_TARGET_KEY, "") or None)
+
+
+def set_income_target(target: IncomeTarget) -> None:
+    set_setting(INCOME_TARGET_KEY, dump_income_target(target))
 
 
 ROLL_MODE_AUTO = "auto"

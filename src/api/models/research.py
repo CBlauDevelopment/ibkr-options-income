@@ -42,6 +42,13 @@ class NewsItem(BaseModel):
     sentiment: float | None = None
 
 
+class HeadlinesResponse(Envelope):
+    """The newest headlines for one symbol, newest first (the position page's news section)."""
+
+    symbol: str
+    items: list[NewsItem]
+
+
 class Bar(BaseModel):
     """One daily OHLCV bar in lightweight-charts' expected field names.
 

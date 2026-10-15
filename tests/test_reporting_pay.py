@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from src.common.schemas import PnlLeg
+from src.common.schemas import IncomeTarget, PnlLeg
 from src.reporting.pay import SpreadPayInput, build_month_pay
 
 OCT = date(2026, 10, 1)
@@ -37,7 +37,9 @@ def leg(**over) -> PnlLeg:
 
 
 def pay(legs=(), spreads=(), **kw):
-    args = dict(month=OCT, strategy="all", month_start_value=None, target_pct=None, today=TODAY)
+    args = dict(
+        month=OCT, strategy="all", month_start_value=None, target=IncomeTarget(), today=TODAY
+    )
     args.update(kw)
     return build_month_pay(list(legs), list(spreads), **args)
 
@@ -186,15 +188,46 @@ def test_spreads_count_in_all_and_spread_only() -> None:
 
 
 def test_target_is_a_percent_of_month_start_value() -> None:
-    p = pay([leg()], month_start_value=200_000.0, target_pct=1.0)
+    p = pay(
+        [leg()],
+        month_start_value=200_000.0,
+        target=IncomeTarget(mode="pct_of_account", pct=1.0),
+    )
     assert p.target == 2_000.0
     assert p.progress_pct == pytest.approx((235.0 - 1.3) / 2_000.0 * 100)
 
 
 def test_no_month_start_value_means_no_target_not_zero() -> None:
-    p = pay([leg()], month_start_value=None, target_pct=1.0)
+    p = pay([leg()], month_start_value=None, target=IncomeTarget(mode="pct_of_account", pct=1.0))
     assert p.target is None and p.progress_pct is None
     assert p.target_pct == 1.0
+    assert p.target_mode == "pct_of_account"
+
+
+def test_a_fixed_target_is_the_amount_whatever_the_account_is_worth() -> None:
+    target = IncomeTarget(mode="fixed", amount=1_500.0)
+    p = pay([leg()], month_start_value=None, target=target)
+    assert p.target == 1_500.0
+    assert p.progress_pct == pytest.approx((235.0 - 1.3) / 1_500.0 * 100)
+    assert (p.target_mode, p.target_amount, p.target_pct, p.target_base) == (
+        "fixed",
+        1_500.0,
+        None,
+        None,
+    )
+
+
+def test_a_percent_of_an_amount_ignores_the_account_value() -> None:
+    target = IncomeTarget(mode="pct_of_amount", pct=2.0, base=100_000.0)
+    for start in (None, 50_000.0, 900_000.0):
+        assert pay([leg()], month_start_value=start, target=target).target == 2_000.0
+    p = pay([leg()], target=target)
+    assert (p.target_mode, p.target_pct, p.target_base) == ("pct_of_amount", 2.0, 100_000.0)
+
+
+def test_off_is_no_target_not_a_zero_target() -> None:
+    p = pay([leg()], month_start_value=200_000.0, target=IncomeTarget(mode="off"))
+    assert p.target is None and p.progress_pct is None and p.target_mode == "off"
 
 
 def test_incomplete_commissions_are_flagged() -> None:

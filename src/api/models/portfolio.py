@@ -12,7 +12,8 @@ from datetime import date
 from typing import Literal
 
 from src.api.models.common import Envelope, Sourced
-from src.common.schemas import AccountValueSeries
+from src.api.models.spreads import SpreadPositionOut
+from src.common.schemas import AccountValueSeries, DayTrade
 
 # ---------------------------------------------------------------------------
 # Task 2.1 — GET /portfolio/summary
@@ -154,3 +155,36 @@ class CalendarResponse(Envelope):
 
 class AccountValueResponse(Envelope):
     series: AccountValueSeries
+
+
+# ---------------------------------------------------------------------------
+# Web Home follow-ups (2026-10-15) - GET /portfolio/positions/{underlying}/{slug}
+# ---------------------------------------------------------------------------
+
+
+class PositionDetailResponse(Envelope):
+    """One position as the page behind a Positions row shows it: where it stands now, and the
+    trade that opened it.
+
+    ``kind`` follows the slug: ``option`` (``2026-11-21_P180``), ``shares`` or
+    ``spread`` (``spread-<id>``). ``held`` is whether the latest snapshot still has it; a
+    contract that has since been closed, rolled or has expired is still answered from the system's
+    own fills, with ``closed`` saying how it ended. ``opened`` and ``closed`` are the same cards
+    Home's "Done today" shows (premium, commission, return, Claude's stored review, the reason),
+    so the figures on the two surfaces are one computation.
+    """
+
+    underlying: str
+    slug: str
+    kind: Literal["option", "shares", "spread"]
+    held: bool
+    source: Literal["monitor", "refresh", "eod", "none"]
+    degraded: bool
+    option: OptionLeg | None = None  # the live leg, when still held
+    stock: StockLeg | None = None  # the shares (kind shares), or those held beside an option
+    campaign: CampaignSummary | None = None  # the wheel thread behind assigned shares
+    spread: SpreadPositionOut | None = None
+    opened: DayTrade | None = None  # the initial trade
+    closed: DayTrade | None = None  # how it ended, once it has
+    # False only for a spread whose book could not be read; the card then says so.
+    spreads_available: bool = True

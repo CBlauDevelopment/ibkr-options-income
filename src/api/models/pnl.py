@@ -14,9 +14,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 from src.api.models.common import Envelope
+from src.common.income_target import TargetSource
 from src.common.schemas import (
     CampaignPnl,
+    DayTrade,
     EquityCurve,
+    IncomeTarget,
+    MonthCalendar,
     MonthPay,
     PnlSummary,
     ScoreOutcomeReport,
@@ -77,4 +81,32 @@ class MonthPayResponse(Envelope):
     # False only when a spreads book is in scope (strategy all or spread) and data/spreads.db
     # could not be read (absent, not a database, locked, no table): the spread part of `pay`
     # is then unknown, not $0, and an "all" total is the wheel alone.
+    spreads_available: bool
+
+
+class IncomeTargetResponse(Envelope):
+    """The monthly income target in force and where it came from (web setting, the legacy
+    `web.monthly_income_target_pct`, or none)."""
+
+    target: IncomeTarget
+    source: TargetSource
+
+
+class DayTradesResponse(Envelope):
+    """The trades opened, closed or rolled on one New York day (Home's "Done today")."""
+
+    date: date
+    book: Literal["paper", "live"]
+    strategy: Literal["all", "csp", "cc", "spread"]
+    trades: list[DayTrade]
+    # False only when a spreads book is in scope and data/spreads.db could not be read: the
+    # spreads cards are then missing, not absent, and the card says so.
+    spreads_available: bool
+
+
+class RealisedCalendarResponse(Envelope):
+    """A month of daily realised P&L."""
+
+    book: Literal["paper", "live"]
+    calendar: MonthCalendar
     spreads_available: bool

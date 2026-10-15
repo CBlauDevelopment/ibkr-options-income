@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.api.models.common import Envelope
 from src.common.config import get_config
-from src.common.schemas import AutonomyLevel, LedgerOutcome
+from src.common.schemas import AutonomyLevel, IncomeTarget, LedgerOutcome
 
 
 class CommandKind(StrEnum):
@@ -32,6 +32,7 @@ class CommandKind(StrEnum):
     RESUME = "resume"
     SET_AUTONOMY = "set_autonomy"
     SET_ROLL_MODE = "set_roll_mode"
+    SET_INCOME_TARGET = "set_income_target"
     UNIVERSE_ADD = "universe_add"
     UNIVERSE_REMOVE = "universe_remove"
     REFRESH = "refresh"
@@ -89,6 +90,13 @@ class SetRollModePayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     mode: Literal["auto", "propose"]
+
+
+class SetIncomeTargetPayload(IncomeTarget):
+    """The monthly income target shown on Home's pay card: ``off``, a ``fixed`` amount, a
+    percentage of the account's month-start value (``pct_of_account``) or a percentage of an
+    amount the operator names (``pct_of_amount``). Display only; fields that do not belong to
+    the mode are refused at parse time (see ``IncomeTarget``)."""
 
 
 class UniversePayload(BaseModel):
@@ -170,6 +178,7 @@ PAYLOAD_FOR: dict[CommandKind, type[BaseModel]] = {
     CommandKind.RESUME: ResumePayload,
     CommandKind.SET_AUTONOMY: SetAutonomyPayload,
     CommandKind.SET_ROLL_MODE: SetRollModePayload,
+    CommandKind.SET_INCOME_TARGET: SetIncomeTargetPayload,
     CommandKind.UNIVERSE_ADD: UniversePayload,
     CommandKind.UNIVERSE_REMOVE: UniversePayload,
     CommandKind.REFRESH: RefreshPayload,
@@ -188,8 +197,8 @@ def validate_payload(kind: CommandKind, raw: dict) -> BaseModel:
 def dedupe_key_for(kind: CommandKind, payload: BaseModel) -> str | None:
     """The ``f"{kind}:{target}"`` convention from Task 1.1.
 
-    ``None`` for the eleven repeatable kinds (halt, resume, set_autonomy, set_roll_mode, refresh,
-    universe_add, universe_remove, ledger_import, ledger_annotate, ledger_ca_reviewed,
+    ``None`` for the twelve repeatable kinds (halt, resume, set_autonomy, set_roll_mode,
+    set_income_target, refresh, universe_add, universe_remove, ledger_import, ledger_annotate, ledger_ca_reviewed,
     news_brief) —
     repeating them is harmless, so they are never deduped. The universe kinds joined this
     set in the M7 final-review fix round: both drain handlers
@@ -214,6 +223,7 @@ def dedupe_key_for(kind: CommandKind, payload: BaseModel) -> str | None:
         CommandKind.RESUME,
         CommandKind.SET_AUTONOMY,
         CommandKind.SET_ROLL_MODE,
+        CommandKind.SET_INCOME_TARGET,
         CommandKind.REFRESH,
         CommandKind.UNIVERSE_ADD,
         CommandKind.UNIVERSE_REMOVE,

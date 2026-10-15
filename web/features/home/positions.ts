@@ -14,6 +14,9 @@ export type PositionKind = "csp" | "cc" | "spread" | "shares" | "other";
 export type PositionRow = {
   key: string;
   kind: PositionKind;
+  underlying: string;
+  /** The page behind the row (/positions/AAPL/2026-11-21_P180); null when the contract is not fully known. */
+  href: string | null;
   title: string;
   status: { word: string; tone: StatusTone } | null;
   sub: string;
@@ -33,6 +36,46 @@ function expiryLabel(iso: string | null, dte: number | null): string {
 
 const money = (v: number) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
+/** The slug the position page and API use for one option contract: expiry, right, strike. */
+export function optionSlug(expiry: string, right: string, strike: number): string {
+  return `${expiry}_${right}${strike}`;
+}
+
+const pageFor = (underlying: string, slug: string) => `/positions/${encodeURIComponent(underlying)}/${slug}`;
+
+function words(query: string): string[][] {
+  return query
+    .toLowerCase()
+    .split(",")
+    .map((alt) => alt.split(/\s+/).filter(Boolean))
+    .filter((alt) => alt.length > 0);
+}
+
+/**
+ * Whether a row answers a search. Commas separate alternatives ("amzn, nvda" shows both names);
+ * inside one alternative every word must appear ("amzn put"). Only the ticker and the contract's
+ * own words are searched, so "sat" does not match every row that expires on a Saturday.
+ */
+export function matchesQuery(row: PositionRow, query: string): boolean {
+  const alts = words(query);
+  if (alts.length === 0) return true;
+  const hay = `${row.underlying} ${row.title}`.toLowerCase();
+  return alts.some((alt) => alt.every((w) => hay.includes(w)));
+}
+
+/** The status word for a held option, from API fields only; null when none of them is known. */
+export function optionStatus(
+  o: { expiry: string | null; dte: number | null; assignment_risk: boolean; moneyness: string | null },
+  todayIso: string,
+): PositionRow["status"] {
+  if (o.expiry === todayIso || o.dte === 0) return { word: "Expires today", tone: "today" };
+  if (o.assignment_risk) return { word: "Assignment likely", tone: "flag" };
+  if (o.moneyness === "itm") return { word: "In the money", tone: "flag" };
+  if (o.moneyness === "atm") return { word: "At the money", tone: "neutral" };
+  if (o.moneyness === "otm") return { word: "Out of the money", tone: "neutral" };
+  return null;
+}
+
 export function buildPositionRows(
   groups: PositionGroupData[],
   spreads: SpreadPosition[],
@@ -44,20 +87,18 @@ export function buildPositionRows(
     const shares = g.stock?.shares ?? 0;
     for (const o of g.options) {
       const kind: PositionKind = !o.short ? "other" : o.right === "P" ? "csp" : o.right === "C" ? "cc" : "other";
+      const known = o.right && typeof o.strike === "number" && o.expiry;
       const word = o.right === "P" ? "put" : o.right === "C" ? "call" : "option";
       const strike = typeof o.strike === "number" ? money(o.strike) : "strike n/a";
-      let status: PositionRow["status"] = null;
-      if (o.expiry === todayIso || o.dte === 0) status = { word: "Expires today", tone: "today" };
-      else if (o.assignment_risk) status = { word: "Assignment likely", tone: "flag" };
-      else if (o.moneyness === "itm") status = { word: "In the money", tone: "flag" };
-      else if (o.moneyness === "atm") status = { word: "At the money", tone: "neutral" };
-      else if (o.moneyness === "otm") status = { word: "Out of the money", tone: "neutral" };
+      const status = optionStatus(o, todayIso);
       const parts = [expiryLabel(o.expiry, o.dte)];
       if (kind === "cc" && shares >= 100 * o.contracts) parts.push(`covered by ${100 * o.contracts} shares`);
       if (o.contracts > 1) parts.push(`${o.contracts} contracts`);
       rows.push({
         key: `${g.underlying}:${o.symbol}`,
         kind,
+        underlying: g.underlying,
+        href: known ? pageFor(g.underlying, optionSlug(o.expiry!, o.right!, o.strike as number)) : null,
         title: `${o.short ? "" : "Long "}${g.underlying} ${strike} ${word}`,
         status,
         sub: parts.join(" · "),
@@ -72,6 +113,8 @@ export function buildPositionRows(
       rows.push({
         key: `${g.underlying}:stock`,
         kind: "shares",
+        underlying: g.underlying,
+        href: pageFor(g.underlying, "shares"),
         title: `${g.underlying} · ${s.shares} shares`,
         status: null,
         sub: `avg ${money(s.avg_cost)}${basis}`,
@@ -85,6 +128,8 @@ export function buildPositionRows(
     rows.push({
       key: `spread:${p.spread_id}`,
       kind: "spread",
+      underlying,
+      href: pageFor(underlying, `spread-${p.spread_id}`),
       title: `${underlying} ${p.short_strike}/${p.long_strike} ${p.side} spread`,
       status:
         p.expiry === todayIso

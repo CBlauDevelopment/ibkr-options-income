@@ -6,6 +6,7 @@ import { BotCard } from "@/components/shell/BotCard";
 import { SystemStatusCard } from "@/components/shell/SystemStatusCard";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { Card } from "@/components/ui/Card";
+import { TargetCard } from "@/features/more/TargetCard";
 
 const LINKS = [
   { href: "/research", label: "Research", sub: "Search, watchlist, sectors, universe" },
@@ -33,6 +34,8 @@ export default function MorePage() {
         </div>
       </Card>
 
+      <TargetCard />
+
       <Card className="mt-4" as="div">
         <ul>
           {LINKS.map((l) => (
@@ -52,6 +55,26 @@ export default function MorePage() {
       <section className="mt-4" aria-label="System status">
         <SystemStatusCard />
       </section>
+
+      {/* The chart library's licence asks for a link to tradingview.com somewhere users can reach;
+          the chart's own logo is off so it never sits on the line. */}
+      <Card className="mt-4" as="section" aria-labelledby="credits-title">
+        <h2 id="credits-title" className="text-[1.0625rem] font-bold">
+          Credits
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Charts are drawn with Lightweight Charts, made by{" "}
+          <a
+            href="https://www.tradingview.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-content underline underline-offset-2"
+          >
+            TradingView<span className="sr-only"> (opens in a new tab)</span>
+          </a>
+          .
+        </p>
+      </Card>
     </div>
   );
 }

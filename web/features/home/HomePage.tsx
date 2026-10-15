@@ -9,6 +9,7 @@ import { NeedsYou, usePendingApprovals } from "./NeedsYou";
 import { PayCard } from "./PayCard";
 import { PositionsCard } from "./PositionsCard";
 import { ProposalsBanner } from "./ProposalsBanner";
+import { TodayTrades } from "./TodayTrades";
 
 const noSubscribe = () => () => {};
 
@@ -53,8 +54,11 @@ export function HomePage() {
     <div className="mx-auto max-w-[1200px] px-4 py-5 md:px-7 md:py-6">
       {heading}
       <SegmentedControl label="Strategy" options={options} value={strategy} onChange={setStrategy} />
-      <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="min-w-0">
+      {/* One grid, one copy of each card. From 1024px the left column spans every row and the
+          right column stacks "Needs you" over "Done today"; below it the grid is a single column
+          in DOM order, so Done today follows Positions and "Needs you" is the banner above. */}
+      <div className="mt-5 grid items-start gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_auto_1fr]">
+        <div className="min-w-0 lg:col-start-1 lg:row-span-3 lg:row-start-1">
           <AccountHero />
           <div className="lg:hidden">
             <ProposalsBanner strategy={strategy} />
@@ -62,9 +66,10 @@ export function HomePage() {
           <PayCard strategy={strategy} />
           <PositionsCard strategy={strategy} />
         </div>
-        <aside className="hidden lg:block">
+        <div className="hidden lg:col-start-2 lg:row-start-1 lg:block">
           <NeedsYou strategy={strategy} />
-        </aside>
+        </div>
+        <TodayTrades strategy={strategy} className="lg:col-start-2 lg:row-start-2" />
       </div>
     </div>
   );

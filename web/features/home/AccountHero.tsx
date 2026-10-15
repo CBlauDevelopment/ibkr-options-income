@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { UNKNOWN } from "@/lib/format";
 import { formatMoneyCell } from "@/lib/money";
 import { HeroChart } from "./HeroChart";
+import { RealisedCalendarButton } from "./RealisedCalendar";
 import { formatDay, heroDelay, heroFigures } from "./hero";
 import type { AccountValueResponse, RangeKey } from "./types";
 
@@ -105,8 +106,8 @@ export function AccountHero({ now }: { now?: Date } = {}) {
       ) : (
         <HeroChart points={series.points} onHover={setHover} />
       )}
-      {/* The 10px row gap clears the chips' 44px phone hit areas when the credit wraps below. */}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
+      {/* On a phone the range chips spread across the row and the calendar button sits at its end. */}
+      <div className="mt-2 flex items-center justify-between gap-x-3">
         <SegmentedControl
           label="Chart range"
           appearance="quiet"
@@ -116,20 +117,11 @@ export function AccountHero({ now }: { now?: Date } = {}) {
             setHover(null);
             setRange(r);
           }}
-          className="max-md:flex max-md:w-full max-md:justify-between"
+          className="max-md:flex max-md:min-w-0 max-md:flex-1 max-md:justify-between"
         />
-        {series.points.length > 0 && (
-          // The chart library's licence asks for a link to tradingview.com on the page; the
-          // chart's own logo is off so it never covers the line.
-          <a
-            href="https://www.tradingview.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-6 items-center text-xs text-muted underline-offset-2 hover:underline max-md:ml-auto"
-          >
-            Chart by TradingView<span className="sr-only"> (opens in a new tab)</span>
-          </a>
-        )}
+        {/* The daily realised P&L calendar. The chart library's licence link lives on More (Credits),
+            not here, so the corner of the chart stays for the thing people use. */}
+        <RealisedCalendarButton now={now} />
       </div>
     </section>
   );

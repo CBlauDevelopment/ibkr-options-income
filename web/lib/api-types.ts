@@ -184,6 +184,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/research/{symbol}/headlines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Headlines
+         * @description The newest headlines for one symbol, newest first, each VADER-scored.
+         *
+         *     The light read behind the position page's news section: it calls the headline loader only,
+         *     never `materialize()` (which can start an SEC fundamentals ingest). An unreachable news
+         *     source is an empty list, never an error, and nothing is stored. Enrichment tier: headlines
+         *     reach the page and never the engine.
+         */
+        get: operations["headlines_research__symbol__headlines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/research/{symbol}": {
         parameters: {
             query?: never;
@@ -559,6 +584,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/portfolio/positions/{underlying}/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Portfolio Position
+         * @description One position's page: where it stands now, and the trade that opened it.
+         *
+         *     The slug is what a Positions row links with: ``2026-11-21_P180`` (an option contract),
+         *     ``shares``, or ``spread-<id>``. The live figures come from the same snapshot reading
+         *     ``GET /portfolio/positions`` renders (so the two never disagree); the initial trade comes from
+         *     the system's own fills through the builders Home's "Done today" uses. A contract that is no
+         *     longer held but was traded by the system still answers, with ``closed`` saying how it ended.
+         *     404 when neither the snapshot nor the fills know it. Read-only; never reaches IBKR.
+         */
+        get: operations["portfolio_position_portfolio_positions__underlying___slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/portfolio/value": {
         parameters: {
             query?: never;
@@ -712,6 +764,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pnl/target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Target
+         * @description The monthly income target as set, for the More page's control. `source` says whether it
+         *     is the web setting, the legacy `web.monthly_income_target_pct`, or nothing.
+         */
+        get: operations["pnl_target_pnl_target_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pnl/month": {
         parameters: {
             query?: never;
@@ -726,6 +799,52 @@ export interface paths {
          *     only positions whose mode equals the book; shadow and baseline are simulations.
          */
         get: operations["pnl_month_pnl_month_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pnl/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Day
+         * @description What was opened, closed or rolled on one New York day, as the cards Home shows.
+         *
+         *     `date` defaults to today in New York. Every card comes from the same `PnlLeg` list (and the
+         *     book's spread rows) the pay stub and the calendar read; a roll is one card, paired on its
+         *     combo order. The reasons are worked out from stored facts, never generated. `book` defaults
+         *     to the running mode, as `/pnl/month` does.
+         */
+        get: operations["pnl_day_pnl_day_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pnl/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Calendar
+         * @description A month of daily realised P&L: each day's net result, after commissions, of what closed
+         *     that day (options legs and the book's credit spreads). Days nothing closed are absent.
+         */
+        get: operations["pnl_calendar_pnl_calendar_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1916,7 +2035,7 @@ export interface components {
          * @description Every intent the web layer can enqueue. Later milestones register handlers.
          * @enum {string}
          */
-        CommandKind: "approve" | "reject" | "promote" | "roll_request" | "halt" | "resume" | "set_autonomy" | "set_roll_mode" | "universe_add" | "universe_remove" | "refresh" | "ledger_import" | "ledger_annotate" | "ledger_ca_reviewed" | "news_brief";
+        CommandKind: "approve" | "reject" | "promote" | "roll_request" | "halt" | "resume" | "set_autonomy" | "set_roll_mode" | "set_income_target" | "universe_add" | "universe_remove" | "refresh" | "ledger_import" | "ledger_annotate" | "ledger_ca_reviewed" | "news_brief";
         /** CommandRequest */
         CommandRequest: {
             kind: components["schemas"]["CommandKind"];
@@ -2048,6 +2167,229 @@ export interface components {
             drain_last_seen?: string | null;
             /** Pending Commands */
             pending_commands: number;
+        };
+        /**
+         * DayCalendarDay
+         * @description One New York day's realised P&L: what closed that day, after commissions.
+         */
+        DayCalendarDay: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Realized */
+            realized: number;
+            /** N Closed */
+            n_closed: number;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+        };
+        /**
+         * DayFact
+         * @description One line of a closed or rolled trade's reasoning. ``source`` is who said it: ``system``
+         *     lines are worked out from stored fills, alerts and the roll policy's own log; ``claude``
+         *     lines are Claude's stored view, which the web always labels as Claude's.
+         */
+        DayFact: {
+            /** Label */
+            label: string;
+            /** Text */
+            text: string;
+            /**
+             * Source
+             * @default system
+             * @enum {string}
+             */
+            source: "system" | "claude";
+        };
+        /**
+         * DayReview
+         * @description Claude's stored review of an opened trade, field for field the API's ClaudeReviewPayload
+         *     (src/api/models/options.py) so the web renders it with the proposal card's Why disclosure.
+         */
+        DayReview: {
+            /**
+             * Why Attractive
+             * @default
+             */
+            why_attractive: string;
+            /**
+             * Risks
+             * @default
+             */
+            risks: string;
+            /**
+             * Tradeoffs
+             * @default
+             */
+            tradeoffs: string;
+            /**
+             * Assignment Considerations
+             * @default
+             */
+            assignment_considerations: string;
+            /**
+             * Rolling Considerations
+             * @default
+             */
+            rolling_considerations: string;
+            /** Recommendation */
+            recommendation?: string | null;
+            /** Priority */
+            priority?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Evidence */
+            evidence?: string[];
+        };
+        /**
+         * DayRolledTo
+         * @description The leg a roll opened (the buy-back and the new short share one combo order).
+         */
+        DayRolledTo: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Strike */
+            strike: number;
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Contracts */
+            contracts: number;
+            /** Premium */
+            premium?: number | null;
+            /** Commissions */
+            commissions?: number | null;
+        };
+        /**
+         * DayTrade
+         * @description One executed trade on one New York day, as a Home card (web, 2026-10-15).
+         *
+         *     Money is USD for the whole position, never per share. ``premium``, ``bought_back`` and
+         *     ``commissions`` are positive numbers; the card signs them. Unknown is None, never 0.0.
+         *     ``net_pnl`` is the realised result after every commission, set only once the trade is
+         *     closed. ``capital`` is the cash held aside (a put), the shares' strike value (a call) or the
+         *     most a spread can lose.
+         */
+        DayTrade: {
+            /** Key */
+            key: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "opened" | "closed" | "rolled";
+            /** How */
+            how?: ("bought_back" | "expired" | "assigned" | "called_away" | "rolled") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "csp" | "cc" | "spread" | "other";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "wheel" | "spreads";
+            /** Underlying */
+            underlying: string;
+            /** Right */
+            right?: ("C" | "P") | null;
+            /** Strike */
+            strike: number;
+            /** Long Strike */
+            long_strike?: number | null;
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Contracts */
+            contracts: number;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Is Live
+             * @default false
+             */
+            is_live: boolean;
+            /** Premium */
+            premium?: number | null;
+            /** Bought Back */
+            bought_back?: number | null;
+            /** Commissions */
+            commissions?: number | null;
+            /**
+             * Commissions Complete
+             * @default true
+             */
+            commissions_complete: boolean;
+            /** Net Pnl */
+            net_pnl?: number | null;
+            /** Capital */
+            capital?: number | null;
+            /** Roc Pct */
+            roc_pct?: number | null;
+            /** Annualized Pct */
+            annualized_pct?: number | null;
+            /** Pct Kept */
+            pct_kept?: number | null;
+            /** Dte At Open */
+            dte_at_open?: number | null;
+            /** Days Held */
+            days_held?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Facts */
+            facts?: components["schemas"]["DayFact"][];
+            /** Approval Id */
+            approval_id?: number | null;
+            review?: components["schemas"]["DayReview"] | null;
+            rolled_to?: components["schemas"]["DayRolledTo"] | null;
+        };
+        /**
+         * DayTradesResponse
+         * @description The trades opened, closed or rolled on one New York day (Home's "Done today").
+         */
+        DayTradesResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "all" | "csp" | "cc" | "spread";
+            /** Trades */
+            trades: components["schemas"]["DayTrade"][];
+            /** Spreads Available */
+            spreads_available: boolean;
         };
         /** EarningsOut */
         EarningsOut: {
@@ -2203,6 +2545,21 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HeadlinesResponse
+         * @description The newest headlines for one symbol, newest first (the position page's news section).
+         */
+        HeadlinesResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Symbol */
+            symbol: string;
+            /** Items */
+            items: components["schemas"]["NewsItem"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -2237,6 +2594,48 @@ export interface components {
             hi?: number | null;
             /** Min Credit */
             min_credit?: number | null;
+        };
+        /**
+         * IncomeTarget
+         * @description The monthly income goal behind Home's pay card (web, 2026-10-15). Display only: nothing in
+         *     the trading path reads it.
+         *
+         *     ``fixed``: ``amount`` dollars a month. ``pct_of_account``: ``pct`` percent of the account's
+         *     value at the month's start. ``pct_of_amount``: ``pct`` percent of ``base`` dollars the
+         *     operator names (a number that does not move with the account). ``off``: no target. Fields
+         *     that do not belong to the mode must be absent, so a stored row can never disagree with itself.
+         */
+        IncomeTarget: {
+            /**
+             * Mode
+             * @default off
+             * @enum {string}
+             */
+            mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount";
+            /** Amount */
+            amount?: number | null;
+            /** Pct */
+            pct?: number | null;
+            /** Base */
+            base?: number | null;
+        };
+        /**
+         * IncomeTargetResponse
+         * @description The monthly income target in force and where it came from (web setting, the legacy
+         *     `web.monthly_income_target_pct`, or none).
+         */
+        IncomeTargetResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            target: components["schemas"]["IncomeTarget"];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "web" | "config" | "none";
         };
         /** LedgerBasisPoint */
         LedgerBasisPoint: {
@@ -2834,6 +3233,34 @@ export interface components {
             role: string;
         };
         /**
+         * MonthCalendar
+         * @description A month of daily realised P&L (web, 2026-10-15). Only days something closed appear; a
+         *     missing day is a day with no close, not a day known to be flat.
+         */
+        MonthCalendar: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "all" | "csp" | "cc" | "spread";
+            /** Days */
+            days?: components["schemas"]["DayCalendarDay"][];
+            /** Total */
+            total: number;
+            /** N Closed */
+            n_closed: number;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+        };
+        /**
          * MonthPay
          * @description One month's options income as a pay stub (web Home, DESIGN.md "October pay").
          *
@@ -2877,6 +3304,16 @@ export interface components {
             month_start_value?: number | null;
             /** Target Pct */
             target_pct?: number | null;
+            /**
+             * Target Mode
+             * @default off
+             * @enum {string}
+             */
+            target_mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount";
+            /** Target Amount */
+            target_amount?: number | null;
+            /** Target Base */
+            target_base?: number | null;
             /** Target */
             target?: number | null;
             /** Progress Pct */
@@ -3407,6 +3844,54 @@ export interface components {
             /** Note */
             note: string | null;
         };
+        /**
+         * PositionDetailResponse
+         * @description One position as the page behind a Positions row shows it: where it stands now, and the
+         *     trade that opened it.
+         *
+         *     ``kind`` follows the slug: ``option`` (``2026-11-21_P180``), ``shares`` or
+         *     ``spread`` (``spread-<id>``). ``held`` is whether the latest snapshot still has it; a
+         *     contract that has since been closed, rolled or has expired is still answered from the system's
+         *     own fills, with ``closed`` saying how it ended. ``opened`` and ``closed`` are the same cards
+         *     Home's "Done today" shows (premium, commission, return, Claude's stored review, the reason),
+         *     so the figures on the two surfaces are one computation.
+         */
+        PositionDetailResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Underlying */
+            underlying: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "option" | "shares" | "spread";
+            /** Held */
+            held: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "monitor" | "refresh" | "eod" | "none";
+            /** Degraded */
+            degraded: boolean;
+            option?: components["schemas"]["OptionLeg"] | null;
+            stock?: components["schemas"]["StockLeg"] | null;
+            campaign?: components["schemas"]["CampaignSummary"] | null;
+            spread?: components["schemas"]["SpreadPositionOut"] | null;
+            opened?: components["schemas"]["DayTrade"] | null;
+            closed?: components["schemas"]["DayTrade"] | null;
+            /**
+             * Spreads Available
+             * @default true
+             */
+            spreads_available: boolean;
+        };
         /** PositionGroup */
         PositionGroup: {
             /**
@@ -3436,6 +3921,25 @@ export interface components {
             degraded: boolean;
             /** Groups */
             groups: components["schemas"]["PositionGroup"][];
+        };
+        /**
+         * RealisedCalendarResponse
+         * @description A month of daily realised P&L.
+         */
+        RealisedCalendarResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            calendar: components["schemas"]["MonthCalendar"];
+            /** Spreads Available */
+            spreads_available: boolean;
         };
         /**
          * RecommendationsResponse
@@ -4424,6 +4928,39 @@ export interface operations {
             };
         };
     };
+    headlines_research__symbol__headlines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeadlinesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analysis_research__symbol__get: {
         parameters: {
             query?: never;
@@ -4914,6 +5451,38 @@ export interface operations {
             };
         };
     };
+    portfolio_position_portfolio_positions__underlying___slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                underlying: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     portfolio_value_portfolio_value_get: {
         parameters: {
             query?: {
@@ -5120,6 +5689,26 @@ export interface operations {
             };
         };
     };
+    pnl_target_pnl_target_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeTargetResponse"];
+                };
+            };
+        };
+    };
     pnl_month_pnl_month_get: {
         parameters: {
             query?: {
@@ -5140,6 +5729,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonthPayResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_day_pnl_day_get: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                strategy?: "all" | "csp" | "cc" | "spread";
+                book?: ("paper" | "live") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayTradesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_calendar_pnl_calendar_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                strategy?: "all" | "csp" | "cc" | "spread";
+                book?: ("paper" | "live") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RealisedCalendarResponse"];
                 };
             };
             /** @description Validation Error */

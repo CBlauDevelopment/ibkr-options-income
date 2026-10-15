@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _ET = ZoneInfo("America/New_York")
 
@@ -948,6 +948,54 @@ class AccountValueSeries(BaseModel):
     change_today_pct: float | None = None
 
 
+IncomeTargetMode = Literal["off", "fixed", "pct_of_account", "pct_of_amount"]
+
+# The bounds a monthly income target may take. `pct` matches `web.monthly_income_target_pct`.
+INCOME_TARGET_MAX_PCT = 20.0
+INCOME_TARGET_MAX_USD = 1_000_000.0
+INCOME_TARGET_MAX_BASE_USD = 1_000_000_000.0
+
+
+class IncomeTarget(BaseModel):
+    """The monthly income goal behind Home's pay card (web, 2026-10-15). Display only: nothing in
+    the trading path reads it.
+
+    ``fixed``: ``amount`` dollars a month. ``pct_of_account``: ``pct`` percent of the account's
+    value at the month's start. ``pct_of_amount``: ``pct`` percent of ``base`` dollars the
+    operator names (a number that does not move with the account). ``off``: no target. Fields
+    that do not belong to the mode must be absent, so a stored row can never disagree with itself.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: IncomeTargetMode = "off"
+    amount: float | None = None
+    pct: float | None = None
+    base: float | None = None
+
+    @model_validator(mode="after")
+    def _fields_fit_the_mode(self) -> IncomeTarget:
+        need = {
+            "off": (),
+            "fixed": ("amount",),
+            "pct_of_account": ("pct",),
+            "pct_of_amount": ("pct", "base"),
+        }[self.mode]
+        for name in ("amount", "pct", "base"):
+            value = getattr(self, name)
+            if name in need and value is None:
+                raise ValueError(f"{self.mode} needs {name}")
+            if name not in need and value is not None:
+                raise ValueError(f"{self.mode} takes no {name}")
+        if self.amount is not None and not 0 < self.amount <= INCOME_TARGET_MAX_USD:
+            raise ValueError(f"amount must be > 0 and <= {INCOME_TARGET_MAX_USD:,.0f}")
+        if self.pct is not None and not 0 < self.pct <= INCOME_TARGET_MAX_PCT:
+            raise ValueError(f"pct must be > 0 and <= {INCOME_TARGET_MAX_PCT:g} (percent a month)")
+        if self.base is not None and not 0 < self.base <= INCOME_TARGET_MAX_BASE_USD:
+            raise ValueError(f"base must be > 0 and <= {INCOME_TARGET_MAX_BASE_USD:,.0f}")
+        return self
+
+
 class MonthPay(BaseModel):
     """One month's options income as a pay stub (web Home, DESIGN.md "October pay").
 
@@ -974,9 +1022,119 @@ class MonthPay(BaseModel):
     n_closed: int
     month_start_value: float | None = None
     target_pct: float | None = None
+    # How the target is set (IncomeTarget). `target_pct` is the percentage of either pct mode and
+    # None for a fixed amount or no target; `target_amount` and `target_base` echo the other
+    # inputs. `target_mode` "off" means no target (the pay card says "No target set").
+    target_mode: IncomeTargetMode = "off"
+    target_amount: float | None = None
+    target_base: float | None = None
     target: float | None = None
     progress_pct: float | None = None
     days_left: int
+
+
+DayTradeAction = Literal["opened", "closed", "rolled"]
+DayTradeHow = Literal["bought_back", "expired", "assigned", "called_away", "rolled"]
+DayTradeKind = Literal["csp", "cc", "spread", "other"]
+
+
+class DayReview(BaseModel):
+    """Claude's stored review of an opened trade, field for field the API's ClaudeReviewPayload
+    (src/api/models/options.py) so the web renders it with the proposal card's Why disclosure."""
+
+    why_attractive: str = ""
+    risks: str = ""
+    tradeoffs: str = ""
+    assignment_considerations: str = ""
+    rolling_considerations: str = ""
+    recommendation: str | None = None
+    priority: int | None = None
+    confidence: float | None = None
+    summary: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+
+class DayFact(BaseModel):
+    """One line of a closed or rolled trade's reasoning. ``source`` is who said it: ``system``
+    lines are worked out from stored fills, alerts and the roll policy's own log; ``claude``
+    lines are Claude's stored view, which the web always labels as Claude's."""
+
+    label: str
+    text: str
+    source: Literal["system", "claude"] = "system"
+
+
+class DayRolledTo(BaseModel):
+    """The leg a roll opened (the buy-back and the new short share one combo order)."""
+
+    candidate_id: str
+    strike: float
+    expiry: date
+    contracts: int
+    premium: float | None = None  # credit collected on the new leg, USD for the position
+    commissions: float | None = None
+
+
+class DayTrade(BaseModel):
+    """One executed trade on one New York day, as a Home card (web, 2026-10-15).
+
+    Money is USD for the whole position, never per share. ``premium``, ``bought_back`` and
+    ``commissions`` are positive numbers; the card signs them. Unknown is None, never 0.0.
+    ``net_pnl`` is the realised result after every commission, set only once the trade is
+    closed. ``capital`` is the cash held aside (a put), the shares' strike value (a call) or the
+    most a spread can lose.
+    """
+
+    key: str
+    action: DayTradeAction
+    how: DayTradeHow | None = None  # closed / rolled: how it ended
+    kind: DayTradeKind
+    source: Literal["wheel", "spreads"]
+    underlying: str
+    right: Literal["C", "P"] | None = None
+    strike: float
+    long_strike: float | None = None  # spreads only
+    expiry: date
+    contracts: int
+    at: datetime  # UTC: the fill (an expiry or assignment: 16:00 New York on its date)
+    is_live: bool = False
+    premium: float | None = None
+    bought_back: float | None = None
+    commissions: float | None = None
+    commissions_complete: bool = True
+    net_pnl: float | None = None
+    capital: float | None = None
+    roc_pct: float | None = None
+    annualized_pct: float | None = None
+    pct_kept: float | None = None  # closed: share of the premium kept before commissions
+    dte_at_open: int | None = None
+    days_held: int | None = None
+    reason: str | None = None  # closed / rolled: the headline reason, one sentence
+    facts: list[DayFact] = Field(default_factory=list)
+    approval_id: int | None = None
+    review: DayReview | None = None  # opened: Claude's stored review
+    rolled_to: DayRolledTo | None = None
+
+
+class DayCalendarDay(BaseModel):
+    """One New York day's realised P&L: what closed that day, after commissions."""
+
+    date: date
+    realized: float
+    n_closed: int
+    complete: bool = True  # False when a closed leg that day has no commission recorded
+
+
+class MonthCalendar(BaseModel):
+    """A month of daily realised P&L (web, 2026-10-15). Only days something closed appear; a
+    missing day is a day with no close, not a day known to be flat."""
+
+    month: date  # first day of the month
+    strategy: Literal["all", "csp", "cc", "spread"]
+    days: list[DayCalendarDay] = Field(default_factory=list)
+    total: float
+    n_closed: int
+    complete: bool = True
 
 
 # --------------------------------------------------------------------------- #

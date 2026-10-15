@@ -21,7 +21,7 @@ means:
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `POST` | `/commands` | owner | Enqueue an intent. `201` if new, `200` if dedupe returned the existing row (kinds with no dedupe key — halt/resume/set_autonomy/set_roll_mode/refresh/universe_add/universe_remove/news_brief — always get `201`). For `kind: "universe_add"`/`"universe_remove"` specifically, an unknown `symbol` (not in the research symbol directory) is `404` here too, and a `universe_add` of a spreads-book underlying (SPY/SPX/XSP) is `422` `reserved_for_spreads_book`, before a command row can exist — the same check `POST`/`DELETE /universe/{list_name}/{symbol}` already do, closing a path that would otherwise let this generic route bypass those thin wrappers' validation. |
+| `POST` | `/commands` | owner | Enqueue an intent. `201` if new, `200` if dedupe returned the existing row (kinds with no dedupe key — halt/resume/set_autonomy/set_roll_mode/set_income_target/refresh/universe_add/universe_remove/news_brief — always get `201`). For `kind: "universe_add"`/`"universe_remove"` specifically, an unknown `symbol` (not in the research symbol directory) is `404` here too, and a `universe_add` of a spreads-book underlying (SPY/SPX/XSP) is `422` `reserved_for_spreads_book`, before a command row can exist — the same check `POST`/`DELETE /universe/{list_name}/{symbol}` already do, closing a path that would otherwise let this generic route bypass those thin wrappers' validation. |
 | `GET` | `/commands/{id}` | owner | Read one command's status (through the read-only engine). `404` if unknown. |
 | `POST` | `/commands/{id}/confirm` | owner | Supply the `confirm_token` for a live-mode order-reaching intent. `204` on success. `403` on a wrong or missing token (the token is NOT cleared). `409` when the command is not awaiting confirmation. |
 | `POST` | `/universe/{list_name}/{symbol}` | owner | Thin wrapper: creates a `universe_add` intent. `422` if `list_name` is not `would_own`/`watchlist`. `404` if `symbol` is not a known SEC filer. `422` (`reserved_for_spreads_book`) for a spreads-book underlying (SPY/SPX/XSP). Response is the same `CommandStatus` shape as `POST /commands`. See `docs/web/api.md` and the `universe_add` section below. |
@@ -308,6 +308,24 @@ strike or expiry would rank on a fresh chain.
 - **Failure modes:** none (beyond a dead drain). Never needs the broker.
 - **Web:** `RollModeControl`, beside `AutonomyControl` in the controls strip and the Bot sheet;
   `GET /options/controls` returns `roll_mode`.
+
+### `set_income_target` — the monthly income goal on Home's pay card
+
+- **Payload:** `{ mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount", amount?, pct?, base? }`.
+  `fixed` needs `amount` (USD a month, up to 1,000,000); `pct_of_account` needs `pct` (percent a
+  month, `0 < pct <= 20`, the same bound as `web.monthly_income_target_pct`); `pct_of_amount`
+  needs `pct` and `base` (USD, up to 1,000,000,000); `off` takes nothing. A field that does not
+  belong to the mode, a missing one, an out-of-range one or an unknown key is `422` at parse time.
+- **Dedupe key:** `None` (repeatable; the last write wins).
+- **Applied by:** `command_drain._set_income_target`. Persists `system_settings.income_target`
+  (JSON) and returns `{ target, previous }`. `GET /pnl/target` and `GET /pnl/month` read it; with no
+  row they fall back to the legacy `web.monthly_income_target_pct`, and an explicit `off` row beats
+  that fallback.
+- **Live mode:** No confirmation needed. It is display only: nothing in the Rules Engine, sizing,
+  scan or execution path reads it.
+- **Notification:** none.
+- **Failure modes:** none (beyond a dead drain). Never needs the broker.
+- **Web:** the target card on More (`features/more/TargetCard`).
 
 ### `set_autonomy` — change the autonomy level
 

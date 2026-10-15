@@ -368,6 +368,24 @@ expected daily field name, so no client-side remapping is needed.
 
 ---
 
+## `GET /research/{symbol}/headlines`
+
+The newest headlines for one symbol, for the position page's news section (web Home follow-ups,
+2026-10-15). It calls the headline loader only, never `materialize()`, which can start an SEC
+fundamentals ingest, so it is cheap enough to open from a Positions row. Enrichment tier: the
+headlines (each VADER-scored) reach the page and never the engine. Nothing is stored.
+
+| Param | Type | Notes |
+|---|---|---|
+| `limit` | int, 1 to 25 | default 8 |
+
+`422` when the symbol is not a ticker (`^[A-Z][A-Z0-9.-]{0,9}$` after upper-casing). An
+unreachable news source is an empty `items` list, never an error.
+
+**Response - `HeadlinesResponse`:** `{ as_of, symbol, items: NewsItem[] }`, newest first (undated last);
+`NewsItem`: `{ title, url, published_at, source, sentiment }` (the same shape as the analysis
+route's news section; an item with no title is dropped).
+
 ## `GET /research/{symbol}/options`
 
 The on-demand options-income lens (Task 6.3). Registered directly ahead of
@@ -1064,6 +1082,35 @@ into one (the later row wins) before charting.
 
 ---
 
+### `GET /portfolio/positions/{underlying}/{slug}` (web Home follow-ups, 2026-10-15)
+
+One position's page, behind a Positions row on Home: where it stands now and the trade that
+opened it. Owner-only; read-only; never reaches IBKR. The live figures come from the same snapshot
+reading `GET /portfolio/positions` renders (`_option_legs`, `_stock_leg`), so the two never
+disagree; the initial trade comes from the system's own fills through the builders `GET /pnl/day`
+uses (`src/reporting/day.py::build_position_story`), so the figures on Home's "Done today" and on
+this page are one computation.
+
+| Slug | Meaning |
+|---|---|
+| `2026-11-21_P180` | an option contract: expiry, right (`C` or `P`), strike |
+| `shares` | the shares held in the underlying |
+| `spread-<id>` | one credit spread of the book (read through `data/spreads.db`) |
+
+- `kind` follows the slug. `held` is whether the latest snapshot still has it (a spread: whether it
+  is not closed). A contract that is no longer held but was traded by the system still answers,
+  with `closed` saying how it ended; one that is held but was never traded by the system answers
+  with `opened: null`.
+- `opened` is the initial trade (premium, commission, capital held, return, a year, days to expiry
+  at the sale, Claude's stored review, the approval id) and `closed` how it ended (a buy-back with
+  its reason, an expiry, an assignment, a roll). Both are `DayTrade` (see `GET /pnl/day`).
+- `shares` adds `campaign`, the open wheel thread (the assigned one if there are several): its
+  adjusted cost basis, premium collected and net premium.
+- `404` when neither the snapshot nor the fills know the position, or the slug is malformed; `503`
+  for a `spread-` slug when the spreads book could not be read (not the same as "no such spread").
+
+**Response - `PositionDetailResponse`:** `{ as_of, underlying, slug, kind, held, source, degraded, option: OptionLeg | null, stock: StockLeg | null, campaign: CampaignSummary | null, spread: SpreadPositionOut | null, opened: DayTrade | null, closed: DayTrade | null, spreads_available }`.
+
 ## P&L (P4 Milestone 5)
 
 The P&L read surfaces. Every route is a thin renderer over `src/reporting/pnl.py` (M4):
@@ -1235,12 +1282,14 @@ The attribution rule, every date read in New York time:
   commission of every closed contract in the month the spread finally closed (a partial close
   waits for the final close).
 - `net = premium_collected − bought_back − commissions`.
-- **`target` is `web.monthly_income_target_pct` of `month_start_value`**, the last known
-  journal close before the month's first day. `target_pct` echoes the setting as configured
-  (`null` when unset); when either the setting or `month_start_value` is unknown, `target` and
-  `progress_pct` are `null`, never `0`. The card tells the two apart: no setting says "No target
-  set"; a setting with no `month_start_value` (the first month after install, a journal gap)
-  says "Target n/a · needs the month's opening account value".
+- **`target` comes from the income target in force** (`GET /pnl/target` below): a fixed
+  `target_amount`; `target_pct` of `month_start_value` (the last known journal close before the
+  month's first day) for `pct_of_account`; or `target_pct` of `target_base` for `pct_of_amount`.
+  `target_mode` echoes which (`off` means no target). When the inputs are unknown (a
+  `pct_of_account` target with no `month_start_value`), `target` and `progress_pct` are `null`,
+  never `0`. The card tells the cases apart: `off` says "No target set"; a percent-of-account
+  target with no `month_start_value` (the first month after install, a journal gap) says
+  "Target n/a · needs the month's opening account value".
 - `commissions_complete` is `false` when any counted leg lacks a commission (the figure is a
   lower bound).
 - **`spreads_available`** is `false` only when a spreads book is in scope (`strategy` `all` or
@@ -1250,7 +1299,75 @@ The attribution rule, every date read in New York time:
   strategy never reads the file and is always `true`.
 
 **Response — `MonthPayResponse`:** `{ as_of, book, pay: MonthPay, spreads_available }`.
-`MonthPay`: `{ month, strategy, premium_collected, bought_back, commissions, commissions_complete, net, n_opened, n_closed, month_start_value: float | null, target_pct: float | null, target: float | null, progress_pct: float | null, days_left }`.
+`MonthPay`: `{ month, strategy, premium_collected, bought_back, commissions, commissions_complete, net, n_opened, n_closed, month_start_value: float | null, target_pct: float | null, target_mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount", target_amount: float | null, target_base: float | null, target: float | null, progress_pct: float | null, days_left }`.
+
+### `GET /pnl/target` (web Home follow-ups, 2026-10-15)
+
+The monthly income target in force, for the More page's control. Owner-only; read-only (it is
+changed only by the `set_income_target` command, `docs/web/commands.md`).
+
+**Response — `IncomeTargetResponse`:** `{ as_of, target: IncomeTarget, source }` where
+`IncomeTarget` is `{ mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount", amount, pct, base }`
+(fields that do not belong to the mode are `null`) and `source` is `web` (the operator's setting,
+`system_settings.income_target`, including an explicit `off`), `config` (no web row, so the legacy
+`web.monthly_income_target_pct` applies as `pct_of_account`) or `none`.
+
+### `GET /pnl/day` (web Home follow-ups, 2026-10-15)
+
+What was opened, closed or rolled on one New York day, as the cards under Home's "Done today".
+A thin render of `src/reporting/day.py::build_day_trades` over the same `PnlLeg` list every P&L
+route reads, plus the book's spread rows (through `src/api/spreads_db.py`). Owner-only; never
+reaches IBKR; nothing is generated: every sentence is worked out from stored fills, the close
+reason stamped on the buy-back fill, the roll policy's decision log, and (for an opened trade
+and a rolled position) Claude's stored view, which carries `source: "claude"`.
+
+| Param | Type | Notes |
+|---|---|---|
+| `date` | `YYYY-MM-DD` | default: today in New York. Any date works (the calendar reuses it for a tapped day) |
+| `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all`; a roll counts under the side it rolls |
+| `book` | `paper` \| `live` | default: the running mode |
+
+- **Opened:** a leg whose first SELL fill is on the day. The new short a roll opens is *not*
+  listed here; it is part of the roll's card.
+- **Closed:** a buy-back on the day (`how: "bought_back"`, reason from `CloseReason`; a close
+  that predates the stamp says so), or an expiry or assignment whose date is the day
+  (`how: "expired" | "assigned" | "called_away"`, `at` is 16:00 New York on that date).
+  An expiry is not an execution, but the position leaves the book and would otherwise vanish.
+- **Rolled:** a buy-back with `close_reason: roll`. The buy-back and the new short share one
+  combo order, so they are paired on that order id (`rolled_to`); an unpaired roll still shows
+  the buy-back and says the new leg is not on record. `facts` carry the logged trigger and
+  decision (matched on the roll approval's id, else the newest decision for that contract), the
+  roll terms per share, and Claude's stored recommendation if one was recorded.
+- **Money** is USD for the whole position and positive (`premium`, `bought_back`,
+  `commissions`); the card signs it. `net_pnl` is the realised result after every commission and
+  is `null` until the trade closes - never `0`. `pct_kept` is the share of the premium kept
+  before commissions (negative when the buy-back cost more than was collected). `capital` is the
+  cash held aside (a put), the shares' strike value (a call) or the most a spread can lose.
+- `spreads_available` is `false` only when a spreads book is in scope and `data/spreads.db`
+  could not be read: the spreads cards are then missing, not absent.
+
+**Response - `DayTradesResponse`:** `{ as_of, date, book, strategy, trades: DayTrade[], spreads_available }`, newest first.
+`DayTrade`: `{ key, action: "opened" | "closed" | "rolled", how, kind: "csp" | "cc" | "spread" | "other", source: "wheel" | "spreads", underlying, right, strike, long_strike, expiry, contracts, at, is_live, premium, bought_back, commissions, commissions_complete, net_pnl, capital, roc_pct, annualized_pct, pct_kept, dte_at_open, days_held, reason, facts: DayFact[], approval_id, review: DayReview | null, rolled_to: DayRolledTo | null }`.
+
+### `GET /pnl/calendar` (web Home follow-ups, 2026-10-15)
+
+A month of daily realised P&L, for the calendar behind the chart on Home. Each day is the net
+result, after every commission, of the option legs and the book's credit spreads that closed
+that day (an expired or assigned leg closes on its expiry date). A day nothing closed is absent,
+which is not the same as a day known to be flat. An open leg has a mark, not a result, and
+contributes nothing. Share sales and trades made outside the system are not in it (they live in
+the ledger). Owner-only.
+
+| Param | Type | Notes |
+|---|---|---|
+| `month` | `YYYY-MM` | default: the current New York month |
+| `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all` |
+| `book` | `paper` \| `live` | default: the running mode |
+
+**Response - `RealisedCalendarResponse`:** `{ as_of, book, calendar: MonthCalendar, spreads_available }`.
+`MonthCalendar`: `{ month, strategy, days: { date, realized, n_closed, complete }[], total, n_closed, complete }`;
+`complete` is `false` when a closed leg that day has no commission recorded (the figure is a
+lower bound on the cost, an upper bound on the result).
 
 ## Spreads (web overhaul Part 1)
 

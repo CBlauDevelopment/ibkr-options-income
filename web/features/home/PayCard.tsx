@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Disclosure } from "@/components/ui/Disclosure";
 import { Meter } from "@/components/ui/Meter";
@@ -74,8 +75,9 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
   // spreads book); only the progress against it is unknown.
   const progress = wholeUnknown ? null : pay.progress_pct;
   const daysLeft = `${pay.days_left} ${pay.days_left === 1 ? "day" : "days"} left`;
+  const noTarget = pay.target_mode === "off";
   const pace =
-    pay.target_pct === null ? (
+    noTarget ? (
       `No target set · ${daysLeft}`
     ) : pay.target === null ? (
       // The setting is there; the account value at the month's start is not (the first month
@@ -122,6 +124,16 @@ export function PayCard({ strategy }: { strategy: StrategyFilter }) {
       >
         <Stub label={`${month} pay stub`} lines={payStubLines(pay, wholeUnknown)} />
       </Disclosure>
+      {noTarget && (
+        <p className="mt-1.5 text-[0.8125rem]">
+          <Link
+            href="/more"
+            className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2 md:min-h-6"
+          >
+            Set a target in More
+          </Link>
+        </p>
+      )}
       {spreadsOut && (
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-muted">
           <StatusWord tone="flag">Spreads unavailable</StatusWord>

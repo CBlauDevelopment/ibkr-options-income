@@ -202,7 +202,15 @@ read-only builders under the same rules:
 - `account_value.py` — the Home hero's account-value series (EOD journal closes plus intraday
   portfolio snapshots; unknown is `None`, never `0`) and `month_start_value`;
 - `pay.py` — `build_month_pay`, the month's pay stub from the same `PnlLeg` list plus plain
-  `SpreadPayInput` values the API reads from `data/spreads.db` (it never imports `src.spreads`).
+  `SpreadPayInput` values the API reads from `data/spreads.db` (it never imports `src.spreads`);
+  its target is an `IncomeTarget` (a fixed amount, a percent of the account, or a percent of an
+  amount the operator names), display only;
+- `day.py` (web Home follow-ups, 2026-10-15) — the day's executed trades (`build_day_trades`:
+  opened, closed, rolled, each with the reason, worked out from stored fills, the close reason and
+  the roll policy's decision log, never generated; Claude's stored review or view passes through
+  labelled `source: claude`), a month's daily realised P&L (`build_month_calendar`) and one
+  contract's opening and closing cards (`build_position_story`). Same `PnlLeg` list and plain
+  `SpreadDayInput` values, same no-writes rule, and it imports nothing from `src.claude`.
 
 The tier reads the whole book, including enrichment-side tables, which is why it stays on the
 read side of the tier line exactly as `src/api/` and `src/research/` do:
