@@ -110,6 +110,7 @@ ai:                           # Claude picks from the gate-approved menu (docs/s
   pick_effort: high           # measured 2026-10-12: ~16 s for a pick-sized prompt (Sonnet/high ~12 s)
   fallback_model: claude-sonnet-5-5  # on cli_error (e.g. an Opus usage limit) retry once on this model, within the same timeout; "" = no retry
   fallback_effort: high
+  ollama_fallback: true       # when Claude still fails (not on a timeout) the local Ollama model answers the same prompt, inside the same timeout; false = baseline pick instead
   brief_timeout_seconds: 120
   pick_timeout_seconds: 45    # must be shorter than schedule.entry_check_minutes
   max_pick_calls_per_day: 4   # pick decisions (a fallback retry is not counted); at the cap the main book takes no new entries that day

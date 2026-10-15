@@ -224,7 +224,9 @@ claude:
   effort: "medium"
   disallowed_tools: "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task"
   # Local-LLM (Ollama) backend. "cli" (default) | "ollama" | "cli_then_ollama" (try claude -p,
-  # fall back to the local model on CLI failure/timeout/unparseable output). Requires
+  # fall back to the local model on any CLI failure except a timeout: a usage limit, a missing
+  # CLI, an error envelope, unparseable output - recommended once you have a claude subscription;
+  # this template ships "ollama" for forks without one). Requires
   # `ollama serve` running locally with `ollama_model` pulled — see SETUP.md.
   backend: "ollama"
   ollama_host: "http://localhost:11434"

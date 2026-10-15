@@ -172,7 +172,7 @@ python -m scripts.healthcheck
 You should see your account number, net liquidation value, and open positions printed to the
 terminal. If you see a connection error, double-check the port and that the API is enabled.
 
-When `claude.backend` is `ollama` or `cli_then_ollama`, the healthcheck also prints an
+When any AI path uses Ollama (`claude.backend`, `news.llm.backend`, `research.summary.backend`, or `spreads.ai.ollama_fallback`), the healthcheck also prints an
 `Ollama backend : OK/WARN …` line — it confirms the local server is reachable and the configured
 `ollama_model` is pulled. A `WARN` (server down, or model not pulled) never fails the healthcheck:
 LLM enrichment is optional and the pipeline runs deterministically without it. Fix a WARN by
@@ -738,6 +738,7 @@ The ticker page's AI summary panel is pluggable. Set `research.summary.backend` 
 | `claude_cli` (default) | none | Reuses `src/claude/runner.py`'s `claude -p` subprocess. Only runs if `claude.enabled: true`. |
 | `anthropic` | `ANTHROPIC_API_KEY` | Calls Anthropic's Messages API via `httpx` (no SDK dependency). |
 | `openai` | `OPENAI_API_KEY` | Calls OpenAI's Chat Completions API via `httpx`. |
+| `claude_cli_then_ollama` | none | `claude -p`, then the local Ollama model when claude fails for any reason except a timeout (a usage limit). The panel's attribution line names the model that wrote it. A summary Ollama wrote stays cached for `cache_ttl_hours` (24 h); **Generate** regenerates it. |
 | `ollama` | none | Reuses the local `ollama serve` daemon on `localhost:11434` (the same one `src/claude/ollama_runner.py` uses). |
 
 A missing key, a timeout, or a malformed response fails soft to a page with no summary —
@@ -1434,9 +1435,15 @@ claude:
 - **`"ollama"`** — every review (`review_candidates`, `review_roll`,
   `write_journal_narrative`) runs against the local model only. No `claude -p` calls, nothing
   drawn from your subscription limits.
-- **`"cli_then_ollama"`** — tries `claude -p` first; if it's unavailable, times out, or returns
-  unparseable output (including a hit subscription usage limit), falls back to the local model
-  automatically. Switch to this (or `"cli"`) if `claude -p` access becomes available and you want
+- **`"cli_then_ollama"`** — tries `claude -p` first; if it fails for any reason **except a
+  timeout** (a hit 5-hour/weekly usage limit, a missing CLI, an error envelope, unparseable
+  output), falls back to the local model automatically. A usage limit fails in 1-4 s, so the
+  fallback costs the scan cycle nothing; a timeout never falls back (CLI 120 s x 2 attempts +
+  Ollama up to 300 s would blow the 15-minute cycle). The same rule covers the news explanations
+  (`news.llm.backend`), the ticker-page summary (`research.summary.backend:
+  claude_cli_then_ollama`) and the spreads picker (`spreads.ai.ollama_fallback`). Restart
+  `./ibkr` after changing any of them; `ollama serve` must be running with `ollama_model` pulled.
+  Output from the fallback is labelled with the Ollama model (a smaller model than Claude). Switch to this (or `"cli"`) if `claude -p` access becomes available and you want
   Claude to be the primary reviewer again.
 
 **Model choice (Task 10, re-decided 2026-09-29; re-verified fix round 1, 2026-09-30).** The review
@@ -1772,7 +1779,7 @@ Live trading is not supported by this build. The service refuses to run with `LI
 ### Letting Claude pick the spread (optional)
 
 1. Make sure `claude -p` works for the user the supervisor runs as: `echo 'Reply {"ok":true}' | ~/.local/bin/claude -p --output-format json` prints a JSON envelope.
-2. In `config/spreads.yaml`: keep `enabled: true` and `mode: paper` (or `shadow`), then set `ai.enabled: true`. The defaults (Opus — medium for the 09:31 day plan, high for the pick — 45 s pick timeout, 4 pick decisions a day, `menu_size: 4`) are in `config/examples/spreads.yaml`. **The defaults are Opus at medium effort for the day plan and high for the pick. When Opus is unavailable (a usage limit), the call fails with `cli_error` within a second or two and is retried once on `ai.fallback_model`/`fallback_effort` (default `claude-sonnet-5-5`/`high`) inside the same timeout (45 s for a pick, 120 s for the brief; no retry with under 15 s left, since Sonnet/high takes ~12 s; a failed exit that prints plain text counts as `cli_error` too). The PICK and DAY PLAN records then show the Sonnet model. Only if the fallback fails too does the pick fall back to the baseline item (`picker failed (cli_error)`). `fallback_model: ""` turns the retry off.** Check the configured model with `echo 'Reply {"ok":true}' | ~/.local/bin/claude -p --model <pick_model> --output-format json` before enabling. `ai.workdir` (default `~/.cache/ibkr-spreads-ai`, created on first use) is where `claude -p` runs; keep it outside the repo so the project `CLAUDE.md` is not loaded into the prompt.
+2. In `config/spreads.yaml`: keep `enabled: true` and `mode: paper` (or `shadow`), then set `ai.enabled: true`. The defaults (Opus — medium for the 09:31 day plan, high for the pick — 45 s pick timeout, 4 pick decisions a day, `menu_size: 4`) are in `config/examples/spreads.yaml`. **The defaults are Opus at medium effort for the day plan and high for the pick. When Opus is unavailable (a usage limit), the call fails with `cli_error` within a second or two and is retried once on `ai.fallback_model`/`fallback_effort` (default `claude-sonnet-5-5`/`high`) inside the same timeout (45 s for a pick, 120 s for the brief; no retry with under 15 s left, since Sonnet/high takes ~12 s; a failed exit that prints plain text counts as `cli_error` too). The PICK and DAY PLAN records then show the Sonnet model. If Claude still cannot answer (anything but a timeout) and at least 15 s remain, the local Ollama model (`claude.ollama_model`, schema-constrained) answers the same prompt: `spreads.ai.ollama_fallback` (default `true`, `false` turns it off), and the PICK/DAY PLAN record shows the model as `ollama:<model>`. Only if that fails too does the pick fall back to the baseline item (`picker failed (cli_error)`). `fallback_model: ""` turns the retry off.** Check the configured model with `echo 'Reply {"ok":true}' | ~/.local/bin/claude -p --model <pick_model> --output-format json` before enabling. `ai.workdir` (default `~/.cache/ibkr-spreads-ai`, created on first use) is where `claude -p` runs; keep it outside the repo so the project `CLAUDE.md` is not loaded into the prompt.
 3. `./ibkr restart`. In the spreads thread the day card gains Claude's **Plan** after the 09:31 map, and a 🧠 pick message per decision (the menu, Claude's choice and reason, and what the baseline book did). A failure says `picker failed (...)` and trades the baseline item.
 4. Weekly: `python -m scripts.spreads_report --mode paper --compare`. Read the by-decision rows first (did Claude's skips and strike changes make or lose money against the baseline?), then the by-condition rows — rows marked *noise* have fewer than 5 decisions. `--day YYYY-MM-DD` shows exactly what Claude saw and said; `--csv data/spreads_compare.csv` exports every decision. `--compare` covers only the `--mode` you name and only trades opened since the first pick (the header line says so); a recorded pick that was never sent shows as `not_sent`, and `not_sent`/`fallback` decisions stay out of the by-condition tables. The choice distribution splits `took_outer_1`/`took_outer_2` when the menu has two outer strikes.
 5. To stop Claude picking, set `ai.enabled: false` and restart: the system goes back to the baseline rule alone.
@@ -1814,7 +1821,7 @@ then local Ollama), capped at `news.llm.max_calls_per_day` (40) calls per day.
    `nasdaq econ date offset: inferred 0 (configured 1)`, set
    `sources.nasdaq_econ_date_offset_days: 0` (Nasdaq returned day D−1's US releases under
    `date=D` when probed on 2026-10-09; the probe tells you if that changed).
-5. Choose the LLM: `llm.backend` is `cli` (ships — `claude -p` only), `cli_then_ollama` or `ollama`; `llm.model`
+5. Choose the LLM: `llm.backend` is `cli` (`claude -p` only), `cli_then_ollama` (ships; Ollama when `claude -p` fails, not on a timeout) or `ollama`; `llm.model`
    pins the CLI model, `llm.ollama_model` overrides `claude.ollama_model` (empty = the same model
    the trade review uses).
 6. Quiet hours are **Singapore time**: `quiet_hours: {tz: "Asia/Singapore", start: "00:00",

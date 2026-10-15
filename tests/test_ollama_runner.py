@@ -1166,3 +1166,26 @@ def test_research_turn_search_days_default_comes_from_config(monkeypatch):
     )
     assert ollama_tools.research_turn("prompt", cfg) is not None
     assert seen == [3]
+
+
+def test_ollama_in_use_checks_every_chain() -> None:
+    from types import SimpleNamespace
+
+    def cfg(**kw):
+        d = {"claude": "cli", "news": "cli", "summary": "claude_cli", "ai": False, **kw}
+        return SimpleNamespace(
+            claude=SimpleNamespace(backend=d["claude"]),
+            news=SimpleNamespace(llm=SimpleNamespace(backend=d["news"])),
+            research=SimpleNamespace(summary=SimpleNamespace(backend=d["summary"])),
+            spreads=SimpleNamespace(ai=SimpleNamespace(enabled=d["ai"], ollama_fallback=True)),
+        )
+
+    for kw, expected in [
+        ({}, False),
+        ({"claude": "cli_then_ollama"}, True),
+        ({"news": "cli_then_ollama"}, True),
+        ({"summary": "claude_cli_then_ollama"}, True),
+        ({"ai": True}, True),
+    ]:
+        with patch.object(ollama_mod, "get_config", return_value=cfg(**kw)):
+            assert ollama_mod.ollama_in_use() is expected, kw

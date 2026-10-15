@@ -271,9 +271,7 @@ async def test_no_ollama_after_a_timeout_when_short_of_time_or_switched_off() ->
 
 
 async def test_ollama_failing_too_is_a_fallback_to_the_baseline() -> None:
-    p = with_ollama(
-        [CliResult(None, "cli_missing", 5)], CliResult(None, "cli_error", 10), [], []
-    )
+    p = with_ollama([CliResult(None, "cli_missing", 5)], CliResult(None, "cli_error", 10), [], [])
     pick = await p.pick(PICK_REQ)
     assert (pick.choice, pick.fallback_reason) == ("skip", "cli_error")
 
@@ -293,9 +291,19 @@ async def test_the_brief_falls_back_to_ollama_too() -> None:
 
 def test_from_config_builds_the_ollama_settings_only_when_switched_on() -> None:
     cfg = get_config()
-    on = cfg.model_copy(update={"spreads": cfg.spreads.model_copy(
-        update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": True})})})
-    off = cfg.model_copy(update={"spreads": cfg.spreads.model_copy(
-        update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": False})})})
+    on = cfg.model_copy(
+        update={
+            "spreads": cfg.spreads.model_copy(
+                update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": True})}
+            )
+        }
+    )
+    off = cfg.model_copy(
+        update={
+            "spreads": cfg.spreads.model_copy(
+                update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": False})}
+            )
+        }
+    )
     assert ClaudePicker.from_config(on).ollama.model == cfg.claude.ollama_model  # type: ignore[union-attr]
     assert ClaudePicker.from_config(off).ollama is None

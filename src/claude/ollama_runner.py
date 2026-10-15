@@ -130,6 +130,17 @@ def _record_success() -> None:
     _circuit_open = False
 
 
+def ollama_in_use() -> bool:
+    """True when any AI path can reach Ollama: the wheel, news, the summary or the spreads picker."""
+    cfg = get_config()
+    return (
+        cfg.claude.backend in ("ollama", "cli_then_ollama")
+        or cfg.news.llm.backend in ("ollama", "cli_then_ollama")
+        or cfg.research.summary.backend in ("ollama", "claude_cli_then_ollama")
+        or (cfg.spreads.ai.enabled and cfg.spreads.ai.ollama_fallback)
+    )
+
+
 def probe_ollama() -> tuple[bool, str]:
     """Check the Ollama backend is reachable and the configured model is pulled.
 

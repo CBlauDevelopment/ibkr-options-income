@@ -11,7 +11,7 @@ def test_research_config_loads() -> None:
     assert cfg.research.api.port == 8787
     assert cfg.research.tiers.materialization_budget_seconds == 8.0
     assert cfg.research.providers.edgar.max_requests_per_second == 10.0
-    assert cfg.research.summary.backend == "claude_cli"
+    assert cfg.research.summary.backend == "claude_cli_then_ollama"
 
 
 def test_research_db_url_resolves_against_project_root() -> None:

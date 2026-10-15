@@ -31,7 +31,7 @@ providers:
 
 summary:
   # claude_cli | anthropic | openai | ollama
-  backend: "claude_cli"
+  backend: "claude_cli_then_ollama"
   model: "claude-sonnet-4-6"
   timeout_seconds: 120
   cache_ttl_hours: 24

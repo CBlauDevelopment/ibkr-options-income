@@ -373,6 +373,26 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Built (2026-10-15 — Ollama fallback for every `claude -p` call)
+
+Every AI path now falls back to the local Ollama model when `claude -p` cannot answer (the 5-hour
+and weekly usage limits, a missing CLI, an error envelope, unparseable output) — **never on a
+timeout** (the scan-cycle budget is spent). One rule, `src/claude/cli.py::should_fall_back`.
+Spec `docs/superpowers/specs/2026-10-15-ollama-fallback-design.md`, plan
+`docs/superpowers/plans/2026-10-15-ollama-fallback.md`.
+
+- **Wheel** (`runner.py`): the CLI helpers return `(value, error)`; `claude.backend: cli_then_ollama`
+  (now set in the private `settings.yaml`) falls back for review, roll and EOD journal. `_run_cli` is now `_run_cli_outcome`.
+- **News** (`news.llm.backend: cli_then_ollama`); **summary** (`research.summary.backend:
+  claude_cli_then_ollama`, `chain.py`); **spreads picker** (`spreads.ai.ollama_fallback`, default
+  true; third step after the Opus call and Sonnet retry, recorded as model `ollama:<model>`).
+- The launcher and healthcheck probe Ollama when any of those paths can reach it.
+- **Known limitations:** Ollama's answers come from a much smaller model (`qwen3.5:4b`); a summary
+  Ollama wrote stays cached 24 h after the limit resets; there is no shared cooldown, so a limited CLI
+  is retried (1-4 s) on every call; news' `cli_then_ollama` no longer falls back on a timeout. The
+  real usage-limit failure shape and the spreads pick on `qwen3.5:4b` inside ~40 s are unverified
+  until the first real limit event. Operator: restart `./ibkr` to pick up the config.
+
 ## Built (2026-10-15 — web Home follow-ups: Done today, the realised calendar, position pages, search, a settable income target)
 
 Five changes the operator asked for after web overhaul Part 1

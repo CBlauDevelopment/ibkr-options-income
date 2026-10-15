@@ -11,7 +11,7 @@ from src.common.config import NewsCfg, NewsDigestCfg, NewsQuietCfg, get_config
 def test_example_config_loads_with_spec_defaults() -> None:
     cfg = get_config().news
     assert cfg.enabled is True
-    assert cfg.llm.backend == "cli"  # claude -p only, no Ollama fallback (2026-10-14)
+    assert cfg.llm.backend == "cli_then_ollama"  # claude -p, Ollama when it fails (2026-10-15)
     assert cfg.llm.model == "claude-sonnet-5-5"
     assert cfg.llm.max_calls_per_day == 40
     assert cfg.quiet_hours.tz == "Asia/Singapore"

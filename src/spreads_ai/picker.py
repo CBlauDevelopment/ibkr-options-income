@@ -81,7 +81,11 @@ class ClaudePicker:
         c = cfg.claude
         ollama = (
             OllamaSettings(
-                c.ollama_host, c.ollama_model, c.ollama_keep_alive, c.ollama_temperature, c.ollama_num_ctx
+                c.ollama_host,
+                c.ollama_model,
+                c.ollama_keep_alive,
+                c.ollama_temperature,
+                c.ollama_num_ctx,
             )
             if cfg.spreads.ai.ollama_fallback
             else None

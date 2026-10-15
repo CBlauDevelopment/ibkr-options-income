@@ -130,25 +130,26 @@ def _open_log(path: Path):
 
 
 def _check_ollama() -> None:
-    """Warn (don't block) if the configured Ollama backend isn't ready.
+    """Warn (don't block) if an Ollama backend or fallback is configured but isn't ready.
 
     The pipeline fails soft without Ollama — it ships the deterministic Rules-Engine
     list with no LLM enrichment — so a failed probe is a loud warning, not a fatal
-    error. Skipped entirely when the backend doesn't use Ollama.
+    error. Skipped entirely when no AI path (wheel, news, summary, spreads) uses Ollama.
     """
-    from src.claude.ollama_runner import probe_ollama
+    from src.claude.ollama_runner import ollama_in_use, probe_ollama
     from src.common.config import get_config
 
-    backend = get_config().claude.backend
-    if backend not in ("ollama", "cli_then_ollama"):
+    if not ollama_in_use():
         return
+    backend = get_config().claude.backend
     ok, msg = probe_ollama()
     if ok:
-        log.info("Ollama backend (%s): %s", backend, msg)
+        log.info("Ollama (claude.backend=%s): %s", backend, msg)
     else:
         log.warning(
-            "Ollama backend (%s) NOT ready — %s. Daemons will still run, but Claude "
-            "enrichment will be SKIPPED (deterministic list only) until Ollama recovers.",
+            "Ollama (claude.backend=%s) NOT ready — %s. Daemons will still run, but when "
+            "claude -p cannot answer (a usage limit) the Ollama fallback will be SKIPPED "
+            "(deterministic output only) until Ollama recovers.",
             backend,
             msg,
         )
