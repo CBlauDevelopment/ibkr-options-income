@@ -147,6 +147,19 @@ export function timeLabel(t: DayTrade): string {
   return Number.isNaN(d.getTime()) ? "" : `${CLOCK.format(d)} ET`;
 }
 
+const ET_DAY = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  timeZone: "America/New_York",
+});
+
+/** "Fri, Oct 3": the New York day a trade happened, for places that show more than today. */
+export function dateLabel(t: DayTrade): string {
+  const d = new Date(t.at);
+  return Number.isNaN(d.getTime()) ? "" : ET_DAY.format(d);
+}
+
 export function countByAction(trades: DayTrade[]): Record<DayTradeAction, number> {
   const out: Record<DayTradeAction, number> = { opened: 0, closed: 0, rolled: 0 };
   for (const t of trades) out[t.action] += 1;

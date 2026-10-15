@@ -118,4 +118,79 @@ describe("PositionsCard", () => {
     renderWithQuery(<PositionsCard strategy="all" />, {});
     expect(await screen.findByText("Positions unavailable right now.")).toBeInTheDocument();
   });
+  describe("search", () => {
+    const rich = {
+      ...positions,
+      groups: [
+        ...positions.groups,
+        {
+          as_of: "",
+          underlying: "NVDA",
+          stock: null,
+          options: [
+            { as_of: "", symbol: "z", right: "C", strike: 165, expiry: "2099-11-21", dte: 39, contracts: 1, short: true, delta: null, delta_source: null, market_price: null, market_value: null, unrealized_pnl: 61, moneyness: "otm", assignment_risk: false },
+          ],
+        },
+      ],
+    };
+    const serve = { "/portfolio/positions": rich, "/spreads/positions": spreadsOn };
+    const type = (text: string) =>
+      fireEvent.change(screen.getByRole("textbox", { name: "Search positions" }), { target: { value: text } });
+
+    it("filters the rows to a ticker as you type, in any case", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      type("nv");
+      expect(screen.getByText("NVDA $165 call")).toBeInTheDocument();
+      expect(screen.queryByText("AMD $150 put")).toBeNull();
+      expect(screen.queryByText("KO $72 call")).toBeNull();
+    });
+    it("takes several names separated by commas", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      type("amd, ko");
+      expect(screen.getByText("AMD $150 put")).toBeInTheDocument();
+      expect(screen.getByText("KO $72 call")).toBeInTheDocument();
+      expect(screen.queryByText("NVDA $165 call")).toBeNull();
+    });
+    it("makes each chip's count say what it would show with the search applied", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      expect(screen.getByRole("button", { name: "All 3" })).toBeInTheDocument();
+      type("amd");
+      expect(screen.getByRole("button", { name: "All 1" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "CSPs 1" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "CCs 0" })).toBeInTheDocument();
+    });
+    it("composes with the chips", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      fireEvent.click(screen.getByRole("button", { name: /^CCs/ }));
+      type("amd");
+      expect(screen.getByText('No positions match "amd".')).toBeInTheDocument();
+    });
+    it("says nothing matches, in words, and clears with one tap", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      type("tsla");
+      expect(screen.getByText('No positions match "tsla".')).toBeInTheDocument();
+      expect(screen.queryByText("No positions captured yet.")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+      expect(screen.getByText("AMD $150 put")).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Search positions" })).toHaveValue("");
+      expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    });
+    it("is a labelled search landmark", async () => {
+      renderWithQuery(<PositionsCard strategy="all" />, serve);
+      await screen.findByText("AMD $150 put");
+      expect(screen.getByRole("search")).toBeInTheDocument();
+    });
+  });
+
+  it("opens each contract's own page from its row", async () => {
+    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    const link = (await screen.findByText("AMD $150 put")).closest("a");
+    expect(link).toHaveAttribute("href", "/positions/AMD/2099-10-24_P150");
+    expect(screen.getByText("KO $72 call").closest("a")).toHaveAttribute("href", "/positions/KO/2099-11-14_C72");
+  });
 });

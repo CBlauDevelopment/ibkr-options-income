@@ -530,6 +530,28 @@ Operate. Dials as the project default.
   user: Why collapsible above the stub, pay card collapsible, positions beneath it.
 - **FINISH:** unreviewed and undocumented is unfinished.
 
+### Position
+Operate. Dials as the project default. Added 2026-10-15 at the operator's request: pressing a
+Positions row opens the contract itself. The composition is the operator's (chart on top, the
+news directly under it), so da-vinci's structure workshop was skipped: pinned beats roll.
+- **THESIS:** a position is the trade it began as. The underlying's chart leads, with your strike
+  drawn across it; the initial trade is summed in a stub; the headlines sit under the chart.
+  Refuses the greeks table: what you were paid, what it is worth now and what the stock is doing
+  are the three things this page answers.
+- **OWN-WORLD:** the payslip. Sage paper, an ink chart line with a dashed strike line (the
+  perforation, as a rule across the chart), white cards, a stub that sums the initial trade. No
+  lime: nothing on this page is an action.
+- **STORY:** where the stock is against your strike, what you were paid and what that is as a
+  return, what the position is doing now, and what the news says, in that order of glance.
+- **FIRST VIEWPORT:** desktop: back link, the contract as a title with its status words, then two
+  columns: the chart with its range chips (1M, 3M, 6M, 1Y) and the headlines directly beneath it
+  on the left; the initial trade card (the Why disclosure, the stub) and the "Now" card in a
+  340px column on the right. Phone: title, chart, the trade, now, headlines (the trade is worth
+  more than the news on a small screen, so it comes before it).
+- **FORM:** one grid placed by CSS so the DOM order is the phone order: chart, trade, headlines.
+  Mirrors Home's two columns (content left, a 340px column right).
+- **FINISH:** unreviewed and undocumented is unfinished.
+
 ### Trades
 Operate. Proposals, Working, Decided, Assessed and Spreads segments. Proposal cards as on Home, at
 full width; the review sheet opens from Review. Spreads is read-only.

@@ -8,7 +8,7 @@ type NewsItem = {
   sentiment: number | null;
 };
 
-function sentimentLabel(v: number | null): string {
+export function sentimentLabel(v: number | null): string {
   if (v === null) return "n/a";
   if (v > 0.2) return "bullish";
   if (v > 0.05) return "lean bullish";
@@ -17,7 +17,7 @@ function sentimentLabel(v: number | null): string {
   return "neutral";
 }
 
-function sentimentTint(v: number | null): string {
+export function sentimentTint(v: number | null): string {
   if (v === null) return "text-unknown";
   if (v > 0.05) return "text-gain";
   if (v < -0.05) return "text-loss";

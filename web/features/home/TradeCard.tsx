@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Disclosure } from "@/components/ui/Disclosure";
 import { Stub } from "@/components/ui/Stub";
 import { WhyDisclosure } from "./WhyDisclosure";
-import { timeLabel, tradeEyebrow, tradeSentence, tradeStub, tradeTitle } from "./trades";
+import { dateLabel, timeLabel, tradeEyebrow, tradeSentence, tradeStub, tradeTitle } from "./trades";
 import type { DayFact, DayTrade } from "./types";
 
 /**
@@ -46,15 +46,28 @@ function FactsDisclosure({ trade, facts }: { trade: DayTrade; facts: DayFact[] }
  * in words, a title, one sentence, the reasoning collapsed above the stub, then the stub that sums
  * the whole trade. Nothing here decides anything, so there is no lime.
  */
-export function TradeCard({ trade }: { trade: DayTrade }) {
+export function TradeCard({
+  trade,
+  when = "time",
+  heading = "title",
+}: {
+  trade: DayTrade;
+  /** "time" for Done today (the fill's clock time); "date" where the card is not about today. */
+  when?: "time" | "date";
+  /** "title" gives the card its own title line; "none" is for a page that already names the contract. */
+  heading?: "title" | "none";
+}) {
   const titleId = useId();
   return (
     <Card as="article" aria-labelledby={titleId}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-bold uppercase tracking-[0.04em] text-muted">{tradeEyebrow(trade)}</span>
-        <span className="text-[0.8125rem] text-muted">{timeLabel(trade)}</span>
+        <span className="text-[0.8125rem] text-muted">{when === "date" ? dateLabel(trade) : timeLabel(trade)}</span>
       </div>
-      <h3 id={titleId} className="mt-1 text-[1.0625rem] font-extrabold tracking-[-0.01em]">
+      <h3
+        id={titleId}
+        className={heading === "none" ? "sr-only" : "mt-1 text-[1.0625rem] font-extrabold tracking-[-0.01em]"}
+      >
         {tradeTitle(trade)}
       </h3>
       <p className="mt-2 text-sm">{tradeSentence(trade)}</p>

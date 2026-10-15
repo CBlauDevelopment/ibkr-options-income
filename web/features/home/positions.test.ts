@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPositionRows } from "./positions";
+import { buildPositionRows, matchesQuery, optionSlug } from "./positions";
 
 const TODAY = "2026-10-13";
 
@@ -94,5 +94,63 @@ describe("buildPositionRows", () => {
     );
     expect(row.kind).toBe("other");
     expect(row.title).toBe("AMD strike n/a option");
+  });
+});
+
+describe("the page behind a row", () => {
+  it("links an option to its contract's page by expiry, right and strike", () => {
+    const [row] = buildPositionRows([group("AMD", [optionLeg()])] as never, [], TODAY);
+    expect(row.underlying).toBe("AMD");
+    expect(row.href).toBe("/positions/AMD/2026-10-24_P150");
+    expect(optionSlug("2026-11-21", "C", 62.5)).toBe("2026-11-21_C62.5");
+  });
+  it("links shares and spreads", () => {
+    const stock = { as_of: "", shares: 100, avg_cost: 60, adjusted_cost_basis: null, market_price: 70, market_value: 7000, unrealized_pnl: 1000, unrealized_pnl_adjusted: null };
+    const rows = buildPositionRows(
+      [group("KO", [], stock)] as never,
+      [{ spread_id: "s1", side: "put", expiry: TODAY, short_strike: 580, long_strike: 575, width: 5, contracts_opened: 1, contracts: 1, entry_credit: 0.42, status: "open" }] as never,
+      TODAY,
+      "SPY",
+    );
+    expect(rows.find((r) => r.kind === "shares")!.href).toBe("/positions/KO/shares");
+    expect(rows.find((r) => r.kind === "spread")!.href).toBe("/positions/SPY/spread-s1");
+  });
+  it("does not link a contract whose strike or right the API left out", () => {
+    const [row] = buildPositionRows([group("AMD", [optionLeg({ strike: null })])] as never, [], TODAY);
+    expect(row.href).toBeNull();
+  });
+});
+
+describe("matchesQuery", () => {
+  const rows = buildPositionRows(
+    [
+      group("AMZN", [optionLeg({ symbol: "a", strike: 250 })]),
+      group("NVDA", [optionLeg({ symbol: "b", strike: 165, right: "C" })]),
+      group("AMD", [optionLeg({ symbol: "c", strike: 150 })]),
+    ] as never,
+    [],
+    TODAY,
+  );
+  const names = (q: string) => rows.filter((r) => matchesQuery(r, q)).map((r) => r.underlying);
+  it("matches a ticker in any case, by prefix or inside", () => {
+    expect(names("amzn")).toEqual(["AMZN"]);
+    expect(names("AM")).toEqual(["AMD", "AMZN"]);
+    expect(names("vd")).toEqual(["NVDA"]);
+  });
+  it("matches the contract's own words and strike", () => {
+    expect(names("call")).toEqual(["NVDA"]);
+    expect(names("150")).toEqual(["AMD"]);
+    expect(names("amd put")).toEqual(["AMD"]);
+    expect(names("amd call")).toEqual([]);
+  });
+  it("commas ask for several names", () => {
+    expect(names("amzn, nvda")).toEqual(["AMZN", "NVDA"]);
+  });
+  it("does not match the sub-line, so a weekday is not a ticker", () => {
+    expect(names("sat")).toEqual([]);
+  });
+  it("an empty search matches everything", () => {
+    expect(names("")).toHaveLength(3);
+    expect(names("  ,  ")).toHaveLength(3);
   });
 });

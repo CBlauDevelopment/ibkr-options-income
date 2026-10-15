@@ -2,7 +2,9 @@
 
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import Link from "next/link";
+import { ChevronRight, Search, X } from "lucide-react";
+import { useId, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { StatusWord } from "@/components/ui/StatusWord";
@@ -13,7 +15,7 @@ import { apiFetch } from "@/lib/api";
 import { UNKNOWN } from "@/lib/format";
 import { formatMoneyCell, isStale } from "@/lib/money";
 import { STRATEGY_LABEL, type StrategyFilter } from "@/lib/strategy";
-import { FRESH_FOR_MINUTES, buildPositionRows, type PositionRow } from "./positions";
+import { FRESH_FOR_MINUTES, buildPositionRows, matchesQuery, type PositionRow } from "./positions";
 import type { SpreadPositionsResponse } from "./types";
 
 type PositionsFilter = StrategyFilter | "shares";
@@ -38,6 +40,8 @@ function todayNewYork(): string {
 
 export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
   const [filter, setFilter] = useState<PositionsFilter>(strategy);
+  const [query, setQuery] = useState("");
+  const searchId = useId();
   // The page's strategy switcher wins whenever it changes; the card's own chips narrow from there.
   const [seen, setSeen] = useState<StrategyFilter>(strategy);
   if (seen !== strategy) {
@@ -64,17 +68,21 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
   const rows = positions.data
     ? buildPositionRows(positions.data.groups, spreadRows, todayNewYork(), spreads.data?.underlying)
     : [];
-  const visible = rows.filter((r) => matches(r, filter));
+  // The search narrows first, so every chip's count says what that chip would show right now.
+  const searched = rows.filter((r) => matchesQuery(r, query));
+  const visible = searched.filter((r) => matches(r, filter));
   const options = FILTERS.map((f) => ({
     value: f,
     label: LABEL[f],
-    count: !positions.data || (f === "spread" && !spreadsKnown) ? null : rows.filter((r) => matches(r, f)).length,
+    count: !positions.data || (f === "spread" && !spreadsKnown) ? null : searched.filter((r) => matches(r, f)).length,
   }));
+  const searching = query.trim() !== "";
 
   let message: string | null = null;
   if (positions.isError && !positions.data) message = "Positions unavailable right now.";
   else if (positions.data && visible.length === 0) {
-    if (filter === "spread" && spreadsOut) message = "Credit spreads are unavailable right now.";
+    if (searching) message = `No positions match "${query.trim()}".`;
+    else if (filter === "spread" && spreadsOut) message = "Credit spreads are unavailable right now.";
     else if (filter === "spread" && spreads.isPending) message = "Loading credit spreads.";
     else if (positions.data.source === "none" && filter !== "spread") message = "No positions captured yet.";
     else message = EMPTY[filter];
@@ -93,13 +101,43 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
         </h2>
         <span className="text-[0.8125rem] text-muted">Sorted by expiry</span>
       </div>
+      <form role="search" onSubmit={(e) => e.preventDefault()} className="relative mt-2">
+        <label htmlFor={searchId} className="sr-only">
+          Search positions
+        </label>
+        <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          id={searchId}
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search a ticker, like AMZN"
+          // 16px: below that, iOS zooms the page when the field takes focus.
+          className="min-h-11 w-full rounded-xl border border-control bg-surface pl-9 pr-11 text-base placeholder:text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        />
+        {searching && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => setQuery("")}
+            className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-sunk hover:text-content"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
+      </form>
       <SegmentedControl
         label="Position type"
         appearance="chips"
         options={options}
         value={filter}
         onChange={setFilter}
-        className="mb-1 mt-2"
+        className="mb-1 mt-3"
       />
       {delayed && (
         <p className="mt-2 flex flex-wrap items-center gap-2">
@@ -118,11 +156,8 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
         <ul>
           {visible.map((r) => {
             const pnl = r.valueLabel === "open P&L";
-            return (
-              <li
-                key={r.key}
-                className="grid grid-cols-[1fr_auto] gap-x-2.5 border-t border-border py-[11px] text-sm first:border-t-0"
-              >
+            const body = (
+              <>
                 <div className="min-w-0">
                   <span className="font-bold">{r.title}</span>
                   {r.status && (
@@ -148,6 +183,22 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
                   </span>
                   <div className="text-[0.8125rem] font-normal text-muted">{r.valueLabel}</div>
                 </div>
+              </>
+            );
+            return (
+              <li key={r.key} className="border-t border-border first:border-t-0">
+                {r.href ? (
+                  // The whole row opens the contract. The chevron says so without a word.
+                  <Link
+                    href={r.href}
+                    className="-mx-2 grid grid-cols-[1fr_auto_16px] items-center gap-x-2.5 rounded-xl px-2 py-[11px] text-sm hover:bg-sunk"
+                  >
+                    {body}
+                    <ChevronRight size={16} aria-hidden="true" className="text-muted" />
+                  </Link>
+                ) : (
+                  <div className="grid grid-cols-[1fr_auto] gap-x-2.5 py-[11px] text-sm">{body}</div>
+                )}
               </li>
             );
           })}
