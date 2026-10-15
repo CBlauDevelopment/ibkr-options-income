@@ -64,7 +64,7 @@ def test_the_cli_runner_forwards_the_proposal() -> None:
 
     with (
         patch.object(runner, "get_config") as cfg,
-        patch.object(runner, "_run_cli", return_value=None) as run,
+        patch.object(runner, "_run_cli_outcome", return_value=(None, None)) as run,
     ):
         cfg.return_value.claude.backend = "cli"
         cfg.return_value.claude.enabled = True

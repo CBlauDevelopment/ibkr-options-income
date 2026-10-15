@@ -10,8 +10,10 @@ import json
 import logging
 import subprocess
 from collections.abc import Callable
+from typing import Any
 
 from src.claude import ollama_runner
+from src.claude.cli import should_fall_back
 from src.claude.parser import parse_claude_output, parse_journal_output, parse_roll_output
 from src.claude.prompts.eod import build_eod_prompt
 from src.claude.prompts.roll import build_roll_prompt
@@ -60,7 +62,7 @@ def _build_cmd(cfg: object) -> list[str]:
     return cmd
 
 
-def _run_cli[T](
+def _run_cli_outcome[T](
     prompt: str,
     prefix: str,
     parse_fn: Callable[[str], T | None],
@@ -68,12 +70,17 @@ def _run_cli[T](
     cmd: list[str] | None = None,
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
-) -> T | None:
+) -> tuple[T | None, str | None]:
     """Shared subprocess retry loop for every CLI-backed enrichment call: roll, EOD
-    journal, and (M7) the summary layer's ``claude_cli`` backend.
+    journal, news, and (M7) the summary layer's ``claude_cli`` backend.
 
     Retries up to ``max_retries`` on TimeoutExpired or empty/unparseable output;
-    returns immediately None on FileNotFoundError. Calls _log_cost on success.
+    returns immediately on FileNotFoundError. Calls _log_cost on success.
+
+    Returns ``(parsed, error)``; ``error`` is ``None`` on success, else one of ``cli_missing``,
+    ``timeout``, ``cli_error`` (non-zero exit: a usage limit, auth expiry) or ``bad_envelope``
+    (exit 0, unparseable). A timeout in ANY attempt makes the error ``timeout`` (the budget is
+    spent). ``cli.should_fall_back`` turns the error into the Ollama-fallback decision.
 
     ``cmd``/``timeout_seconds``/``max_retries`` default to the ``claude.*`` config
     (roll and the EOD journal, unchanged from before this was parameterised). A caller
@@ -85,6 +92,8 @@ def _run_cli[T](
     cmd = cmd if cmd is not None else _build_cmd(cfg)
     timeout = timeout_seconds if timeout_seconds is not None else cfg.timeout_seconds
     retries = max_retries if max_retries is not None else cfg.max_retries
+    error = "cli_error"
+    timed_out = False
     for attempt in range(retries + 1):
         try:
             result = subprocess.run(
@@ -92,20 +101,23 @@ def _run_cli[T](
             )
         except subprocess.TimeoutExpired:
             log.warning("%s: timed out (attempt %d)", prefix, attempt + 1)
+            timed_out = True
             continue
         except FileNotFoundError:
             log.warning("claude: CLI not found — skipping %s", prefix)
-            return None
+            return None, "cli_missing"
         if result.returncode != 0 and not result.stdout:
             log.warning("%s: rc=%d, no stdout (attempt %d)", prefix, result.returncode, attempt + 1)
+            error = "cli_error"
             continue
         parsed = parse_fn(result.stdout)
         if parsed is not None:
             _log_cost(result.stdout)
-            return parsed
+            return parsed, None
         log.warning("%s: unparseable output (attempt %d)", prefix, attempt + 1)
+        error = "cli_error" if result.returncode != 0 else "bad_envelope"
     log.error("%s: all %d attempt(s) failed", prefix, retries + 1)
-    return None
+    return None, ("timeout" if timed_out else error)
 
 
 def review_candidates(
@@ -121,7 +133,8 @@ def review_candidates(
     """Review candidates via the configured `claude.backend`. Returns [] on any failure.
 
     "cli" (default): `claude -p` only. "ollama": local model only. "cli_then_ollama": try
-    `claude -p`, fall back to the local model if it returns no reviews.
+    `claude -p`, fall back to the local model when it fails for any reason except a timeout
+    (a usage limit, a missing CLI, an error envelope, unparseable output).
 
     sector_context / single_ticker: forwarded to the prompt builder so a `/scan TICKER` deep-dive
     gets the sector backdrop and the extra plain-English ``summary`` (see strategist.build_prompt).
@@ -142,14 +155,19 @@ def review_candidates(
     if cfg.backend == "ollama":
         return ollama_runner.review_candidates(**kwargs)  # type: ignore[arg-type]
 
-    reviews = _review_candidates_cli(**kwargs)  # type: ignore[arg-type]
-    if not reviews and cfg.backend == "cli_then_ollama":
-        log.info("claude: cli backend returned no reviews — falling back to ollama")
+    reviews, error = _review_candidates_cli_outcome(**kwargs)  # type: ignore[arg-type]
+    if not reviews and cfg.backend == "cli_then_ollama" and should_fall_back(error):
+        log.warning("claude unavailable (%s) — using ollama", error)
         return ollama_runner.review_candidates(**kwargs)  # type: ignore[arg-type]
     return reviews
 
 
-def _review_candidates_cli(
+def _review_candidates_cli(*args: Any, **kwargs: Any) -> list[ClaudeReview]:
+    """The reviews alone; the dispatcher uses ``_review_candidates_cli_outcome``."""
+    return _review_candidates_cli_outcome(*args, **kwargs)[0]
+
+
+def _review_candidates_cli_outcome(
     candidates: list[TradeCandidate],
     account: AccountSnapshot,
     history: list | None = None,
@@ -158,8 +176,8 @@ def _review_candidates_cli(
     sector_context: str | None = None,
     single_ticker: bool = False,
     analytics: AnalyticsMap | None = None,
-) -> list[ClaudeReview]:
-    """Shell out to `claude -p`, parse output → list[ClaudeReview]. Returns [] on any failure.
+) -> tuple[list[ClaudeReview], str | None]:
+    """Shell out to `claude -p`, parse output → (list[ClaudeReview], error). [] on any failure.
 
     history: optional list of ClaudeMemoryRow objects from prior scans; injected into the prompt
     so Claude can learn from past recommendations and their outcomes.
@@ -172,11 +190,11 @@ def _review_candidates_cli(
 
     if not cfg.enabled:
         log.info("claude: disabled by config — skipping review")
-        return []
+        return [], "disabled"
 
     if not candidates:
         log.info("claude: no candidates to review")
-        return []
+        return [], None
 
     prompt = build_prompt(
         candidates,
@@ -193,6 +211,8 @@ def _review_candidates_cli(
     # when the candidate list + history grows large.
     cmd = _build_cmd(cfg)
     candidate_ids = [c.candidate_id for c in candidates]
+    error = "cli_error"
+    timed_out = False
 
     for attempt in range(cfg.max_retries + 1):
         try:
@@ -207,10 +227,11 @@ def _review_candidates_cli(
             log.warning(
                 "claude: timed out after %.0fs (attempt %d)", cfg.timeout_seconds, attempt + 1
             )
+            timed_out = True
             continue
         except FileNotFoundError:
             log.warning("claude: CLI not found — is 'claude' on PATH?")
-            return []
+            return [], "cli_missing"
 
         if result.returncode != 0:
             log.warning(
@@ -219,23 +240,25 @@ def _review_candidates_cli(
                 attempt + 1,
                 result.stderr[:200] if result.stderr else "",
             )
+            error = "cli_error"
             if not result.stdout:
                 continue  # transient — retry
             # stdout present despite non-zero rc: try to parse it
             reviews = parse_claude_output(result.stdout, candidate_ids)
             if reviews:
-                return reviews
+                return reviews, None
             continue
 
         reviews = parse_claude_output(result.stdout, candidate_ids)
         if reviews:
             _log_cost(result.stdout)
-            return reviews
+            return reviews, None
 
         log.warning("claude: output parsed to empty list (attempt %d)", attempt + 1)
+        error = "bad_envelope"
 
     log.error("claude: all %d attempt(s) failed — returning []", cfg.max_retries + 1)
-    return []
+    return [], ("timeout" if timed_out else error)
 
 
 def review_roll(
@@ -255,25 +278,25 @@ def review_roll(
     if cfg.backend == "ollama":
         return ollama_runner.review_roll(alert, pos, quote, proposal=proposal)
 
-    review = _review_roll_cli(alert, pos, quote, proposal=proposal)
-    if review is None and cfg.backend == "cli_then_ollama":
-        log.info("claude roll: cli backend returned nothing — falling back to ollama")
+    review, error = _review_roll_cli(alert, pos, quote, proposal=proposal)
+    if review is None and cfg.backend == "cli_then_ollama" and should_fall_back(error):
+        log.warning("claude unavailable (%s) — using ollama for the roll review", error)
         return ollama_runner.review_roll(alert, pos, quote, proposal=proposal)
     return review
 
 
 def _review_roll_cli(
     alert: RollAlert, pos: PositionSnapshot, quote: OptionQuote, *, proposal: str | None = None
-) -> RollReview | None:
+) -> tuple[RollReview | None, str | None]:
     """Shell out to `claude -p` for a focused roll/hold/close recommendation.
 
-    Returns None on any failure — the caller proceeds without Claude's input.
+    Returns ``(None, error)`` on any failure — the caller proceeds without Claude's input.
     """
     cfg = get_config().claude
     if not cfg.enabled:
         log.info("claude: disabled by config — skipping roll review")
-        return None
-    return _run_cli(
+        return None, "disabled"
+    return _run_cli_outcome(
         build_roll_prompt(alert, pos, quote, proposal=proposal), "claude roll", parse_roll_output
     )
 
@@ -289,20 +312,20 @@ def write_journal_narrative(summary: EODSummary) -> str | None:
     if cfg.backend == "ollama":
         return ollama_runner.write_journal_narrative(summary)
 
-    narrative = _write_journal_narrative_cli(summary)
-    if narrative is None and cfg.backend == "cli_then_ollama":
-        log.info("claude eod: cli backend returned nothing — falling back to ollama")
+    narrative, error = _write_journal_narrative_cli(summary)
+    if narrative is None and cfg.backend == "cli_then_ollama" and should_fall_back(error):
+        log.warning("claude unavailable (%s) — using ollama for the EOD journal", error)
         return ollama_runner.write_journal_narrative(summary)
     return narrative
 
 
-def _write_journal_narrative_cli(summary: EODSummary) -> str | None:
-    """Shell out to `claude -p` for an EOD journal narrative. None on any failure."""
+def _write_journal_narrative_cli(summary: EODSummary) -> tuple[str | None, str | None]:
+    """Shell out to `claude -p` for an EOD journal narrative. ``(None, error)`` on any failure."""
     cfg = get_config().claude
     if not cfg.enabled:
         log.info("claude: disabled by config — skipping EOD journal")
-        return None
-    return _run_cli(build_eod_prompt(summary), "claude eod", parse_journal_output)
+        return None, "disabled"
+    return _run_cli_outcome(build_eod_prompt(summary), "claude eod", parse_journal_output)
 
 
 def _log_cost(raw: str) -> None:
