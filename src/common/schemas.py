@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _ET = ZoneInfo("America/New_York")
 
@@ -948,6 +948,54 @@ class AccountValueSeries(BaseModel):
     change_today_pct: float | None = None
 
 
+IncomeTargetMode = Literal["off", "fixed", "pct_of_account", "pct_of_amount"]
+
+# The bounds a monthly income target may take. `pct` matches `web.monthly_income_target_pct`.
+INCOME_TARGET_MAX_PCT = 20.0
+INCOME_TARGET_MAX_USD = 1_000_000.0
+INCOME_TARGET_MAX_BASE_USD = 1_000_000_000.0
+
+
+class IncomeTarget(BaseModel):
+    """The monthly income goal behind Home's pay card (web, 2026-10-15). Display only: nothing in
+    the trading path reads it.
+
+    ``fixed``: ``amount`` dollars a month. ``pct_of_account``: ``pct`` percent of the account's
+    value at the month's start. ``pct_of_amount``: ``pct`` percent of ``base`` dollars the
+    operator names (a number that does not move with the account). ``off``: no target. Fields
+    that do not belong to the mode must be absent, so a stored row can never disagree with itself.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: IncomeTargetMode = "off"
+    amount: float | None = None
+    pct: float | None = None
+    base: float | None = None
+
+    @model_validator(mode="after")
+    def _fields_fit_the_mode(self) -> IncomeTarget:
+        need = {
+            "off": (),
+            "fixed": ("amount",),
+            "pct_of_account": ("pct",),
+            "pct_of_amount": ("pct", "base"),
+        }[self.mode]
+        for name in ("amount", "pct", "base"):
+            value = getattr(self, name)
+            if name in need and value is None:
+                raise ValueError(f"{self.mode} needs {name}")
+            if name not in need and value is not None:
+                raise ValueError(f"{self.mode} takes no {name}")
+        if self.amount is not None and not 0 < self.amount <= INCOME_TARGET_MAX_USD:
+            raise ValueError(f"amount must be > 0 and <= {INCOME_TARGET_MAX_USD:,.0f}")
+        if self.pct is not None and not 0 < self.pct <= INCOME_TARGET_MAX_PCT:
+            raise ValueError(f"pct must be > 0 and <= {INCOME_TARGET_MAX_PCT:g} (percent a month)")
+        if self.base is not None and not 0 < self.base <= INCOME_TARGET_MAX_BASE_USD:
+            raise ValueError(f"base must be > 0 and <= {INCOME_TARGET_MAX_BASE_USD:,.0f}")
+        return self
+
+
 class MonthPay(BaseModel):
     """One month's options income as a pay stub (web Home, DESIGN.md "October pay").
 
@@ -974,6 +1022,12 @@ class MonthPay(BaseModel):
     n_closed: int
     month_start_value: float | None = None
     target_pct: float | None = None
+    # How the target is set (IncomeTarget). `target_pct` is the percentage of either pct mode and
+    # None for a fixed amount or no target; `target_amount` and `target_base` echo the other
+    # inputs. `target_mode` "off" means no target (the pay card says "No target set").
+    target_mode: IncomeTargetMode = "off"
+    target_amount: float | None = None
+    target_base: float | None = None
     target: float | None = None
     progress_pct: float | None = None
     days_left: int

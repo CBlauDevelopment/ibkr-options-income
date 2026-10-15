@@ -7,6 +7,7 @@ and the read path through the read-only engine.
 
 from __future__ import annotations
 
+import json
 import secrets
 
 from fastapi import APIRouter, HTTPException, Response, status
@@ -101,7 +102,9 @@ def post_commands(req: CommandRequest, user: OwnerUser) -> JSONResponse:
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=exc.errors(),
+            # exc.json(), not exc.errors(): a validator that raises ValueError leaves the
+            # exception object in the error's ctx, which the response encoder cannot serialise.
+            detail=json.loads(exc.json()),
         ) from exc
 
     if kind == CommandKind.PROMOTE:

@@ -562,6 +562,32 @@ def _set_roll_mode(*, command: Any, bot: Any, chat_id: str, **_: Any) -> dict:
     return {"mode": payload.mode, "previous": previous}
 
 
+@register("set_income_target")
+def _set_income_target(*, command: Any, **_: Any) -> dict:
+    """Set the monthly income target Home's pay card measures against (2026-10-15).
+
+    Idempotent and broker-free, like ``set_roll_mode``. It writes one ``system_settings`` row
+    that only the web API's read side ever consults; nothing in the Rules Engine, the sizing or
+    the scan path reads it, so there is no evidence gate and no Telegram message.
+    """
+    from src.api.models.commands import SetIncomeTargetPayload
+    from src.storage.system_settings import get_income_target, set_income_target
+
+    payload = SetIncomeTargetPayload(**command.payload)
+    previous = get_income_target()
+    set_income_target(payload)
+    log.info(
+        "Income target set to %s via web command %s (by %s)",
+        payload.mode,
+        command.id,
+        command.requested_by,
+    )
+    return {
+        "target": payload.model_dump(exclude_none=True),
+        "previous": previous.model_dump(exclude_none=True) if previous else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # M7 Task 7.4 — universe_add / universe_remove.
 #

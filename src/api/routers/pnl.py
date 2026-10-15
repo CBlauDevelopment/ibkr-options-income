@@ -45,11 +45,13 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy import select
 
 from src.api.deps import OwnerUser, TradingDb
 from src.api.models.common import as_utc_opt
 from src.api.models.pnl import (
     EquityResponse,
+    IncomeTargetResponse,
     LedgerFilters,
     LedgerResponse,
     MonthPayResponse,
@@ -62,9 +64,11 @@ from src.api.spreads_db import spreads_read_session, try_read_spread_rows
 from src.claude.eval.ledger import load_records
 from src.claude.eval.score_metrics import score_outcome_report
 from src.common.config import get_config
+from src.common.income_target import INCOME_TARGET_KEY, TargetSource, resolve_income_target
 from src.common.schemas import (
     CampaignPnl,
     EquityCurve,
+    IncomeTarget,
     PnlLeg,
     PnlSummary,
     PortfolioSnapshot,
@@ -73,6 +77,7 @@ from src.common.schemas import (
 from src.reporting.account_value import month_start_value
 from src.reporting.pay import SpreadPayInput, build_month_pay
 from src.reporting.pnl import build_campaigns, build_legs, build_summary, equity_curve
+from src.storage.models import SystemSettingRow
 
 router = APIRouter()
 
@@ -478,6 +483,23 @@ def _spread_inputs(book: str) -> list[SpreadPayInput] | None:
     ]
 
 
+def _resolved_target(db: TradingDb) -> tuple[IncomeTarget, TargetSource]:
+    """The target in force: the operator's web setting (`system_settings`, written only by the
+    drained `set_income_target` command), else the legacy config percentage, else none."""
+    stored = db.scalar(
+        select(SystemSettingRow.value).where(SystemSettingRow.key == INCOME_TARGET_KEY)
+    )
+    return resolve_income_target(stored, get_config().web.monthly_income_target_pct)
+
+
+@router.get("/target", response_model=IncomeTargetResponse)
+def pnl_target(user: OwnerUser, db: TradingDb) -> IncomeTargetResponse:  # noqa: ARG001
+    """The monthly income target as set, for the More page's control. `source` says whether it
+    is the web setting, the legacy `web.monthly_income_target_pct`, or nothing."""
+    target, source = _resolved_target(db)
+    return IncomeTargetResponse(as_of=datetime.now(UTC), target=target, source=source)
+
+
 @router.get("/month", response_model=MonthPayResponse)
 def pnl_month(
     user: OwnerUser,  # noqa: ARG001
@@ -502,7 +524,7 @@ def pnl_month(
         month=first,
         strategy=strategy,
         month_start_value=month_start_value(_session_factory(db), first),
-        target_pct=get_config().web.monthly_income_target_pct,
+        target=_resolved_target(db)[0],
         today=today,
     )
     return MonthPayResponse(as_of=now, book=chosen, pay=pay, spreads_available=spreads is not None)

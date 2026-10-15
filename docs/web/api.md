@@ -1235,12 +1235,14 @@ The attribution rule, every date read in New York time:
   commission of every closed contract in the month the spread finally closed (a partial close
   waits for the final close).
 - `net = premium_collected − bought_back − commissions`.
-- **`target` is `web.monthly_income_target_pct` of `month_start_value`**, the last known
-  journal close before the month's first day. `target_pct` echoes the setting as configured
-  (`null` when unset); when either the setting or `month_start_value` is unknown, `target` and
-  `progress_pct` are `null`, never `0`. The card tells the two apart: no setting says "No target
-  set"; a setting with no `month_start_value` (the first month after install, a journal gap)
-  says "Target n/a · needs the month's opening account value".
+- **`target` comes from the income target in force** (`GET /pnl/target` below): a fixed
+  `target_amount`; `target_pct` of `month_start_value` (the last known journal close before the
+  month's first day) for `pct_of_account`; or `target_pct` of `target_base` for `pct_of_amount`.
+  `target_mode` echoes which (`off` means no target). When the inputs are unknown (a
+  `pct_of_account` target with no `month_start_value`), `target` and `progress_pct` are `null`,
+  never `0`. The card tells the cases apart: `off` says "No target set"; a percent-of-account
+  target with no `month_start_value` (the first month after install, a journal gap) says
+  "Target n/a · needs the month's opening account value".
 - `commissions_complete` is `false` when any counted leg lacks a commission (the figure is a
   lower bound).
 - **`spreads_available`** is `false` only when a spreads book is in scope (`strategy` `all` or
@@ -1250,7 +1252,18 @@ The attribution rule, every date read in New York time:
   strategy never reads the file and is always `true`.
 
 **Response — `MonthPayResponse`:** `{ as_of, book, pay: MonthPay, spreads_available }`.
-`MonthPay`: `{ month, strategy, premium_collected, bought_back, commissions, commissions_complete, net, n_opened, n_closed, month_start_value: float | null, target_pct: float | null, target: float | null, progress_pct: float | null, days_left }`.
+`MonthPay`: `{ month, strategy, premium_collected, bought_back, commissions, commissions_complete, net, n_opened, n_closed, month_start_value: float | null, target_pct: float | null, target_mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount", target_amount: float | null, target_base: float | null, target: float | null, progress_pct: float | null, days_left }`.
+
+### `GET /pnl/target` (web Home follow-ups, 2026-10-15)
+
+The monthly income target in force, for the More page's control. Owner-only; read-only (it is
+changed only by the `set_income_target` command, `docs/web/commands.md`).
+
+**Response — `IncomeTargetResponse`:** `{ as_of, target: IncomeTarget, source }` where
+`IncomeTarget` is `{ mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount", amount, pct, base }`
+(fields that do not belong to the mode are `null`) and `source` is `web` (the operator's setting,
+`system_settings.income_target`, including an explicit `off`), `config` (no web row, so the legacy
+`web.monthly_income_target_pct` applies as `pct_of_account`) or `none`.
 
 ## Spreads (web overhaul Part 1)
 

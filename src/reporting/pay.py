@@ -14,7 +14,8 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from src.common.schemas import MonthPay, PnlLeg, VerdictOutcome
+from src.common.income_target import target_value
+from src.common.schemas import IncomeTarget, MonthPay, PnlLeg, VerdictOutcome
 
 _ET = ZoneInfo("America/New_York")
 OPTION_MULTIPLIER = 100
@@ -66,7 +67,7 @@ def build_month_pay(
     month: date,
     strategy: PayStrategy,
     month_start_value: float | None,
-    target_pct: float | None,
+    target: IncomeTarget,
     today: date,
 ) -> MonthPay:
     first = month.replace(day=1)
@@ -117,11 +118,7 @@ def build_month_pay(
                 n_closed += 1
 
     net = premium - bought - commissions
-    target = (
-        month_start_value * target_pct / 100
-        if month_start_value is not None and month_start_value > 0 and target_pct is not None
-        else None
-    )
+    target_dollars = target_value(target, month_start_value)
     return MonthPay(
         month=first,
         strategy=strategy,
@@ -133,8 +130,11 @@ def build_month_pay(
         n_opened=n_opened,
         n_closed=n_closed,
         month_start_value=month_start_value,
-        target_pct=target_pct,
-        target=target,
-        progress_pct=(net / target * 100) if target else None,
+        target_pct=target.pct,
+        target_mode=target.mode,
+        target_amount=target.amount,
+        target_base=target.base,
+        target=target_dollars,
+        progress_pct=(net / target_dollars * 100) if target_dollars else None,
         days_left=(last - today).days if first <= today <= last else 0,
     )

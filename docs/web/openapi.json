@@ -1911,6 +1911,30 @@
         }
       }
     },
+    "/pnl/target": {
+      "get": {
+        "summary": "Pnl Target",
+        "description": "The monthly income target as set, for the More page's control. `source` says whether it\nis the web setting, the legacy `web.monthly_income_target_pct`, or nothing.",
+        "operationId": "pnl_target_pnl_target_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncomeTargetResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/pnl/month": {
       "get": {
         "summary": "Pnl Month",
@@ -5386,6 +5410,7 @@
           "resume",
           "set_autonomy",
           "set_roll_mode",
+          "set_income_target",
           "universe_add",
           "universe_remove",
           "refresh",
@@ -6166,6 +6191,87 @@
         "type": "object",
         "title": "IdealZonePayload",
         "description": "The denormalised ideal zone from ``RiskVerdictRow`` (lo / hi / min_credit)."
+      },
+      "IncomeTarget": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "fixed",
+              "pct_of_account",
+              "pct_of_amount"
+            ],
+            "title": "Mode",
+            "default": "off"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "base": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "IncomeTarget",
+        "description": "The monthly income goal behind Home's pay card (web, 2026-10-15). Display only: nothing in\nthe trading path reads it.\n\n``fixed``: ``amount`` dollars a month. ``pct_of_account``: ``pct`` percent of the account's\nvalue at the month's start. ``pct_of_amount``: ``pct`` percent of ``base`` dollars the\noperator names (a number that does not move with the account). ``off``: no target. Fields\nthat do not belong to the mode must be absent, so a stored row can never disagree with itself."
+      },
+      "IncomeTargetResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "target": {
+            "$ref": "#/components/schemas/IncomeTarget"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "web",
+              "config",
+              "none"
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "target",
+          "source"
+        ],
+        "title": "IncomeTargetResponse",
+        "description": "The monthly income target in force and where it came from (web setting, the legacy\n`web.monthly_income_target_pct`, or none)."
       },
       "LedgerBasisPoint": {
         "properties": {
@@ -7968,6 +8074,39 @@
               }
             ],
             "title": "Target Pct"
+          },
+          "target_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "fixed",
+              "pct_of_account",
+              "pct_of_amount"
+            ],
+            "title": "Target Mode",
+            "default": "off"
+          },
+          "target_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Amount"
+          },
+          "target_base": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Base"
           },
           "target": {
             "anyOf": [

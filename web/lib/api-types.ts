@@ -712,6 +712,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pnl/target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Target
+         * @description The monthly income target as set, for the More page's control. `source` says whether it
+         *     is the web setting, the legacy `web.monthly_income_target_pct`, or nothing.
+         */
+        get: operations["pnl_target_pnl_target_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pnl/month": {
         parameters: {
             query?: never;
@@ -1916,7 +1937,7 @@ export interface components {
          * @description Every intent the web layer can enqueue. Later milestones register handlers.
          * @enum {string}
          */
-        CommandKind: "approve" | "reject" | "promote" | "roll_request" | "halt" | "resume" | "set_autonomy" | "set_roll_mode" | "universe_add" | "universe_remove" | "refresh" | "ledger_import" | "ledger_annotate" | "ledger_ca_reviewed" | "news_brief";
+        CommandKind: "approve" | "reject" | "promote" | "roll_request" | "halt" | "resume" | "set_autonomy" | "set_roll_mode" | "set_income_target" | "universe_add" | "universe_remove" | "refresh" | "ledger_import" | "ledger_annotate" | "ledger_ca_reviewed" | "news_brief";
         /** CommandRequest */
         CommandRequest: {
             kind: components["schemas"]["CommandKind"];
@@ -2237,6 +2258,48 @@ export interface components {
             hi?: number | null;
             /** Min Credit */
             min_credit?: number | null;
+        };
+        /**
+         * IncomeTarget
+         * @description The monthly income goal behind Home's pay card (web, 2026-10-15). Display only: nothing in
+         *     the trading path reads it.
+         *
+         *     ``fixed``: ``amount`` dollars a month. ``pct_of_account``: ``pct`` percent of the account's
+         *     value at the month's start. ``pct_of_amount``: ``pct`` percent of ``base`` dollars the
+         *     operator names (a number that does not move with the account). ``off``: no target. Fields
+         *     that do not belong to the mode must be absent, so a stored row can never disagree with itself.
+         */
+        IncomeTarget: {
+            /**
+             * Mode
+             * @default off
+             * @enum {string}
+             */
+            mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount";
+            /** Amount */
+            amount?: number | null;
+            /** Pct */
+            pct?: number | null;
+            /** Base */
+            base?: number | null;
+        };
+        /**
+         * IncomeTargetResponse
+         * @description The monthly income target in force and where it came from (web setting, the legacy
+         *     `web.monthly_income_target_pct`, or none).
+         */
+        IncomeTargetResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            target: components["schemas"]["IncomeTarget"];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "web" | "config" | "none";
         };
         /** LedgerBasisPoint */
         LedgerBasisPoint: {
@@ -2877,6 +2940,16 @@ export interface components {
             month_start_value?: number | null;
             /** Target Pct */
             target_pct?: number | null;
+            /**
+             * Target Mode
+             * @default off
+             * @enum {string}
+             */
+            target_mode: "off" | "fixed" | "pct_of_account" | "pct_of_amount";
+            /** Target Amount */
+            target_amount?: number | null;
+            /** Target Base */
+            target_base?: number | null;
             /** Target */
             target?: number | null;
             /** Progress Pct */
@@ -5116,6 +5189,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_target_pnl_target_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeTargetResponse"];
                 };
             };
         };
