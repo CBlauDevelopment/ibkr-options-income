@@ -755,6 +755,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pnl/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Day
+         * @description What was opened, closed or rolled on one New York day, as the cards Home shows.
+         *
+         *     `date` defaults to today in New York. Every card comes from the same `PnlLeg` list (and the
+         *     book's spread rows) the pay stub and the calendar read; a roll is one card, paired on its
+         *     combo order. The reasons are worked out from stored facts, never generated. `book` defaults
+         *     to the running mode, as `/pnl/month` does.
+         */
+        get: operations["pnl_day_pnl_day_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pnl/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pnl Calendar
+         * @description A month of daily realised P&L: each day's net result, after commissions, of what closed
+         *     that day (options legs and the book's credit spreads). Days nothing closed are absent.
+         */
+        get: operations["pnl_calendar_pnl_calendar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ledger/summary": {
         parameters: {
             query?: never;
@@ -1664,25 +1710,6 @@ export interface components {
             /** Assignment Risk */
             assignment_risk: boolean;
         };
-        /** CalendarResponse */
-        CalendarResponse: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "monitor" | "refresh" | "eod" | "none";
-            /** Degraded */
-            degraded: boolean;
-            /** Horizon Days */
-            horizon_days: number;
-            /** Days */
-            days: components["schemas"]["CalendarDay"][];
-        };
         /** CampaignLeg */
         CampaignLeg: {
             /**
@@ -2069,6 +2096,229 @@ export interface components {
             drain_last_seen?: string | null;
             /** Pending Commands */
             pending_commands: number;
+        };
+        /**
+         * DayCalendarDay
+         * @description One New York day's realised P&L: what closed that day, after commissions.
+         */
+        DayCalendarDay: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Realized */
+            realized: number;
+            /** N Closed */
+            n_closed: number;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+        };
+        /**
+         * DayFact
+         * @description One line of a closed or rolled trade's reasoning. ``source`` is who said it: ``system``
+         *     lines are worked out from stored fills, alerts and the roll policy's own log; ``claude``
+         *     lines are Claude's stored view, which the web always labels as Claude's.
+         */
+        DayFact: {
+            /** Label */
+            label: string;
+            /** Text */
+            text: string;
+            /**
+             * Source
+             * @default system
+             * @enum {string}
+             */
+            source: "system" | "claude";
+        };
+        /**
+         * DayReview
+         * @description Claude's stored review of an opened trade, field for field the API's ClaudeReviewPayload
+         *     (src/api/models/options.py) so the web renders it with the proposal card's Why disclosure.
+         */
+        DayReview: {
+            /**
+             * Why Attractive
+             * @default
+             */
+            why_attractive: string;
+            /**
+             * Risks
+             * @default
+             */
+            risks: string;
+            /**
+             * Tradeoffs
+             * @default
+             */
+            tradeoffs: string;
+            /**
+             * Assignment Considerations
+             * @default
+             */
+            assignment_considerations: string;
+            /**
+             * Rolling Considerations
+             * @default
+             */
+            rolling_considerations: string;
+            /** Recommendation */
+            recommendation?: string | null;
+            /** Priority */
+            priority?: number | null;
+            /** Confidence */
+            confidence?: number | null;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Evidence */
+            evidence?: string[];
+        };
+        /**
+         * DayRolledTo
+         * @description The leg a roll opened (the buy-back and the new short share one combo order).
+         */
+        DayRolledTo: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Strike */
+            strike: number;
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Contracts */
+            contracts: number;
+            /** Premium */
+            premium?: number | null;
+            /** Commissions */
+            commissions?: number | null;
+        };
+        /**
+         * DayTrade
+         * @description One executed trade on one New York day, as a Home card (web, 2026-10-15).
+         *
+         *     Money is USD for the whole position, never per share. ``premium``, ``bought_back`` and
+         *     ``commissions`` are positive numbers; the card signs them. Unknown is None, never 0.0.
+         *     ``net_pnl`` is the realised result after every commission, set only once the trade is
+         *     closed. ``capital`` is the cash held aside (a put), the shares' strike value (a call) or the
+         *     most a spread can lose.
+         */
+        DayTrade: {
+            /** Key */
+            key: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "opened" | "closed" | "rolled";
+            /** How */
+            how?: ("bought_back" | "expired" | "assigned" | "called_away" | "rolled") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "csp" | "cc" | "spread" | "other";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "wheel" | "spreads";
+            /** Underlying */
+            underlying: string;
+            /** Right */
+            right?: ("C" | "P") | null;
+            /** Strike */
+            strike: number;
+            /** Long Strike */
+            long_strike?: number | null;
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Contracts */
+            contracts: number;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Is Live
+             * @default false
+             */
+            is_live: boolean;
+            /** Premium */
+            premium?: number | null;
+            /** Bought Back */
+            bought_back?: number | null;
+            /** Commissions */
+            commissions?: number | null;
+            /**
+             * Commissions Complete
+             * @default true
+             */
+            commissions_complete: boolean;
+            /** Net Pnl */
+            net_pnl?: number | null;
+            /** Capital */
+            capital?: number | null;
+            /** Roc Pct */
+            roc_pct?: number | null;
+            /** Annualized Pct */
+            annualized_pct?: number | null;
+            /** Pct Kept */
+            pct_kept?: number | null;
+            /** Dte At Open */
+            dte_at_open?: number | null;
+            /** Days Held */
+            days_held?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Facts */
+            facts?: components["schemas"]["DayFact"][];
+            /** Approval Id */
+            approval_id?: number | null;
+            review?: components["schemas"]["DayReview"] | null;
+            rolled_to?: components["schemas"]["DayRolledTo"] | null;
+        };
+        /**
+         * DayTradesResponse
+         * @description The trades opened, closed or rolled on one New York day (Home's "Done today").
+         */
+        DayTradesResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "all" | "csp" | "cc" | "spread";
+            /** Trades */
+            trades: components["schemas"]["DayTrade"][];
+            /** Spreads Available */
+            spreads_available: boolean;
         };
         /** EarningsOut */
         EarningsOut: {
@@ -2895,6 +3145,34 @@ export interface components {
             id: string;
             /** Role */
             role: string;
+        };
+        /**
+         * MonthCalendar
+         * @description A month of daily realised P&L (web, 2026-10-15). Only days something closed appear; a
+         *     missing day is a day with no close, not a day known to be flat.
+         */
+        MonthCalendar: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "all" | "csp" | "cc" | "spread";
+            /** Days */
+            days?: components["schemas"]["DayCalendarDay"][];
+            /** Total */
+            total: number;
+            /** N Closed */
+            n_closed: number;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
         };
         /**
          * MonthPay
@@ -4243,6 +4521,25 @@ export interface components {
              */
             items: components["schemas"]["WatchlistItem"][];
         };
+        /**
+         * CalendarResponse
+         * @description A month of daily realised P&L.
+         */
+        src__api__models__pnl__CalendarResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            calendar: components["schemas"]["MonthCalendar"];
+            /** Spreads Available */
+            spreads_available: boolean;
+        };
         /** SummaryResponse */
         src__api__models__pnl__SummaryResponse: {
             /**
@@ -4254,6 +4551,25 @@ export interface components {
             summary: components["schemas"]["PnlSummary"];
             /** Marks As Of */
             marks_as_of?: string | null;
+        };
+        /** CalendarResponse */
+        src__api__models__portfolio__CalendarResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "monitor" | "refresh" | "eod" | "none";
+            /** Degraded */
+            degraded: boolean;
+            /** Horizon Days */
+            horizon_days: number;
+            /** Days */
+            days: components["schemas"]["CalendarDay"][];
         };
         /**
          * SummaryResponse
@@ -4953,7 +5269,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarResponse"];
+                    "application/json": components["schemas"]["src__api__models__portfolio__CalendarResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5233,6 +5549,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonthPayResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_day_pnl_day_get: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                strategy?: "all" | "csp" | "cc" | "spread";
+                book?: ("paper" | "live") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayTradesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pnl_calendar_pnl_calendar_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                strategy?: "all" | "csp" | "cc" | "spread";
+                book?: ("paper" | "live") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["src__api__models__pnl__CalendarResponse"];
                 };
             };
             /** @description Validation Error */

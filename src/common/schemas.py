@@ -1033,6 +1033,110 @@ class MonthPay(BaseModel):
     days_left: int
 
 
+DayTradeAction = Literal["opened", "closed", "rolled"]
+DayTradeHow = Literal["bought_back", "expired", "assigned", "called_away", "rolled"]
+DayTradeKind = Literal["csp", "cc", "spread", "other"]
+
+
+class DayReview(BaseModel):
+    """Claude's stored review of an opened trade, field for field the API's ClaudeReviewPayload
+    (src/api/models/options.py) so the web renders it with the proposal card's Why disclosure."""
+
+    why_attractive: str = ""
+    risks: str = ""
+    tradeoffs: str = ""
+    assignment_considerations: str = ""
+    rolling_considerations: str = ""
+    recommendation: str | None = None
+    priority: int | None = None
+    confidence: float | None = None
+    summary: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+
+class DayFact(BaseModel):
+    """One line of a closed or rolled trade's reasoning. ``source`` is who said it: ``system``
+    lines are worked out from stored fills, alerts and the roll policy's own log; ``claude``
+    lines are Claude's stored view, which the web always labels as Claude's."""
+
+    label: str
+    text: str
+    source: Literal["system", "claude"] = "system"
+
+
+class DayRolledTo(BaseModel):
+    """The leg a roll opened (the buy-back and the new short share one combo order)."""
+
+    candidate_id: str
+    strike: float
+    expiry: date
+    contracts: int
+    premium: float | None = None  # credit collected on the new leg, USD for the position
+    commissions: float | None = None
+
+
+class DayTrade(BaseModel):
+    """One executed trade on one New York day, as a Home card (web, 2026-10-15).
+
+    Money is USD for the whole position, never per share. ``premium``, ``bought_back`` and
+    ``commissions`` are positive numbers; the card signs them. Unknown is None, never 0.0.
+    ``net_pnl`` is the realised result after every commission, set only once the trade is
+    closed. ``capital`` is the cash held aside (a put), the shares' strike value (a call) or the
+    most a spread can lose.
+    """
+
+    key: str
+    action: DayTradeAction
+    how: DayTradeHow | None = None  # closed / rolled: how it ended
+    kind: DayTradeKind
+    source: Literal["wheel", "spreads"]
+    underlying: str
+    right: Literal["C", "P"] | None = None
+    strike: float
+    long_strike: float | None = None  # spreads only
+    expiry: date
+    contracts: int
+    at: datetime  # UTC: the fill (an expiry or assignment: 16:00 New York on its date)
+    is_live: bool = False
+    premium: float | None = None
+    bought_back: float | None = None
+    commissions: float | None = None
+    commissions_complete: bool = True
+    net_pnl: float | None = None
+    capital: float | None = None
+    roc_pct: float | None = None
+    annualized_pct: float | None = None
+    pct_kept: float | None = None  # closed: share of the premium kept before commissions
+    dte_at_open: int | None = None
+    days_held: int | None = None
+    reason: str | None = None  # closed / rolled: the headline reason, one sentence
+    facts: list[DayFact] = Field(default_factory=list)
+    approval_id: int | None = None
+    review: DayReview | None = None  # opened: Claude's stored review
+    rolled_to: DayRolledTo | None = None
+
+
+class DayCalendarDay(BaseModel):
+    """One New York day's realised P&L: what closed that day, after commissions."""
+
+    date: date
+    realized: float
+    n_closed: int
+    complete: bool = True  # False when a closed leg that day has no commission recorded
+
+
+class MonthCalendar(BaseModel):
+    """A month of daily realised P&L (web, 2026-10-15). Only days something closed appear; a
+    missing day is a day with no close, not a day known to be flat."""
+
+    month: date  # first day of the month
+    strategy: Literal["all", "csp", "cc", "spread"]
+    days: list[DayCalendarDay] = Field(default_factory=list)
+    total: float
+    n_closed: int
+    complete: bool = True
+
+
 # --------------------------------------------------------------------------- #
 # Trade ledger — whole-account broker truth
 # (docs/superpowers/specs/2026-10-04-trade-ledger-design.md). Read by src/ledger/,

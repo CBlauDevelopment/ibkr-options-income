@@ -1265,6 +1265,63 @@ changed only by the `set_income_target` command, `docs/web/commands.md`).
 `system_settings.income_target`, including an explicit `off`), `config` (no web row, so the legacy
 `web.monthly_income_target_pct` applies as `pct_of_account`) or `none`.
 
+### `GET /pnl/day` (web Home follow-ups, 2026-10-15)
+
+What was opened, closed or rolled on one New York day, as the cards under Home's "Done today".
+A thin render of `src/reporting/day.py::build_day_trades` over the same `PnlLeg` list every P&L
+route reads, plus the book's spread rows (through `src/api/spreads_db.py`). Owner-only; never
+reaches IBKR; nothing is generated: every sentence is worked out from stored fills, the close
+reason stamped on the buy-back fill, the roll policy's decision log, and (for an opened trade
+and a rolled position) Claude's stored view, which carries `source: "claude"`.
+
+| Param | Type | Notes |
+|---|---|---|
+| `date` | `YYYY-MM-DD` | default: today in New York. Any date works (the calendar reuses it for a tapped day) |
+| `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all`; a roll counts under the side it rolls |
+| `book` | `paper` \| `live` | default: the running mode |
+
+- **Opened:** a leg whose first SELL fill is on the day. The new short a roll opens is *not*
+  listed here; it is part of the roll's card.
+- **Closed:** a buy-back on the day (`how: "bought_back"`, reason from `CloseReason`; a close
+  that predates the stamp says so), or an expiry or assignment whose date is the day
+  (`how: "expired" | "assigned" | "called_away"`, `at` is 16:00 New York on that date).
+  An expiry is not an execution, but the position leaves the book and would otherwise vanish.
+- **Rolled:** a buy-back with `close_reason: roll`. The buy-back and the new short share one
+  combo order, so they are paired on that order id (`rolled_to`); an unpaired roll still shows
+  the buy-back and says the new leg is not on record. `facts` carry the logged trigger and
+  decision (matched on the roll approval's id, else the newest decision for that contract), the
+  roll terms per share, and Claude's stored recommendation if one was recorded.
+- **Money** is USD for the whole position and positive (`premium`, `bought_back`,
+  `commissions`); the card signs it. `net_pnl` is the realised result after every commission and
+  is `null` until the trade closes - never `0`. `pct_kept` is the share of the premium kept
+  before commissions (negative when the buy-back cost more than was collected). `capital` is the
+  cash held aside (a put), the shares' strike value (a call) or the most a spread can lose.
+- `spreads_available` is `false` only when a spreads book is in scope and `data/spreads.db`
+  could not be read: the spreads cards are then missing, not absent.
+
+**Response - `DayTradesResponse`:** `{ as_of, date, book, strategy, trades: DayTrade[], spreads_available }`, newest first.
+`DayTrade`: `{ key, action: "opened" | "closed" | "rolled", how, kind: "csp" | "cc" | "spread" | "other", source: "wheel" | "spreads", underlying, right, strike, long_strike, expiry, contracts, at, is_live, premium, bought_back, commissions, commissions_complete, net_pnl, capital, roc_pct, annualized_pct, pct_kept, dte_at_open, days_held, reason, facts: DayFact[], approval_id, review: DayReview | null, rolled_to: DayRolledTo | null }`.
+
+### `GET /pnl/calendar` (web Home follow-ups, 2026-10-15)
+
+A month of daily realised P&L, for the calendar behind the chart on Home. Each day is the net
+result, after every commission, of the option legs and the book's credit spreads that closed
+that day (an expired or assigned leg closes on its expiry date). A day nothing closed is absent,
+which is not the same as a day known to be flat. An open leg has a mark, not a result, and
+contributes nothing. Share sales and trades made outside the system are not in it (they live in
+the ledger). Owner-only.
+
+| Param | Type | Notes |
+|---|---|---|
+| `month` | `YYYY-MM` | default: the current New York month |
+| `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all` |
+| `book` | `paper` \| `live` | default: the running mode |
+
+**Response - `CalendarResponse`:** `{ as_of, book, calendar: MonthCalendar, spreads_available }`.
+`MonthCalendar`: `{ month, strategy, days: { date, realized, n_closed, complete }[], total, n_closed, complete }`;
+`complete` is `false` when a closed leg that day has no commission recorded (the figure is a
+lower bound on the cost, an upper bound on the result).
+
 ## Spreads (web overhaul Part 1)
 
 ### `GET /spreads/positions`

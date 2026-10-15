@@ -40,7 +40,7 @@ import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
@@ -50,6 +50,8 @@ from sqlalchemy import select
 from src.api.deps import OwnerUser, TradingDb
 from src.api.models.common import as_utc_opt
 from src.api.models.pnl import (
+    CalendarResponse,
+    DayTradesResponse,
     EquityResponse,
     IncomeTargetResponse,
     LedgerFilters,
@@ -75,6 +77,7 @@ from src.common.schemas import (
     VerdictRecord,
 )
 from src.reporting.account_value import month_start_value
+from src.reporting.day import SpreadDayInput, build_day_trades, build_month_calendar
 from src.reporting.pay import SpreadPayInput, build_month_pay
 from src.reporting.pnl import build_campaigns, build_legs, build_summary, equity_curve
 from src.storage.models import SystemSettingRow
@@ -453,31 +456,72 @@ def pnl_system(
 _ET = ZoneInfo("America/New_York")
 
 
-def _spread_inputs(book: str) -> list[SpreadPayInput] | None:
-    """Spread positions of the running book as plain inputs; None when spreads.db could not be
-    read (absent, not a database, locked, or no spread_positions table)."""
+def _spread_rows(book: str) -> list[dict[str, Any]] | None:
+    """Spread rows of the running book; None when spreads.db could not be read (absent, not a
+    database, locked, or no spread_positions table)."""
     with spreads_read_session() as s:
         if s is None:
             return None
-        rows = try_read_spread_rows(s, mode=book, status="all", limit=5000)
+        return try_read_spread_rows(s, mode=book, status="all", limit=5000)
+
+
+def _dt(v: object) -> datetime | None:
+    if v is None:
+        return None
+    return v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
+
+
+def _spread_inputs(book: str) -> list[SpreadPayInput] | None:
+    """Spread positions of the running book as plain inputs; None when spreads.db could not be
+    read (absent, not a database, locked, or no spread_positions table)."""
+    rows = _spread_rows(book)
     if rows is None:
         return None
-
-    def dt(v: object) -> datetime | None:
-        if v is None:
-            return None
-        return v if isinstance(v, datetime) else datetime.fromisoformat(str(v))
-
     return [
         SpreadPayInput(
-            opened_at=dt(r["opened_at"]) or datetime.now(UTC),
-            closed_at=dt(r["closed_at"]),
+            opened_at=_dt(r["opened_at"]) or datetime.now(UTC),
+            closed_at=_dt(r["closed_at"]),
             entry_credit=float(r["entry_credit"]),
             exit_debit=None if r["exit_debit"] is None else float(r["exit_debit"]),
             contracts_opened=int(r["contracts_opened"]),
             contracts_open=int(r["contracts"]),
             entry_commission=float(r["entry_commission"] or 0.0),
             exit_commission=float(r["exit_commission"] or 0.0),
+        )
+        for r in rows
+    ]
+
+
+def _spread_day_inputs(book: str) -> list[SpreadDayInput] | None:
+    """The same rows with the identity and the exit reason the day's cards and the calendar
+    need; None when spreads.db could not be read."""
+    rows = _spread_rows(book)
+    if rows is None:
+        return None
+    underlying = get_config().spreads.underlying
+    return [
+        SpreadDayInput(
+            spread_id=str(r["spread_id"]),
+            underlying=underlying,
+            side=r["side"],
+            expiry=r["expiry"],
+            short_strike=float(r["short_strike"]),
+            long_strike=float(r["long_strike"]),
+            width=float(r["width"]),
+            contracts_opened=int(r["contracts_opened"]),
+            contracts_open=int(r["contracts"]),
+            entry_credit=float(r["entry_credit"]),
+            entry_commission=float(r["entry_commission"] or 0.0),
+            opened_at=_dt(r["opened_at"]) or datetime.now(UTC),
+            closed_at=_dt(r["closed_at"]),
+            exit_debit=None if r["exit_debit"] is None else float(r["exit_debit"]),
+            exit_commission=float(r["exit_commission"] or 0.0),
+            exit_reason=r["exit_reason"],
+            status=str(r["status"]),
+            realized_pnl_usd=None
+            if r["realized_pnl_usd"] is None
+            else float(r["realized_pnl_usd"]),
+            is_live=book == "live",
         )
         for r in rows
     ]
@@ -528,3 +572,63 @@ def pnl_month(
         today=today,
     )
     return MonthPayResponse(as_of=now, book=chosen, pay=pay, spreads_available=spreads is not None)
+
+
+# ---------------------------------------------------------------------------
+# Web Home follow-ups (2026-10-15) - the day's executed trades and the realised calendar
+# ---------------------------------------------------------------------------
+
+
+@router.get("/day", response_model=DayTradesResponse)
+def pnl_day(
+    user: OwnerUser,  # noqa: ARG001
+    db: TradingDb,
+    day: Annotated[date | None, Query(alias="date")] = None,
+    strategy: Literal["all", "csp", "cc", "spread"] = "all",
+    book: Literal["paper", "live"] | None = None,
+) -> DayTradesResponse:
+    """What was opened, closed or rolled on one New York day, as the cards Home shows.
+
+    `date` defaults to today in New York. Every card comes from the same `PnlLeg` list (and the
+    book's spread rows) the pay stub and the calendar read; a roll is one card, paired on its
+    combo order. The reasons are worked out from stored facts, never generated. `book` defaults
+    to the running mode, as `/pnl/month` does.
+    """
+    now = datetime.now(UTC)
+    chosen: Literal["paper", "live"] = book or ("live" if get_config().is_live else "paper")
+    the_day = day or now.astimezone(_ET).date()
+    legs = _filtered_legs(db, _filter_params(None, None, None, None, None, chosen))
+    spreads = _spread_day_inputs(chosen) if strategy in ("all", "spread") else []
+    trades = build_day_trades(
+        _session_factory(db), legs, spreads or [], day=the_day, strategy=strategy
+    )
+    return DayTradesResponse(
+        as_of=now,
+        date=the_day,
+        book=chosen,
+        strategy=strategy,
+        trades=trades,
+        spreads_available=spreads is not None,
+    )
+
+
+@router.get("/calendar", response_model=CalendarResponse)
+def pnl_calendar(
+    user: OwnerUser,  # noqa: ARG001
+    db: TradingDb,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    strategy: Literal["all", "csp", "cc", "spread"] = "all",
+    book: Literal["paper", "live"] | None = None,
+) -> CalendarResponse:
+    """A month of daily realised P&L: each day's net result, after commissions, of what closed
+    that day (options legs and the book's credit spreads). Days nothing closed are absent."""
+    now = datetime.now(UTC)
+    today = now.astimezone(_ET).date()
+    first = date(int(month[:4]), int(month[5:7]), 1) if month else today.replace(day=1)
+    chosen: Literal["paper", "live"] = book or ("live" if get_config().is_live else "paper")
+    legs = _filtered_legs(db, _filter_params(None, None, None, None, None, chosen))
+    spreads = _spread_day_inputs(chosen) if strategy in ("all", "spread") else []
+    calendar = build_month_calendar(legs, spreads or [], month=first, strategy=strategy)
+    return CalendarResponse(
+        as_of=now, book=chosen, calendar=calendar, spreads_available=spreads is not None
+    )

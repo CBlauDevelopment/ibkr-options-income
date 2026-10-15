@@ -44,20 +44,20 @@ def leg_kind(leg: PnlLeg) -> Literal["csp", "cc"] | None:
     return None
 
 
-def _et_date(dt: datetime | None) -> date | None:
+def et_date(dt: datetime | None) -> date | None:
     if dt is None:
         return None
     aware = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
     return aware.astimezone(_ET).date()
 
 
-def _close_day(leg: PnlLeg) -> date | None:
+def close_day(leg: PnlLeg) -> date | None:
     """The New York day a leg closed. build_legs stamps an expired or assigned leg with naive
     midnight ON its expiry date - a calendar date, not a UTC instant like a fill time - so read
     as UTC it would slide into the previous ET day (an expiry on the 1st into last month)."""
     if leg.outcome in (VerdictOutcome.EXPIRED_WORTHLESS, VerdictOutcome.ASSIGNED):
         return leg.expiry
-    return _et_date(leg.closed_at)
+    return et_date(leg.closed_at)
 
 
 def build_month_pay(
@@ -74,7 +74,7 @@ def build_month_pay(
     last = first.replace(day=calendar.monthrange(first.year, first.month)[1])
 
     def in_month(dt: datetime | None) -> bool:
-        return on_day_in_month(_et_date(dt))
+        return on_day_in_month(et_date(dt))
 
     def on_day_in_month(d: date | None) -> bool:
         return d is not None and first <= d <= last
@@ -88,7 +88,7 @@ def build_month_pay(
             kind = leg_kind(leg)
             if kind is None or (strategy != "all" and kind != strategy):
                 continue
-            opened, closed = in_month(leg.opened_at), on_day_in_month(_close_day(leg))
+            opened, closed = in_month(leg.opened_at), on_day_in_month(close_day(leg))
             # Each side's commission in the month it was paid; a leg with no known split
             # charges all of it to the open month, so no commission is ever counted twice.
             open_commissions = (

@@ -1218,7 +1218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CalendarResponse"
+                  "$ref": "#/components/schemas/src__api__models__portfolio__CalendarResponse"
                 }
               }
             }
@@ -2007,6 +2007,184 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MonthPayResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnl/day": {
+      "get": {
+        "summary": "Pnl Day",
+        "description": "What was opened, closed or rolled on one New York day, as the cards Home shows.\n\n`date` defaults to today in New York. Every card comes from the same `PnlLeg` list (and the\nbook's spread rows) the pay stub and the calendar read; a roll is one card, paired on its\ncombo order. The reasons are worked out from stored facts, never generated. `book` defaults\nto the running mode, as `/pnl/month` does.",
+        "operationId": "pnl_day_pnl_day_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "csp",
+                "cc",
+                "spread"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "book",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "paper",
+                    "live"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayTradesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnl/calendar": {
+      "get": {
+        "summary": "Pnl Calendar",
+        "description": "A month of daily realised P&L: each day's net result, after commissions, of what closed\nthat day (options legs and the book's credit spreads). Days nothing closed are absent.",
+        "operationId": "pnl_calendar_pnl_calendar_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "csp",
+                "cc",
+                "spread"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Strategy"
+            }
+          },
+          {
+            "name": "book",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "paper",
+                    "live"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/src__api__models__pnl__CalendarResponse"
                 }
               }
             }
@@ -4760,49 +4938,6 @@
         ],
         "title": "CalendarEntry"
       },
-      "CalendarResponse": {
-        "properties": {
-          "as_of": {
-            "type": "string",
-            "format": "date-time",
-            "title": "As Of"
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "monitor",
-              "refresh",
-              "eod",
-              "none"
-            ],
-            "title": "Source"
-          },
-          "degraded": {
-            "type": "boolean",
-            "title": "Degraded"
-          },
-          "horizon_days": {
-            "type": "integer",
-            "title": "Horizon Days"
-          },
-          "days": {
-            "items": {
-              "$ref": "#/components/schemas/CalendarDay"
-            },
-            "type": "array",
-            "title": "Days"
-          }
-        },
-        "type": "object",
-        "required": [
-          "as_of",
-          "source",
-          "degraded",
-          "horizon_days",
-          "days"
-        ],
-        "title": "CalendarResponse"
-      },
       "CampaignLeg": {
         "properties": {
           "as_of": {
@@ -5707,6 +5842,531 @@
           "pending_commands"
         ],
         "title": "ControlsResponse"
+      },
+      "DayCalendarDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "realized": {
+            "type": "number",
+            "title": "Realized"
+          },
+          "n_closed": {
+            "type": "integer",
+            "title": "N Closed"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "realized",
+          "n_closed"
+        ],
+        "title": "DayCalendarDay",
+        "description": "One New York day's realised P&L: what closed that day, after commissions."
+      },
+      "DayFact": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "system",
+              "claude"
+            ],
+            "title": "Source",
+            "default": "system"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "text"
+        ],
+        "title": "DayFact",
+        "description": "One line of a closed or rolled trade's reasoning. ``source`` is who said it: ``system``\nlines are worked out from stored fills, alerts and the roll policy's own log; ``claude``\nlines are Claude's stored view, which the web always labels as Claude's."
+      },
+      "DayReview": {
+        "properties": {
+          "why_attractive": {
+            "type": "string",
+            "title": "Why Attractive",
+            "default": ""
+          },
+          "risks": {
+            "type": "string",
+            "title": "Risks",
+            "default": ""
+          },
+          "tradeoffs": {
+            "type": "string",
+            "title": "Tradeoffs",
+            "default": ""
+          },
+          "assignment_considerations": {
+            "type": "string",
+            "title": "Assignment Considerations",
+            "default": ""
+          },
+          "rolling_considerations": {
+            "type": "string",
+            "title": "Rolling Considerations",
+            "default": ""
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence"
+          }
+        },
+        "type": "object",
+        "title": "DayReview",
+        "description": "Claude's stored review of an opened trade, field for field the API's ClaudeReviewPayload\n(src/api/models/options.py) so the web renders it with the proposal card's Why disclosure."
+      },
+      "DayRolledTo": {
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "title": "Candidate Id"
+          },
+          "strike": {
+            "type": "number",
+            "title": "Strike"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "premium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Premium"
+          },
+          "commissions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commissions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "strike",
+          "expiry",
+          "contracts"
+        ],
+        "title": "DayRolledTo",
+        "description": "The leg a roll opened (the buy-back and the new short share one combo order)."
+      },
+      "DayTrade": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "opened",
+              "closed",
+              "rolled"
+            ],
+            "title": "Action"
+          },
+          "how": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bought_back",
+                  "expired",
+                  "assigned",
+                  "called_away",
+                  "rolled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "How"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "csp",
+              "cc",
+              "spread",
+              "other"
+            ],
+            "title": "Kind"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "wheel",
+              "spreads"
+            ],
+            "title": "Source"
+          },
+          "underlying": {
+            "type": "string",
+            "title": "Underlying"
+          },
+          "right": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "C",
+                  "P"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Right"
+          },
+          "strike": {
+            "type": "number",
+            "title": "Strike"
+          },
+          "long_strike": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Strike"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "is_live": {
+            "type": "boolean",
+            "title": "Is Live",
+            "default": false
+          },
+          "premium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Premium"
+          },
+          "bought_back": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bought Back"
+          },
+          "commissions": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commissions"
+          },
+          "commissions_complete": {
+            "type": "boolean",
+            "title": "Commissions Complete",
+            "default": true
+          },
+          "net_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Pnl"
+          },
+          "capital": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capital"
+          },
+          "roc_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roc Pct"
+          },
+          "annualized_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annualized Pct"
+          },
+          "pct_kept": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Kept"
+          },
+          "dte_at_open": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dte At Open"
+          },
+          "days_held": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Held"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/DayFact"
+            },
+            "type": "array",
+            "title": "Facts"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rolled_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayRolledTo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "action",
+          "kind",
+          "source",
+          "underlying",
+          "strike",
+          "expiry",
+          "contracts",
+          "at"
+        ],
+        "title": "DayTrade",
+        "description": "One executed trade on one New York day, as a Home card (web, 2026-10-15).\n\nMoney is USD for the whole position, never per share. ``premium``, ``bought_back`` and\n``commissions`` are positive numbers; the card signs them. Unknown is None, never 0.0.\n``net_pnl`` is the realised result after every commission, set only once the trade is\nclosed. ``capital`` is the cash held aside (a put), the shares' strike value (a call) or the\nmost a spread can lose."
+      },
+      "DayTradesResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "book": {
+            "type": "string",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Book"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "all",
+              "csp",
+              "cc",
+              "spread"
+            ],
+            "title": "Strategy"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/DayTrade"
+            },
+            "type": "array",
+            "title": "Trades"
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "date",
+          "book",
+          "strategy",
+          "trades",
+          "spreads_available"
+        ],
+        "title": "DayTradesResponse",
+        "description": "The trades opened, closed or rolled on one New York day (Home's \"Done today\")."
       },
       "EarningsOut": {
         "properties": {
@@ -8007,6 +8667,54 @@
           "role"
         ],
         "title": "MeResponse"
+      },
+      "MonthCalendar": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "format": "date",
+            "title": "Month"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "all",
+              "csp",
+              "cc",
+              "spread"
+            ],
+            "title": "Strategy"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayCalendarDay"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "n_closed": {
+            "type": "integer",
+            "title": "N Closed"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "strategy",
+          "total",
+          "n_closed"
+        ],
+        "title": "MonthCalendar",
+        "description": "A month of daily realised P&L (web, 2026-10-15). Only days something closed appear; a\nmissing day is a day with no close, not a day known to be flat."
       },
       "MonthPay": {
         "properties": {
@@ -11447,6 +12155,39 @@
         "title": "WatchlistResponse",
         "description": "``GET /watchlist`` \u2014 the user's tracked symbols, scoped to their user_id."
       },
+      "src__api__models__pnl__CalendarResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "book": {
+            "type": "string",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Book"
+          },
+          "calendar": {
+            "$ref": "#/components/schemas/MonthCalendar"
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "book",
+          "calendar",
+          "spreads_available"
+        ],
+        "title": "CalendarResponse",
+        "description": "A month of daily realised P&L."
+      },
       "src__api__models__pnl__SummaryResponse": {
         "properties": {
           "as_of": {
@@ -11480,6 +12221,49 @@
           "summary"
         ],
         "title": "SummaryResponse"
+      },
+      "src__api__models__portfolio__CalendarResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "monitor",
+              "refresh",
+              "eod",
+              "none"
+            ],
+            "title": "Source"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "title": "Horizon Days"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarDay"
+            },
+            "type": "array",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "source",
+          "degraded",
+          "horizon_days",
+          "days"
+        ],
+        "title": "CalendarResponse"
       },
       "src__api__models__research__SummaryResponse": {
         "properties": {

@@ -17,8 +17,10 @@ from src.api.models.common import Envelope
 from src.common.income_target import TargetSource
 from src.common.schemas import (
     CampaignPnl,
+    DayTrade,
     EquityCurve,
     IncomeTarget,
+    MonthCalendar,
     MonthPay,
     PnlSummary,
     ScoreOutcomeReport,
@@ -88,3 +90,23 @@ class IncomeTargetResponse(Envelope):
 
     target: IncomeTarget
     source: TargetSource
+
+
+class DayTradesResponse(Envelope):
+    """The trades opened, closed or rolled on one New York day (Home's "Done today")."""
+
+    date: date
+    book: Literal["paper", "live"]
+    strategy: Literal["all", "csp", "cc", "spread"]
+    trades: list[DayTrade]
+    # False only when a spreads book is in scope and data/spreads.db could not be read: the
+    # spreads cards are then missing, not absent, and the card says so.
+    spreads_available: bool
+
+
+class CalendarResponse(Envelope):
+    """A month of daily realised P&L."""
+
+    book: Literal["paper", "live"]
+    calendar: MonthCalendar
+    spreads_available: bool

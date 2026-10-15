@@ -24,9 +24,9 @@ The operator's words, numbered as they were:
 | 0 Worktree and baseline | done | n/a | pytest `test_api_pnl_month` + `test_command_schemas` 43 passed; vitest `features/home` 113 passed | 2026-10-15 | venv and `web/node_modules` symlinked, `init_db()` run |
 | 1 Income target: setting, command, API | done | (this commit) | pytest 3669 passed + 1 skip, ruff/mypy clean, OpenAPI + `api-types.ts` regenerated, fences green | 2026-10-15 | `IncomeTarget` lives in `schemas.py` (the command payload subclasses it, so the stored and the posted shape cannot differ); `src/common/income_target.py` holds the stored form, the resolution order and the arithmetic so the API can read the row through its own read-only session; `MonthPay.target_pct` kept, `target_mode` / `target_amount` / `target_base` added. **Fix outside the brief:** `POST /commands` answered 500 when a validator raised `ValueError` (the error's `ctx` held the exception object); it now serialises through `exc.json()`, which also fixes the latent ledger-upload-limit path. `ruff format src tests` also touched `routers/portfolio.py`, `routers/system.py` and `tests/test_config_keys.py` (pre-existing drift); reverted, not mine |
 | 2 Income target: More card, pay card copy | done | (this commit) | vitest `features` + `app/more` 137 passed (+18 new), tsc 0, `next lint` clean, da-vinci lint exit 0 | 2026-10-15 | `features/more/target.ts` holds the form rules (text in, payload out) apart from the card; the pay card's "No target set" now keys on `target_mode === "off"` (a fixed target has no percent), and the link to More sits below the disclosure because a link inside the disclosure's button would nest interactive elements. The field's focus ring is on its wrapper via `has-[input:focus-visible]` (the linter's OUTLINE_NONE rule found `outline-none` on the bare input; a real fix, not an exception). Visual inspection is batched into Task 10 with the other surfaces |
-| 3 Day trades API (`GET /pnl/day`) | todo | | | | |
+| 3 Day trades API (`GET /pnl/day`) | done | (this commit) | pytest 3708 passed + 1 skip (+39 new), ruff/mypy clean, OpenAPI + types regenerated, fences green; builders also run against a read-only copy of the operator's real trading DB (34 legs; reasons read correctly; no rolls on record yet) | 2026-10-15 | `src/reporting/day.py` (+ `DayTrade`, `DayFact`, `DayReview`, `DayRolledTo` in `schemas.py`). **A roll pairs on the shared combo `order_id`** (the buy-back and the new SELL fill share it), not on the time heuristic the plan assumed; the logged decision matches on the roll approval id, else the newest decision for the contract. `pay.py`'s `et_date` / `close_day` became public so the day and the pay stub use one rule. A loss says "the buy-back cost N% more than the premium collected", not "-109% kept". Opened cards carry Claude's stored review; the web labels it Claude's |
 | 4 Day trades on Home | todo | | | | |
-| 5 Realised calendar API (`GET /pnl/calendar`) | todo | | | | |
+| 5 Realised calendar API (`GET /pnl/calendar`) | done | (same commit as Task 3) | as Task 3 | 2026-10-15 | Built beside Task 3 because it shares the close-day rule and the spread inputs; `build_month_calendar` in `day.py`. A day nothing closed is absent (not a flat day). Net after commissions; `complete` false when a close that day has no commission recorded |
 | 6 Calendar sheet, TradingView credit moved | todo | | | | |
 | 7 Positions search and row links | todo | | | | |
 | 8 Position detail API | todo | | | | |
@@ -98,9 +98,9 @@ Files: `web/features/more/TargetCard.tsx` (+ test), `web/app/more/page.tsx`,
 Files: `src/common/schemas.py` (`DayTrade`), `src/reporting/day.py`, `src/api/routers/pnl.py`
 (`GET /pnl/day`), `src/api/models/pnl.py`, tests.
 
-- [ ] Failing tests per action (opened, closed with each `CloseReason`, rolled paired and unpaired,
+- [x] Failing tests per action (opened, closed with each `CloseReason`, rolled paired and unpaired,
       expired, assigned, spread open and close), strategy scoping, unknown stays `null`.
-- [ ] Implement over `build_legs` + spreads rows + `ClaudeReviewRow` / `RollAlertRow` reads.
+- [x] Implement over `build_legs` + spreads rows + `ClaudeReviewRow` / `RollAlertRow` reads.
 
 ## Task 4 - Day trades on Home
 
