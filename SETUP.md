@@ -474,12 +474,18 @@ information-only alerts.
 
 ### `config/settings.yaml` — the `web:` block
 
-`web.monthly_income_target_pct` (shipped `null`) is Home's monthly income target, as a percent of
-the account's month-start net liquidation value (`1.0` = 1% a month, accepted above 0 and up to
-20); the pay card's meter fills toward it, and with `null` the card says "No target set". Set, but
-with no recorded account value from before the month began (the first month after install), the
-card says "Target n/a · needs the month's opening account value" until the next month. It is a
-display setting only: nothing in the trading path reads it.
+Home's monthly income target is set from the web console, under **More → Monthly income target**:
+none, a fixed amount a month, a percent of the account's value when the month began, or a percent of
+an amount you name (for example 2% of $100,000). Saving sends a `set_income_target` command, so the
+trading service (`approval_service`) must be running to apply it; the card shows the receipt. The
+pay card's meter fills toward it. With "none" the card says "No target set"; a percent of the
+account with no recorded account value from before the month began (the first month after install)
+says "Target n/a · needs the month's opening account value" until the next month. It is a display
+setting only: nothing in the trading path reads it.
+
+`web.monthly_income_target_pct` (shipped `null`; a percent of the account's month-start value,
+`1.0` = 1% a month, above 0 and up to 20) is now only the fallback: with nothing saved on More it
+still applies, and anything saved on More (including "none") wins over it.
 
 ## 6. Set up the daemons
 

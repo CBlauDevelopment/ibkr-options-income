@@ -97,14 +97,22 @@ app/                App Router pages and the root layout
   page.tsx          Home (web overhaul Part 1): <HomePage/> (features/home/) inside a
                     Suspense boundary (the strategy switcher reads `?strategy=` through
                     useSearchParams). The old landing page moved to research/.
+  positions/[underlying]/[slug]/  A position's page (web Home follow-ups, 2026-10-15), reached
+                    from a row of Home's Positions card: <PositionPage/> (features/position/).
+                    The slug is `2026-11-21_P180` (an option contract), `shares` or
+                    `spread-<id>`.
   trades/           The options console, moved from options/ (Part 1, Task 5; `/options`
                     redirects here with a 307). Described under options/ below.
   activity/         The P&L console, moved from pnl/ (`/pnl` redirects here). Described
                     under pnl/ below.
   more/             More: the bot card (opens Bot controls), the theme toggle (Light /
-                    Dark / Follow OS), links to Research, Universe, News, Ledger, How it
-                    works and statement import, and <SystemStatusCard/> (system health
-                    lives here now, not in the rail).
+                    Dark / Follow OS), <TargetCard/> (features/more/: the monthly income
+                    target as none, a fixed amount, a percent of the account or a percent
+                    of an amount, saved through the `set_income_target` command), links to
+                    Research, Universe, News, Ledger, How it works and statement import,
+                    <SystemStatusCard/> (system health lives here now, not in the rail)
+                    and Credits (the chart library's licence link to tradingview.com, which
+                    left the chart's corner).
   research/         Research, the old landing page (moved from app/page.tsx): a header
                     row with the page title and a visible
                     search-bar button (opens the same <CommandPalette/> ⌘K does — the
@@ -802,6 +810,25 @@ features/
                     says when it was decided elsewhere or expired), NeedsYou +
                     usePendingApprovals, ProposalsBanner, types.ts (hand-written mirrors
                     of the three new API models).
+                    Web Home follow-ups (2026-10-15): TodayTrades ("Done today", GET /pnl/day,
+                    All / Opened / Closed / Rolled pills) with TradeCard (the proposal card's
+                    anatomy for an executed trade: eyebrow, title, one sentence, the reasoning
+                    collapsed above the stub, a stub that sums the whole trade; `when="date"` and
+                    `heading="none"` let the position page reuse it) and trades.ts (title,
+                    sentence, stub, time label); RealisedCalendarButton + calendar.ts (the
+                    calendar sheet over GET /pnl/calendar, New York months, Monday-first, a
+                    tapped day's closes from GET /pnl/day?date=); PositionsCard gained a search
+                    (`matchesQuery`: commas for several names, only the ticker and contract's own
+                    words) and links each row to its page; `optionStatus` is the shared status-word
+                    rule. HomePage is one CSS grid, so there is one copy of each card.
+features/position/  PositionPage (GET /portfolio/positions/{underlying}/{slug}: title and status
+                    words, then one grid whose DOM order is the phone order, chart, the trade,
+                    headlines), UnderlyingChart (the close as an ink line, a dashed rule at the
+                    strike or the cost basis, a Sold marker, 1M / 3M / 6M / 1Y over the stock
+                    page's own bars request), Headlines (GET /research/{symbol}/headlines,
+                    sentiment as a word), position.ts (slugs, chart lines, the Now figures).
+features/more/      TargetCard + target.ts (the income-target form's rules: text in, a validated
+                    `set_income_target` payload out, mirroring `IncomeTarget` and its bounds).
 lib/
   api.ts            apiFetch + ApiError
   api-types.ts      Generated from /openapi.json by `npm run gen:api`

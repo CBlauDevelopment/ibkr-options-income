@@ -40,6 +40,7 @@ approval_service._command_drain_loop        (every execution.poll_interval_secon
    halt / resume         → set_halted(True/False, reason)
    set_autonomy          → set_autonomy_level
    set_roll_mode         → set_roll_mode (auto | propose)
+   set_income_target     → set_income_target (the pay card's monthly goal; display only)
     universe_add / remove → universe_overrides
     refresh               → get_positions + account → portfolio_snapshots (P3-P4 M1)
 ```

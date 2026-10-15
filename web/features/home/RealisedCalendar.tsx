@@ -105,7 +105,7 @@ function Grid({
                     aria-label={`${dayLabel(cell.date)}: ${compactMoney(day.realized)} realised from ${day.n_closed} close${day.n_closed === 1 ? "" : "s"}`}
                     onClick={() => onSelect(on ? null : cell.date)}
                     className={clsx(
-                      "flex h-[52px] w-full flex-col items-start rounded-lg px-1 pt-1 text-left",
+                      "flex h-[52px] w-full flex-col items-start rounded-xl px-1 pt-1 text-left",
                       on ? "bg-content" : "bg-sunk hover:bg-sunk-deep",
                     )}
                   >

@@ -201,10 +201,25 @@ components:
     typography: "{typography.caption}"
     rounded: "{rounded.md}"
     padding: 10px
-  halted-banner:
+    halted-banner:
     backgroundColor: "{colors.flag}"
     textColor: "{colors.on-flag}"
     typography: "{typography.body}"
+  field:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: 8px 12px
+  calendar-day:
+    backgroundColor: "{colors.sunk}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    height: 52px
+  calendar-day-selected:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.ground}"
 ---
 <!-- da-vinci schema=1 status=ratified updated=2026-10-14 -->
 # Design System: IBKR Income
@@ -287,11 +302,10 @@ the build.
 ## Layout
 
 Desktop: a 200px rail on the left with Home, Trades, Portfolio, Activity, Research, News, More, and
-the bot card pinned at its foot. From 1024px up, Home adds a 340px right column for "needs you";
-below 1024px that column becomes a one-line proposals banner under the hero. Content max width is
+the bot card pinned at its foot. From 1024px up, Home adds a 340px right column for "needs you" with "Done today" under it; below 1024px the first becomes a one-line proposals banner under the hero and the second moves to the foot of the page. Content max width is
 1200px. Below 768px the rail disappears, and a bottom tab bar (Home, Trades, Portfolio, Activity,
 More) takes its place. Everything is one column, in this order on Home: strategy switcher, hero,
-proposals banner, October pay, positions.
+proposals banner, October pay, positions, Done today.
 
 Spacing runs on a 4px base (2, 4, 8, 12, 16, 24, 32, 48). Cards pad 16 to 18px; card stacks gap
 16px; sections inside a page gap 24px. Touch targets are at least 44px on phones: compact pills
@@ -343,15 +357,17 @@ Each line is a button (at least 24px tall) that toggles a one-sentence explanati
 "n/a" with hatch; a total built on an unknown says so in words instead of summing.
 
 **October pay card** (Home): collapsible. Closed, it shows the title (never wrapped; on a narrow
-phone the whole figure drops below the title, and "of $target" never splits from its amount), net so far against target, the lime meter, and "71% of
-target · 18 days left". Open, it shows the month's stub. The target is
-`web.monthly_income_target_pct` of the month-start account value; without the setting it says
-"No target set", and with the setting but no month-start value (the first month after install, a
-journal gap) "Target n/a · needs the month's opening account value" (hatched n/a); either way the
-meter is hatched. An unknown progress reads "n/a of target" (hatched n/a). One day left reads "1
-day left". When the spreads book cannot be read, a flag word "Spreads unavailable" and a sentence
-say so: a spreads-only month shows n/a, never $0, keeps its target and reads "n/a of target", and
-an all-strategies month says its total leaves spreads out.
+phone the whole figure drops below the title, and "of $target" never splits from its amount), net so far against target, the lime
+meter, and "71% of target · 18 days left". Open, it shows the month's stub. The target is set on
+More (see the **Income target card**): a fixed amount, a percent of the month-start account value,
+or a percent of an amount the operator names. With no target it says "No target set" and links to
+More ("Set a target in More", below the disclosure, because a link inside the disclosure's button
+would nest interactive elements); a percent of the account with no month-start value (the first
+month after install, a journal gap) says "Target n/a · needs the month's opening account value"
+(hatched n/a); either way the meter is hatched. An unknown progress reads "n/a of target" (hatched
+n/a). One day left reads "1 day left". When the spreads book cannot be read, a flag word "Spreads
+unavailable" and a sentence say so: a spreads-only month shows n/a, never $0, keeps its target and
+reads "n/a of target", and an all-strategies month says its total leaves spreads out.
 
 **Strategy switcher**: a segmented control on a white pill track, one button per kind of trade:
 All, CSPs, CCs, Credit spreads, each with its live count. It sits at the very top of Home and
@@ -364,20 +380,17 @@ The Positions card carries the same tabs as smaller chips, plus Shares.
 **Account hero** (Home): "Account value", the number (display, 38px on phones, 46px from 768px),
 then today's signed change in words ("+$1,234.50 (0.50%) today"; a genuine zero is neutral ink; an
 unknown change reads "n/a today · last value <date>", hatched n/a), then the line chart (ink, no
-fill, never animated in) and the range chips, with a muted "Chart by TradingView" link at the end
-of the chip row: the chart library's licence asks for a link, and its own logo is off so nothing
-sits on the line. The chart scrubs by pointer and, as a slider, by
+fill, never animated in) and the range chips, with a **calendar button** at the end of the chip row (it opens the realised P&L calendar). The chart library's licence link is the Credits card on More, and its own logo is off so nothing sits on the line. The chart scrubs by pointer and, as a slider, by
 keyboard (arrows, Home, End); the number follows the scrub. Loading is a hero-shaped skeleton.
 In market hours (09:30-16:00 New York time, weekdays) a headline older than 30 minutes, the
 positions card's rule, shows the flag word "Delayed" and its age beside "Account value"; a last
 close after 16:00 or at a weekend is the right headline and is never flagged.
 
-**Positions card** (Home): the title, "Sorted by expiry", filter chips (All, CSPs, CCs, Credit
-spreads, Shares, each with its count), then position rows. A delayed portfolio snapshot shows a
+**Positions card** (Home): the title, "Sorted by expiry", a search field (the **Search field**), filter chips (All, CSPs, CCs, Credit spreads, Shares, each with its count, which follows the search), then position rows. A delayed portfolio snapshot shows a
 flag word "Delayed" and its age; an unreadable spreads book is said in words ("Credit spreads are
 unavailable right now."), never shown as "none open".
 
-**Position row**: ticker and contract bold, then a status word, then a muted sub-line (expiry,
+**Position row**: the whole row is a link to the position's page (a muted chevron at its right edge says so). Ticker and contract bold, then a status word, then a muted sub-line (expiry,
 coverage, % of premium kept); value right-aligned with its label beneath ("sold for", "open P&L").
 Status words: Expires today (lime); Assignment likely and In the money (flag); At the money and
 Out of the money (sunk). They come only from fields the API returns (expiry, assignment risk,
@@ -413,8 +426,7 @@ current row and the lime pending count on Trades; the phone tab bar (64px, white
 holds Home, Trades, Portfolio, Activity and More, and marks More current on Research, Universe,
 stock and News pages, which a phone reaches through More.
 
-**More**: the bot card, the theme toggle (Light, Dark, Follow OS, on the strategy-switch track),
-links to Research, Universe, News, Ledger, How it works and statement import, and system status.
+**More**: the bot card, the theme toggle (Light, Dark, Follow OS, on the strategy-switch track), the income target card, links to Research, Universe, News, Ledger, How it works and statement import, system status, and Credits (the chart library's licence link).
 
 **Disclosure**: a summary row with a round chevron chip that rotates 180°, `aria-expanded` on a
 real button, focus ring in ink. The whole pressed-sage block is the button (at least 44px tall);
@@ -431,6 +443,41 @@ never reads as "up".
 
 **Status word**: label type on a 6px-rounded fill: neutral (muted on sage), flag (amber), today
 (lime, "Expires today" only).
+
+**Trade card** (Home, "Done today", and the Position page): a proposal card's anatomy for a trade that
+has happened. Eyebrow in words (OPENED, CLOSED or ROLLED, then the kind of trade) with the fill's
+clock time (New York) or, on the Position page, its date; a title ("AAPL · Sold $180 put",
+"KO · Bought back $68 put", "NVDA · Rolled $160 call to $165"); one sentence (an opened trade: what
+you collected and the consequence; a closed or rolled one: the reason); the reasoning collapsed
+above the stub (an opened trade: Claude's review, labelled; a close or roll: "Why it closed" or
+"Why it was rolled", "the system's rules", plus "and Claude's view" when a line is Claude's, which
+carries Claude's name in its label); then the stub, which sums the whole trade (opened: Premium,
+Commission, On $X held, A year; closed: Premium collected, Bought back, Commissions, Net P&L, with
+"Net on this leg" for a roll). Details (secondary) links to the approval when there is one. No
+lime: nothing on it decides anything. The filter pills above the stack are filter chips.
+
+**Realised calendar** (Home chart, a sheet): each day's realised P&L for a month, as a labelled
+table (Mon to Sun), a month total ("Realised in October"), previous and next month (44px). A day
+with closes is a `calendar-day` button (pressed sage, ink fill when selected) showing the day and a
+signed figure ("+$413", "−$231", "+$12.4K"; the gain and loss colours never carry it alone); a day
+nothing closed is plain text, never "$0". A tapped day lists what closed with each reason and its
+result. A footnote says it is options and credit spreads after commissions, that share sales are
+not included, and that a blank day is not a flat one.
+
+**Search field** (Positions card): a `field` with a magnifier, a screen-reader label (never the
+placeholder alone), 16px text so iOS does not zoom, and a Clear button once it has text. Commas
+ask for several names; the chips' counts say what each would show with the search applied.
+
+**Field** (More's income target, the search): white `surface` with a `control-edge` border (an
+error draws it in loss), 12px radius, the label above, the error below in words, an ink focus ring
+on the wrapper when the input has keyboard focus.
+
+**Income target card** (More): "Monthly income target": none, a fixed amount, a percent of the
+account, or a percent of an amount you name (chips); the fields of the chosen mode with a
+plain-English line saying what it means this month ("2% of $100,000 is $2,000 a month."); Save
+(primary lime: it is the card's one action), disabled until the draft differs from what is stored;
+the command receipt beneath. It says where a config value comes from. Display only: nothing here
+reaches an order, so no confirmation step.
 
 **Meter**: an 8px sage track with a lime fill; unknown is the hatched track with no fill, never 0%.
 
@@ -523,9 +570,8 @@ Operate. Dials as the project default.
   you, and which positions need watching, in that order of glance.
 - **FIRST VIEWPORT:** desktop: the strategy switcher (All, CSPs, CCs, Credit spreads) across the
   very top; hero number, delta and 1M chart with range chips top-left; collapsed
-  October pay card below it; positions card below that; the "Needs you" column of proposal cards on
-  the right. Phone: strategy switcher, hero, chart, one-line proposals banner, October pay,
-  positions.
+  October pay card below it; positions card below that; the "Needs you" column of proposal cards on the right with "Done today" under it. Phone: strategy switcher, hero, chart, one-line proposals banner, October pay,
+  positions, Done today.
 - **FORM:** the payslip, candidate 1 of 7 (Claude's pick), roll seed 1090290943, revised by the
   user: Why collapsible above the stub, pay card collapsible, positions beneath it.
 - **FINISH:** unreviewed and undocumented is unfinished.
@@ -571,7 +617,7 @@ Read. Search, watchlist, sectors, the stock page, and Universe. VARIANCE 3, DENS
 Read. Feed and calendar; ticker briefs.
 
 ### More
-Read and Operate. How it works (the System Explanation pages), Bot controls, Theme, Ledger import.
+Read and Operate. How it works (the System Explanation pages), Bot controls, Theme, the monthly income target, Ledger import, Credits.
 
 ## Agent Prompt Guide
 
@@ -591,9 +637,7 @@ sibling keys; re-run the check after edits.
 
 ## Open Decisions
 
-- **Monthly income target %:** `web.monthly_income_target_pct` applied to month-start net
-  liquidation value. The default is owed by the user (the plan ships it unset, and the meter reads
-  "No target set" until it is).
+- **Monthly income target: RESOLVED 2026-10-15.** The operator sets it on More (none, a fixed amount, a percent of the account, or a percent of an amount); `web.monthly_income_target_pct` remains the fallback. The meter reads "No target set" until one is set.
 - **Product name in the shell:** "IBKR Income" is inferred; confirm or rename.
 - **Logo and favicon:** none exist; a wordmark set in Hanken Grotesk 800 is the interim.
 - **Icons:** lucide-react, as built; confirm.
@@ -608,6 +652,17 @@ sibling keys; re-run the check after edits.
 
 ## Decision Log
 
+- 2026-10-15: Web Home follow-ups, at the operator's request
+  (docs/superpowers/plans/2026-10-15-web-home-followups.md). Added the Trade card ("Done today" under
+  Needs you, filter pills All / Opened / Closed / Rolled; Closed and Rolled give their reason and a
+  stub that sums the whole trade to its realised P&L), the Realised calendar (a calendar button
+  replaces "Chart by TradingView" at the end of the chart's range row), the Search field on the
+  Positions card, row links to a new **Position** surface (chart on top, headlines directly under
+  it, as the operator composed it, so the structure workshop was skipped: pinned beats roll), and
+  the Income target card on More. New tokens: `field`, `calendar-day`, `calendar-day-selected` (no
+  new colour, font, radius or elevation). The TradingView licence link moved from the chart to
+  More's Credits card (the licence needs a link somewhere users can reach; deleting it would breach
+  it). Lime appears once more: Save on the income target card, the card's one action.
 - 2026-10-14: Ratified. The operator approved this file on 2026-10-14 after the Section E
   reconcile of the Part 1 build (web overhaul Part 1: Home, the three read-only routes, the shell
   and the primitives), including the `unknown` darkening below. Two recorded exceptions to the
