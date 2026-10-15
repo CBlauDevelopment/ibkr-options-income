@@ -7,9 +7,10 @@ import os
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
-from src.claude.cli import run_claude
+from src.claude.cli import OllamaSettings, run_claude, run_ollama, should_fall_back
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -147,3 +148,58 @@ def test_cli_module_imports_nothing_from_src() -> None:
     mods = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
     mods += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
     assert [m for m in mods if m == "src" or m.startswith("src.")] == []
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (None, False),
+        ("timeout", False),
+        ("disabled", False),
+        ("cli_missing", True),
+        ("cli_error", True),
+        ("bad_envelope", True),
+    ],
+)
+def test_should_fall_back(error, expected) -> None:
+    assert should_fall_back(error) is expected
+
+
+OLLAMA = OllamaSettings("http://x:1", "m", "2m", 0.2, 4096)
+REQ = httpx.Request("POST", "http://x:1/api/generate")
+
+
+def _patch_post(monkeypatch, outcome, sent: dict | None = None):
+    async def post(self, url, json=None, **kw):
+        if sent is not None:
+            sent.update(json)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+
+async def test_run_ollama_returns_the_response_text_and_sends_the_schema(monkeypatch) -> None:
+    sent: dict = {}
+    _patch_post(monkeypatch, httpx.Response(200, json={"response": '{"a":1}'}, request=REQ), sent)
+    res = await run_ollama("p", settings=OLLAMA, schema={"type": "object"}, timeout_seconds=5)
+    assert (res.text, res.error) == ('{"a":1}', None)
+    assert sent["model"] == "m" and sent["format"] == {"type": "object"}
+    assert sent["stream"] is False and sent["think"] is False
+    assert sent["options"] == {"temperature": 0.2, "num_ctx": 4096}
+
+
+@pytest.mark.parametrize(
+    ("outcome", "error"),
+    [
+        (httpx.ConnectError("down"), "cli_error"),
+        (httpx.ReadTimeout("slow"), "timeout"),
+        (httpx.Response(500, request=REQ), "cli_error"),
+        (httpx.Response(200, json={"nope": 1}, request=REQ), "bad_envelope"),
+    ],
+)
+async def test_run_ollama_never_raises(monkeypatch, outcome, error) -> None:
+    _patch_post(monkeypatch, outcome)
+    res = await run_ollama("p", settings=OLLAMA, schema={}, timeout_seconds=5)
+    assert (res.text, res.error) == (None, error)

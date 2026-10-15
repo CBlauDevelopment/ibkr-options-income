@@ -6,6 +6,10 @@ src/: the caller passes every setting. The prompt goes in on stdin; the command 
 (the caller picks a directory with no CLAUDE.md in any ancestor: claude walks up from its cwd),
 for one turn, with no MCP servers and
 every tool in *disallowed_tools* refused. Never raises for a CLI failure: the result says why.
+
+It also holds the fallback rule (``should_fall_back``) and ``run_ollama``, the local-model call
+the spreads picker uses when ``claude -p`` cannot answer, so the picker still imports only this
+module from ``src.claude``.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+import httpx
 
 log = logging.getLogger(__name__)
 
@@ -103,3 +109,61 @@ async def run_claude(
     if envelope.get("is_error") or not isinstance(reply, str):
         return CliResult(None, "cli_error", elapsed(), cost, raw)
     return CliResult(reply, None, elapsed(), cost, raw)
+
+
+def should_fall_back(error: str | None) -> bool:
+    """Ollama is tried on every CLI failure except a timeout (the budget is spent) and
+    ``disabled`` (the operator turned Claude off)."""
+    return error is not None and error not in ("timeout", "disabled")
+
+
+@dataclass(frozen=True)
+class OllamaSettings:
+    host: str
+    model: str
+    keep_alive: str
+    temperature: float
+    num_ctx: int
+
+
+async def run_ollama(
+    prompt: str, *, settings: OllamaSettings, schema: dict, timeout_seconds: float
+) -> CliResult:
+    """One schema-constrained ``/api/generate`` call. Never raises (cancellation propagates)."""
+    start = time.monotonic()
+
+    def elapsed() -> int:
+        return int((time.monotonic() - start) * 1000)
+
+    url = f"{settings.host.rstrip('/')}/api/generate"
+    body = {
+        "model": settings.model,
+        "prompt": prompt,
+        "format": schema,
+        "stream": False,
+        "think": False,
+        "keep_alive": settings.keep_alive,
+        "options": {"temperature": settings.temperature, "num_ctx": settings.num_ctx},
+    }
+
+    async def post() -> httpx.Response:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            resp = await client.post(url, json=body)
+            resp.raise_for_status()
+            return resp
+
+    try:
+        resp = await asyncio.wait_for(post(), timeout_seconds)
+    except (TimeoutError, httpx.TimeoutException):
+        log.warning("ollama: timed out after %.0fs", timeout_seconds)
+        return CliResult(None, "timeout", elapsed())
+    except httpx.HTTPError as exc:
+        log.warning("ollama: request to %s failed: %s", url, exc)
+        return CliResult(None, "cli_error", elapsed())
+    try:
+        text = resp.json()["response"]
+    except (ValueError, KeyError, TypeError):
+        return CliResult(None, "bad_envelope", elapsed(), raw=resp.text[:2000])
+    if not isinstance(text, str):
+        return CliResult(None, "bad_envelope", elapsed(), raw=resp.text[:2000])
+    return CliResult(text, None, elapsed(), raw=text)
