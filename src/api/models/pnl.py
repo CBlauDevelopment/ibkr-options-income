@@ -104,7 +104,7 @@ class DayTradesResponse(Envelope):
     spreads_available: bool
 
 
-class CalendarResponse(Envelope):
+class RealisedCalendarResponse(Envelope):
     """A month of daily realised P&L."""
 
     book: Literal["paper", "live"]

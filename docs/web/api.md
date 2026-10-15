@@ -1317,7 +1317,7 @@ the ledger). Owner-only.
 | `strategy` | `all` \| `csp` \| `cc` \| `spread` | default `all` |
 | `book` | `paper` \| `live` | default: the running mode |
 
-**Response - `CalendarResponse`:** `{ as_of, book, calendar: MonthCalendar, spreads_available }`.
+**Response - `RealisedCalendarResponse`:** `{ as_of, book, calendar: MonthCalendar, spreads_available }`.
 `MonthCalendar`: `{ month, strategy, days: { date, realized, n_closed, complete }[], total, n_closed, complete }`;
 `complete` is `false` when a closed leg that day has no commission recorded (the figure is a
 lower bound on the cost, an upper bound on the result).

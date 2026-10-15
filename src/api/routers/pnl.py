@@ -50,7 +50,7 @@ from sqlalchemy import select
 from src.api.deps import OwnerUser, TradingDb
 from src.api.models.common import as_utc_opt
 from src.api.models.pnl import (
-    CalendarResponse,
+    RealisedCalendarResponse,
     DayTradesResponse,
     EquityResponse,
     IncomeTargetResponse,
@@ -612,14 +612,14 @@ def pnl_day(
     )
 
 
-@router.get("/calendar", response_model=CalendarResponse)
+@router.get("/calendar", response_model=RealisedCalendarResponse)
 def pnl_calendar(
     user: OwnerUser,  # noqa: ARG001
     db: TradingDb,
     month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     strategy: Literal["all", "csp", "cc", "spread"] = "all",
     book: Literal["paper", "live"] | None = None,
-) -> CalendarResponse:
+) -> RealisedCalendarResponse:
     """A month of daily realised P&L: each day's net result, after commissions, of what closed
     that day (options legs and the book's credit spreads). Days nothing closed are absent."""
     now = datetime.now(UTC)
@@ -629,6 +629,6 @@ def pnl_calendar(
     legs = _filtered_legs(db, _filter_params(None, None, None, None, None, chosen))
     spreads = _spread_day_inputs(chosen) if strategy in ("all", "spread") else []
     calendar = build_month_calendar(legs, spreads or [], month=first, strategy=strategy)
-    return CalendarResponse(
+    return RealisedCalendarResponse(
         as_of=now, book=chosen, calendar=calendar, spreads_available=spreads is not None
     )

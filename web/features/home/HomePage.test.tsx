@@ -26,6 +26,7 @@ const responses = {
     spreads_available: true,
     pay: { month: "2026-10-01", strategy: "all", premium_collected: 0, bought_back: 0, commissions: 0, commissions_complete: true, net: 0, n_opened: 0, n_closed: 0, month_start_value: null, target_pct: null, target_mode: "off", target_amount: null, target_base: null, target: null, progress_pct: null, days_left: 18 },
   },
+  "/pnl/day": { as_of: "", date: "2026-10-15", book: "paper", strategy: "all", trades: [], spreads_available: true },
   "/portfolio/positions": { as_of: "", source: "none", degraded: true, groups: [] },
   "/spreads/positions": { as_of: "", available: false, underlying: "SPY", mode: "paper", positions: [] },
   "/options/approvals": { as_of: "", approvals: [] },
@@ -43,6 +44,13 @@ describe("HomePage", () => {
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+  it("puts Done today under Positions on a phone, where it is the page's last card", async () => {
+    renderWithQuery(<HomePage />, responses);
+    const positions = await screen.findByRole("heading", { name: "Positions" });
+    const today = await screen.findByRole("heading", { name: "Done today" });
+    expect(positions.compareDocumentPosition(today) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await screen.findByText("Nothing has traded yet today.")).toBeInTheDocument();
   });
   it("names the page with one level-1 heading, so the card headings sit under it", async () => {
     renderWithQuery(<HomePage />, responses);

@@ -1710,6 +1710,25 @@ export interface components {
             /** Assignment Risk */
             assignment_risk: boolean;
         };
+        /** CalendarResponse */
+        CalendarResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "monitor" | "refresh" | "eod" | "none";
+            /** Degraded */
+            degraded: boolean;
+            /** Horizon Days */
+            horizon_days: number;
+            /** Days */
+            days: components["schemas"]["CalendarDay"][];
+        };
         /** CampaignLeg */
         CampaignLeg: {
             /**
@@ -3789,6 +3808,25 @@ export interface components {
             groups: components["schemas"]["PositionGroup"][];
         };
         /**
+         * RealisedCalendarResponse
+         * @description A month of daily realised P&L.
+         */
+        RealisedCalendarResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Book
+             * @enum {string}
+             */
+            book: "paper" | "live";
+            calendar: components["schemas"]["MonthCalendar"];
+            /** Spreads Available */
+            spreads_available: boolean;
+        };
+        /**
          * RecommendationsResponse
          * @description ``GET /research/recommendations`` — the buy list the scan produced.
          *
@@ -4521,25 +4559,6 @@ export interface components {
              */
             items: components["schemas"]["WatchlistItem"][];
         };
-        /**
-         * CalendarResponse
-         * @description A month of daily realised P&L.
-         */
-        src__api__models__pnl__CalendarResponse: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /**
-             * Book
-             * @enum {string}
-             */
-            book: "paper" | "live";
-            calendar: components["schemas"]["MonthCalendar"];
-            /** Spreads Available */
-            spreads_available: boolean;
-        };
         /** SummaryResponse */
         src__api__models__pnl__SummaryResponse: {
             /**
@@ -4551,25 +4570,6 @@ export interface components {
             summary: components["schemas"]["PnlSummary"];
             /** Marks As Of */
             marks_as_of?: string | null;
-        };
-        /** CalendarResponse */
-        src__api__models__portfolio__CalendarResponse: {
-            /**
-             * As Of
-             * Format: date-time
-             */
-            as_of: string;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "monitor" | "refresh" | "eod" | "none";
-            /** Degraded */
-            degraded: boolean;
-            /** Horizon Days */
-            horizon_days: number;
-            /** Days */
-            days: components["schemas"]["CalendarDay"][];
         };
         /**
          * SummaryResponse
@@ -5269,7 +5269,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["src__api__models__portfolio__CalendarResponse"];
+                    "application/json": components["schemas"]["CalendarResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5614,7 +5614,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["src__api__models__pnl__CalendarResponse"];
+                    "application/json": components["schemas"]["RealisedCalendarResponse"];
                 };
             };
             /** @description Validation Error */

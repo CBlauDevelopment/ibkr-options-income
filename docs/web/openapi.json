@@ -1218,7 +1218,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/src__api__models__portfolio__CalendarResponse"
+                  "$ref": "#/components/schemas/CalendarResponse"
                 }
               }
             }
@@ -2184,7 +2184,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/src__api__models__pnl__CalendarResponse"
+                  "$ref": "#/components/schemas/RealisedCalendarResponse"
                 }
               }
             }
@@ -4937,6 +4937,49 @@
           "assignment_risk"
         ],
         "title": "CalendarEntry"
+      },
+      "CalendarResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "monitor",
+              "refresh",
+              "eod",
+              "none"
+            ],
+            "title": "Source"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "title": "Horizon Days"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarDay"
+            },
+            "type": "array",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "source",
+          "degraded",
+          "horizon_days",
+          "days"
+        ],
+        "title": "CalendarResponse"
       },
       "CampaignLeg": {
         "properties": {
@@ -10277,6 +10320,39 @@
         ],
         "title": "PositionsResponse"
       },
+      "RealisedCalendarResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "book": {
+            "type": "string",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Book"
+          },
+          "calendar": {
+            "$ref": "#/components/schemas/MonthCalendar"
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "book",
+          "calendar",
+          "spreads_available"
+        ],
+        "title": "RealisedCalendarResponse",
+        "description": "A month of daily realised P&L."
+      },
       "RecommendationsResponse": {
         "properties": {
           "as_of": {
@@ -12155,39 +12231,6 @@
         "title": "WatchlistResponse",
         "description": "``GET /watchlist`` \u2014 the user's tracked symbols, scoped to their user_id."
       },
-      "src__api__models__pnl__CalendarResponse": {
-        "properties": {
-          "as_of": {
-            "type": "string",
-            "format": "date-time",
-            "title": "As Of"
-          },
-          "book": {
-            "type": "string",
-            "enum": [
-              "paper",
-              "live"
-            ],
-            "title": "Book"
-          },
-          "calendar": {
-            "$ref": "#/components/schemas/MonthCalendar"
-          },
-          "spreads_available": {
-            "type": "boolean",
-            "title": "Spreads Available"
-          }
-        },
-        "type": "object",
-        "required": [
-          "as_of",
-          "book",
-          "calendar",
-          "spreads_available"
-        ],
-        "title": "CalendarResponse",
-        "description": "A month of daily realised P&L."
-      },
       "src__api__models__pnl__SummaryResponse": {
         "properties": {
           "as_of": {
@@ -12221,49 +12264,6 @@
           "summary"
         ],
         "title": "SummaryResponse"
-      },
-      "src__api__models__portfolio__CalendarResponse": {
-        "properties": {
-          "as_of": {
-            "type": "string",
-            "format": "date-time",
-            "title": "As Of"
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "monitor",
-              "refresh",
-              "eod",
-              "none"
-            ],
-            "title": "Source"
-          },
-          "degraded": {
-            "type": "boolean",
-            "title": "Degraded"
-          },
-          "horizon_days": {
-            "type": "integer",
-            "title": "Horizon Days"
-          },
-          "days": {
-            "items": {
-              "$ref": "#/components/schemas/CalendarDay"
-            },
-            "type": "array",
-            "title": "Days"
-          }
-        },
-        "type": "object",
-        "required": [
-          "as_of",
-          "source",
-          "degraded",
-          "horizon_days",
-          "days"
-        ],
-        "title": "CalendarResponse"
       },
       "src__api__models__research__SummaryResponse": {
         "properties": {
