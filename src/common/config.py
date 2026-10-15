@@ -932,6 +932,9 @@ class SpreadsAiCfg(BaseModel):
     # same timeout. "" disables the retry.
     fallback_model: str = "claude-sonnet-5-5"
     fallback_effort: EffortLevel = "high"
+    # After the Claude calls fail (not on a timeout) the local Ollama model answers the same
+    # prompt, inside the same timeout. False = Claude only, then the baseline pick.
+    ollama_fallback: bool = True
     brief_timeout_seconds: float = 120.0
     pick_timeout_seconds: float = 45.0
     max_pick_calls_per_day: int = 4  # pick decisions; a fallback retry is part of its decision

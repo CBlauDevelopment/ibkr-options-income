@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.claude.cli import CliResult, run_claude
+from src.claude.cli import CliResult, OllamaSettings, run_claude, run_ollama, should_fall_back
 from src.common.config import Config, SpreadsCfg
 from src.common.schemas import (
     SpreadBriefRequest,
@@ -34,6 +34,23 @@ _SNAPSHOT_TIMEOUT_SECONDS = 15.0
 _MIN_FALLBACK_SECONDS = 15.0
 
 Runner = Callable[..., Awaitable[CliResult]]
+OllamaRunner = Callable[..., Awaitable[CliResult]]
+_PICK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"choice": {"type": "string"}, "reason": {"type": "string"}},
+    "required": ["choice", "reason"],
+}
+_BRIEF_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "bias": {"type": "string", "enum": ["bullish", "neutral", "bearish"]},
+        "risk_flags": {"type": "array", "items": {"type": "string"}},
+        "skip_conditions": {"type": "array", "items": {"type": "string"}},
+        "preferred_distance": {"type": "string"},
+        "summary": {"type": "string"},
+    },
+    "required": ["bias", "summary"],
+}
 Snapshotter = Callable[..., SpreadMarketSnapshot]
 
 
@@ -47,6 +64,8 @@ class ClaudePicker:
         workdir: Path,
         run: Runner = run_claude,
         snapshot: Snapshotter = market_snapshot,
+        ollama: OllamaSettings | None = None,
+        ollama_run: OllamaRunner = run_ollama,
     ) -> None:
         self.cfg = cfg
         self.cli_command = cli_command
@@ -54,14 +73,25 @@ class ClaudePicker:
         self.workdir = workdir
         self._run = run
         self._snapshot = snapshot
+        self.ollama = ollama
+        self._ollama_run = ollama_run
 
     @classmethod
     def from_config(cls, cfg: Config) -> ClaudePicker:
+        c = cfg.claude
+        ollama = (
+            OllamaSettings(
+                c.ollama_host, c.ollama_model, c.ollama_keep_alive, c.ollama_temperature, c.ollama_num_ctx
+            )
+            if cfg.spreads.ai.ollama_fallback
+            else None
+        )
         return cls(
             cfg.spreads,
-            cli_command=cfg.claude.cli_command,
-            disallowed_tools=cfg.claude.disallowed_tools,
+            cli_command=c.cli_command,
+            disallowed_tools=c.disallowed_tools,
             workdir=cfg.spreads_ai_workdir(),
+            ollama=ollama,
         )
 
     async def _market(self, now: datetime) -> SpreadMarketSnapshot:
@@ -80,11 +110,13 @@ class ClaudePicker:
             return SpreadMarketSnapshot(unavailable=["snapshot"])
 
     async def _call(
-        self, prompt: str, *, model: str, effort: str, timeout: float
+        self, prompt: str, *, model: str, effort: str, timeout: float, schema: dict[str, Any]
     ) -> tuple[CliResult, str, str]:
         """One call, plus one retry on ``ai.fallback_model`` when the first ends in cli_error
-        (a usage limit surfaces that way) and enough of *timeout* is left. Returns the result
-        and the model/effort that produced it; latency and cost cover both calls."""
+        (a usage limit surfaces that way) and enough of *timeout* is left, plus a last try on the
+        local Ollama model when Claude still could not answer (anything but a timeout) and
+        enough time is left. Returns the result and the model/effort that produced it; latency
+        and cost cover every call."""
 
         async def once(m: str, e: str, t: float) -> CliResult:
             kwargs: dict[str, Any] = {
@@ -101,23 +133,35 @@ class ClaudePicker:
         ai = self.cfg.ai
         left = timeout - res.latency_ms / 1000
         if (
-            res.error != "cli_error"
-            or not ai.fallback_model
-            or ai.fallback_model == model
-            or left < _MIN_FALLBACK_SECONDS
+            res.error == "cli_error"
+            and ai.fallback_model
+            and ai.fallback_model != model
+            and left >= _MIN_FALLBACK_SECONDS
         ):
+            log.warning(
+                "spreads_ai: %s failed (cli_error); retrying on %s", model, ai.fallback_model
+            )
+            second = await once(ai.fallback_model, ai.fallback_effort, left)
+            costs = [c for c in (res.cost_usd, second.cost_usd) if c is not None]
+            res = CliResult(
+                second.text,
+                second.error,
+                res.latency_ms + second.latency_ms,
+                sum(costs) if costs else None,
+                second.raw,
+            )
+            model, effort = ai.fallback_model, ai.fallback_effort
+            left = timeout - res.latency_ms / 1000
+        if self.ollama is None or not should_fall_back(res.error) or left < _MIN_FALLBACK_SECONDS:
             return res, model, effort
-        log.warning("spreads_ai: %s failed (cli_error); retrying on %s", model, ai.fallback_model)
-        second = await once(ai.fallback_model, ai.fallback_effort, left)
-        costs = [c for c in (res.cost_usd, second.cost_usd) if c is not None]
-        merged = CliResult(
-            second.text,
-            second.error,
-            res.latency_ms + second.latency_ms,
-            sum(costs) if costs else None,
-            second.raw,
+        log.warning("spreads_ai: claude unavailable (%s) — using ollama", res.error)
+        alt = await self._ollama_run(
+            prompt, settings=self.ollama, schema=schema, timeout_seconds=left
         )
-        return merged, ai.fallback_model, ai.fallback_effort
+        merged = CliResult(
+            alt.text, alt.error, res.latency_ms + alt.latency_ms, res.cost_usd, alt.raw
+        )
+        return merged, f"ollama:{self.ollama.model}", ""
 
     async def brief(self, req: SpreadBriefRequest) -> SpreadBriefResult:
         ai = self.cfg.ai
@@ -130,6 +174,7 @@ class ClaudePicker:
                 model=ai.brief_model,
                 effort=ai.brief_effort,
                 timeout=ai.brief_timeout_seconds,
+                schema=_BRIEF_SCHEMA,
             )
             plan = parse_day_plan(res.text) if res.text is not None else None
             error = res.error or (None if plan is not None else "unparseable")
@@ -163,7 +208,11 @@ class ClaudePicker:
         try:
             prompt = build_pick_prompt(req, market)
             res, model, effort = await self._call(
-                prompt, model=ai.pick_model, effort=ai.pick_effort, timeout=ai.pick_timeout_seconds
+                prompt,
+                model=ai.pick_model,
+                effort=ai.pick_effort,
+                timeout=ai.pick_timeout_seconds,
+                schema=_PICK_SCHEMA,
             )
             call = SpreadLlmCall(
                 model=model,

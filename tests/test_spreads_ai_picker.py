@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from src.claude.cli import CliResult
+from src.claude.cli import CliResult, OllamaSettings
 from src.common.config import get_config
 from src.common.schemas import (
     GexLevels,
@@ -207,3 +207,95 @@ async def test_the_brief_falls_back_too() -> None:
     res = await p.brief(BRIEF_REQ)
     assert res.plan is not None and res.call.model == "claude-sonnet-5-5"
     assert calls[1]["timeout_seconds"] == 120.0 - 1.0
+
+
+# --- ollama as the third step (docs/superpowers/specs/2026-10-15-ollama-fallback-design.md) ---
+
+OLLAMA = OllamaSettings("http://x", "m", "2m", 0.2, 4096)
+
+
+def with_ollama(replies: list[CliResult], ollama_reply: CliResult, calls: list, ocalls: list, **ai):
+    async def orun(prompt, *, settings, schema, timeout_seconds):
+        ocalls.append((settings, schema, timeout_seconds))
+        return ollama_reply
+
+    p = scripted(replies, calls, **ai)
+    p.ollama, p._ollama_run = OLLAMA, orun
+    return p
+
+
+async def test_ollama_answers_after_opus_and_sonnet_fail() -> None:
+    calls: list = []
+    ocalls: list = []
+    p = with_ollama(
+        [CliResult(None, "cli_error", 500, 0.01), CliResult(None, "cli_error", 400)],
+        CliResult('{"choice": "A", "reason": "local"}', None, 3000),
+        calls,
+        ocalls,
+    )
+    pick = await p.pick(PICK_REQ)
+    assert (pick.choice, pick.reason, pick.fallback_reason) == ("A", "local", None)
+    assert (pick.call.model, pick.call.effort) == ("ollama:m", "")
+    assert pick.call.latency_ms == 500 + 400 + 3000 and pick.call.cost_usd == 0.01
+    ((settings, schema, timeout),) = ocalls
+    assert settings is OLLAMA and "choice" in schema["required"]
+    assert timeout == 45.0 - 0.9
+
+
+async def test_ollama_runs_without_a_sonnet_retry_when_the_cli_is_missing() -> None:
+    calls: list = []
+    ocalls: list = []
+    p = with_ollama(
+        [CliResult(None, "cli_missing", 5)],
+        CliResult('{"choice": "skip", "reason": "x"}', None, 100),
+        calls,
+        ocalls,
+    )
+    pick = await p.pick(PICK_REQ)
+    assert len(calls) == 1 and len(ocalls) == 1 and pick.choice == "skip"
+
+
+async def test_no_ollama_after_a_timeout_when_short_of_time_or_switched_off() -> None:
+    for first, ollama_on in [
+        (CliResult(None, "timeout", 45000), True),
+        (CliResult(None, "cli_missing", 31_000), True),  # 14 s left < 15 s
+        (CliResult(None, "cli_missing", 5), False),
+    ]:
+        calls: list = []
+        ocalls: list = []
+        p = with_ollama([first], CliResult("{}", None, 1), calls, ocalls)
+        if not ollama_on:
+            p.ollama = None
+        pick = await p.pick(PICK_REQ)
+        assert ocalls == [] and pick.fallback_reason == first.error
+
+
+async def test_ollama_failing_too_is_a_fallback_to_the_baseline() -> None:
+    p = with_ollama(
+        [CliResult(None, "cli_missing", 5)], CliResult(None, "cli_error", 10), [], []
+    )
+    pick = await p.pick(PICK_REQ)
+    assert (pick.choice, pick.fallback_reason) == ("skip", "cli_error")
+
+
+async def test_the_brief_falls_back_to_ollama_too() -> None:
+    ocalls: list = []
+    p = with_ollama(
+        [CliResult(None, "cli_error", 1000), CliResult(None, "cli_error", 1000)],
+        CliResult('{"bias": "neutral", "summary": "calm"}', None, 5000),
+        [],
+        ocalls,
+    )
+    res = await p.brief(BRIEF_REQ)
+    assert res.plan is not None and res.plan.bias == "neutral"
+    assert res.call.model == "ollama:m" and "enum" in ocalls[0][1]["properties"]["bias"]
+
+
+def test_from_config_builds_the_ollama_settings_only_when_switched_on() -> None:
+    cfg = get_config()
+    on = cfg.model_copy(update={"spreads": cfg.spreads.model_copy(
+        update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": True})})})
+    off = cfg.model_copy(update={"spreads": cfg.spreads.model_copy(
+        update={"ai": cfg.spreads.ai.model_copy(update={"ollama_fallback": False})})})
+    assert ClaudePicker.from_config(on).ollama.model == cfg.claude.ollama_model  # type: ignore[union-attr]
+    assert ClaudePicker.from_config(off).ollama is None
