@@ -184,6 +184,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/research/{symbol}/headlines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Headlines
+         * @description The newest headlines for one symbol, newest first, each VADER-scored.
+         *
+         *     The light read behind the position page's news section: it calls the headline loader only,
+         *     never `materialize()` (which can start an SEC fundamentals ingest). An unreachable news
+         *     source is an empty list, never an error, and nothing is stored. Enrichment tier: headlines
+         *     reach the page and never the engine.
+         */
+        get: operations["headlines_research__symbol__headlines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/research/{symbol}": {
         parameters: {
             query?: never;
@@ -551,6 +576,33 @@ export interface paths {
          *     plus `source="monitor"` would be a claim that the account holds nothing.
          */
         get: operations["portfolio_positions_portfolio_positions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/portfolio/positions/{underlying}/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Portfolio Position
+         * @description One position's page: where it stands now, and the trade that opened it.
+         *
+         *     The slug is what a Positions row links with: ``2026-11-21_P180`` (an option contract),
+         *     ``shares``, or ``spread-<id>``. The live figures come from the same snapshot reading
+         *     ``GET /portfolio/positions`` renders (so the two never disagree); the initial trade comes from
+         *     the system's own fills through the builders Home's "Done today" uses. A contract that is no
+         *     longer held but was traded by the system still answers, with ``closed`` saying how it ended.
+         *     404 when neither the snapshot nor the fills know it. Read-only; never reaches IBKR.
+         */
+        get: operations["portfolio_position_portfolio_positions__underlying___slug__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2493,6 +2545,21 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HeadlinesResponse
+         * @description The newest headlines for one symbol, newest first (the position page's news section).
+         */
+        HeadlinesResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Symbol */
+            symbol: string;
+            /** Items */
+            items: components["schemas"]["NewsItem"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -3777,6 +3844,54 @@ export interface components {
             /** Note */
             note: string | null;
         };
+        /**
+         * PositionDetailResponse
+         * @description One position as the page behind a Positions row shows it: where it stands now, and the
+         *     trade that opened it.
+         *
+         *     ``kind`` follows the slug: ``option`` (``2026-11-21_P180``), ``shares`` or
+         *     ``spread`` (``spread-<id>``). ``held`` is whether the latest snapshot still has it; a
+         *     contract that has since been closed, rolled or has expired is still answered from the system's
+         *     own fills, with ``closed`` saying how it ended. ``opened`` and ``closed`` are the same cards
+         *     Home's "Done today" shows (premium, commission, return, Claude's stored review, the reason),
+         *     so the figures on the two surfaces are one computation.
+         */
+        PositionDetailResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Underlying */
+            underlying: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "option" | "shares" | "spread";
+            /** Held */
+            held: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "monitor" | "refresh" | "eod" | "none";
+            /** Degraded */
+            degraded: boolean;
+            option?: components["schemas"]["OptionLeg"] | null;
+            stock?: components["schemas"]["StockLeg"] | null;
+            campaign?: components["schemas"]["CampaignSummary"] | null;
+            spread?: components["schemas"]["SpreadPositionOut"] | null;
+            opened?: components["schemas"]["DayTrade"] | null;
+            closed?: components["schemas"]["DayTrade"] | null;
+            /**
+             * Spreads Available
+             * @default true
+             */
+            spreads_available: boolean;
+        };
         /** PositionGroup */
         PositionGroup: {
             /**
@@ -4813,6 +4928,39 @@ export interface operations {
             };
         };
     };
+    headlines_research__symbol__headlines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeadlinesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analysis_research__symbol__get: {
         parameters: {
             query?: never;
@@ -5299,6 +5447,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PositionsResponse"];
+                };
+            };
+        };
+    };
+    portfolio_position_portfolio_positions__underlying___slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                underlying: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

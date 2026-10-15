@@ -22,13 +22,14 @@ Shared conventions set by Task 2.1, followed by every route here:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from src.api.deps import OwnerUser, TradingDb
@@ -45,15 +46,19 @@ from src.api.models.portfolio import (
     ExposureBlock,
     OptionLeg,
     PortfolioSummaryResponse,
+    PositionDetailResponse,
     PositionGroup,
     PositionsResponse,
     StockLeg,
 )
 from src.api.portfolio_source import read_portfolio
+from src.api.spread_inputs import spread_day_inputs, spread_position_out, spread_rows
 from src.common.assignment_risk import assignment_risk_thresholds, is_assignment_risk
 from src.common.config import get_config
 from src.common.schemas import AccountValueRange, OptionRight, PositionSnapshot
 from src.reporting.account_value import account_value_series
+from src.reporting.day import build_position_story, build_spread_story
+from src.reporting.pnl import build_legs
 from src.storage.campaigns import prior_legs_premium, whole_position_basis
 from src.storage.models import CampaignRow, CandidateRow
 
@@ -660,6 +665,118 @@ def _option_legs(
             )
         )
     return legs
+
+
+# ---------------------------------------------------------------------------
+# Web Home follow-ups (2026-10-15) - GET /portfolio/positions/{underlying}/{slug}
+# ---------------------------------------------------------------------------
+
+_OPTION_SLUG = re.compile(r"^(\d{4}-\d{2}-\d{2})_([CP])(\d+(?:\.\d+)?)$")
+
+
+@router.get("/positions/{underlying}/{slug}", response_model=PositionDetailResponse)
+def portfolio_position(
+    underlying: str,
+    slug: str,
+    user: OwnerUser,
+    db: TradingDb,
+) -> PositionDetailResponse:
+    """One position's page: where it stands now, and the trade that opened it.
+
+    The slug is what a Positions row links with: ``2026-11-21_P180`` (an option contract),
+    ``shares``, or ``spread-<id>``. The live figures come from the same snapshot reading
+    ``GET /portfolio/positions`` renders (so the two never disagree); the initial trade comes from
+    the system's own fills through the builders Home's "Done today" uses. A contract that is no
+    longer held but was traded by the system still answers, with ``closed`` saying how it ended.
+    404 when neither the snapshot nor the fills know it. Read-only; never reaches IBKR.
+    """
+    upper = underlying.upper()
+    reading = read_portfolio(db)
+    as_of = reading.as_of or datetime.now(UTC)
+    snapshot = reading.snapshot
+    source: Literal["monitor", "refresh", "eod", "none"] = (
+        reading.source if snapshot is not None else "none"
+    )
+    degraded = reading.degraded if snapshot is not None else True
+    group = None
+    if snapshot is not None:
+        group = next(
+            (g for g in _group_positions(snapshot.positions) if g.underlying == upper), None
+        )
+    stock = _stock_leg(db, upper, group.stock, as_of) if group is not None else None
+    book = "live" if get_config().is_live else "paper"
+
+    def respond(**extra: Any) -> PositionDetailResponse:
+        return PositionDetailResponse(
+            as_of=as_of, underlying=upper, slug=slug, source=source, degraded=degraded, **extra
+        )
+
+    not_found = HTTPException(status_code=404, detail=f"No such position: {upper} {slug}")
+
+    if slug == "shares":
+        if stock is None:
+            raise HTTPException(status_code=404, detail=f"No shares of {upper} are held")
+        wheel = portfolio_campaigns(user, db, status="open", symbol=upper, limit=5).campaigns
+        campaign = next((c for c in wheel if c.assigned), wheel[0] if wheel else None)
+        return respond(kind="shares", held=True, stock=stock, campaign=campaign)
+
+    if slug.startswith("spread-"):
+        sid = slug[len("spread-") :]
+        inputs = spread_day_inputs(book)
+        if inputs is None:
+            raise HTTPException(status_code=503, detail="The spreads book could not be read.")
+        found = next((i for i in inputs if i.spread_id == sid), None)
+        row = next((r for r in (spread_rows(book) or []) if str(r["spread_id"]) == sid), None)
+        if found is None or row is None:
+            raise not_found
+        out = spread_position_out(row, as_of)
+        spread_opened, spread_closed = build_spread_story(found)
+        return respond(
+            kind="spread",
+            held=out.status != "closed",
+            spread=out,
+            opened=spread_opened,
+            closed=spread_closed,
+        )
+
+    m = _OPTION_SLUG.match(slug)
+    if m is None:
+        raise not_found
+    try:
+        expiry = date.fromisoformat(m.group(1))
+    except ValueError:
+        raise not_found from None
+    right, strike = m.group(2), float(m.group(3))
+    live = None
+    if group is not None:
+        delta_threshold, dte_threshold = _thresholds()
+        legs_now = _option_legs(
+            group.options,
+            stock_pos=group.stock,
+            db=db,
+            underlying=upper,
+            as_of=as_of,
+            delta_threshold=delta_threshold,
+            dte_threshold=dte_threshold,
+        )
+        live = next(
+            (o for o in legs_now if o.right == right and o.strike == strike and o.expiry == expiry),
+            None,
+        )
+    legs = build_legs(
+        _session_factory(db),
+        symbol=upper,
+        include_paper=book == "paper",
+        include_live=book == "live",
+    )
+    opened, closed = build_position_story(
+        _session_factory(db), legs, underlying=upper, right=right, strike=strike, expiry=expiry
+    )
+    if live is None and opened is None:
+        raise not_found
+    return respond(
+        kind="option", held=live is not None, option=live, stock=stock, opened=opened, closed=closed
+    )
 
 
 # ---------------------------------------------------------------------------

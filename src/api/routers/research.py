@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
@@ -15,6 +16,7 @@ from src.api.models.research import (
     Bar,
     BarsResponse,
     BuyCandidateOut,
+    HeadlinesResponse,
     NewsItem,
     OptionsCoverage,
     OptionsLensResponse,
@@ -509,6 +511,45 @@ def options_lens(
         warnings=payload.warnings,
         coverage=OptionsCoverage(iv_history=iv_stats.current_iv is not None, option_chain=False),
     )
+
+
+_HEADLINE_SYMBOL = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+
+
+@router.get("/{symbol}/headlines", response_model=HeadlinesResponse)
+def headlines(
+    symbol: str,
+    user: CurrentUser,  # noqa: ARG001
+    limit: int = Query(default=8, ge=1, le=25),
+) -> HeadlinesResponse:
+    """The newest headlines for one symbol, newest first, each VADER-scored.
+
+    The light read behind the position page's news section: it calls the headline loader only,
+    never `materialize()` (which can start an SEC fundamentals ingest). An unreachable news
+    source is an empty list, never an error, and nothing is stored. Enrichment tier: headlines
+    reach the page and never the engine.
+    """
+    upper = symbol.upper()
+    if not _HEADLINE_SYMBOL.match(upper):
+        raise HTTPException(status_code=422, detail=f"{symbol!r} is not a ticker symbol")
+    from src.research.ingest.news import recent_news
+
+    items = [
+        NewsItem(
+            title=str(item["title"]),
+            url=item.get("url"),
+            published_at=item.get("published_at"),
+            source=item.get("source"),
+            sentiment=item.get("sentiment"),
+        )
+        for item in recent_news(upper, limit=25)
+        if item.get("title")
+    ]
+    items.sort(
+        key=lambda n: n.published_at.timestamp() if n.published_at is not None else 0.0,
+        reverse=True,
+    )
+    return HeadlinesResponse(as_of=datetime.now(UTC), symbol=upper, items=items[:limit])
 
 
 @router.get("/{symbol}", response_model=AnalysisResponse)

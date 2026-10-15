@@ -78,12 +78,11 @@ def test_a_day_lists_what_was_opened_and_closed_with_its_reason(client, db) -> N
 def test_the_strategy_scopes_the_cards(client, db) -> None:
     seed(db, "put", sold_at=datetime(2026, 10, 9, 14))
     seed(db, "call", right="C", strategy="covered_call", sold_at=datetime(2026, 10, 9, 15))
-    kinds = lambda s: [
-        t["kind"]
-        for t in client.get(f"/pnl/day?date=2026-10-09&strategy={s}", headers=OWNER).json()[
-            "trades"
-        ]
-    ]  # noqa: E731
+
+    def kinds(scope: str) -> list[str]:
+        r = client.get(f"/pnl/day?date=2026-10-09&strategy={scope}", headers=OWNER)
+        return [t["kind"] for t in r.json()["trades"]]
+
     assert sorted(kinds("all")) == ["cc", "csp"]
     assert kinds("csp") == ["csp"] and kinds("cc") == ["cc"] and kinds("spread") == []
 

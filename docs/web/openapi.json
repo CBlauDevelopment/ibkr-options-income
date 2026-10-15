@@ -325,6 +325,66 @@
         }
       }
     },
+    "/research/{symbol}/headlines": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Headlines",
+        "description": "The newest headlines for one symbol, newest first, each VADER-scored.\n\nThe light read behind the position page's news section: it calls the headline loader only,\nnever `materialize()` (which can start an SEC fundamentals ingest). An unreachable news\nsource is an empty list, never an error, and nothing is stored. Enrichment tier: headlines\nreach the page and never the engine.",
+        "operationId": "headlines_research__symbol__headlines_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 25,
+              "minimum": 1,
+              "default": 8,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeadlinesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/research/{symbol}": {
       "get": {
         "tags": [
@@ -1258,6 +1318,60 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/portfolio/positions/{underlying}/{slug}": {
+      "get": {
+        "summary": "Portfolio Position",
+        "description": "One position's page: where it stands now, and the trade that opened it.\n\nThe slug is what a Positions row links with: ``2026-11-21_P180`` (an option contract),\n``shares``, or ``spread-<id>``. The live figures come from the same snapshot reading\n``GET /portfolio/positions`` renders (so the two never disagree); the initial trade comes from\nthe system's own fills through the builders Home's \"Done today\" uses. A contract that is no\nlonger held but was traded by the system still answers, with ``closed`` saying how it ended.\n404 when neither the snapshot nor the fills know it. Read-only; never reaches IBKR.",
+        "operationId": "portfolio_position_portfolio_positions__underlying___slug__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "underlying",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Underlying"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/portfolio/value": {
@@ -6806,6 +6920,34 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HeadlinesResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NewsItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "symbol",
+          "items"
+        ],
+        "title": "HeadlinesResponse",
+        "description": "The newest headlines for one symbol, newest first (the position page's news section)."
+      },
       "HealthResponse": {
         "properties": {
           "as_of": {
@@ -10243,6 +10385,127 @@
           "note"
         ],
         "title": "PortfolioSummaryResponse"
+      },
+      "PositionDetailResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "underlying": {
+            "type": "string",
+            "title": "Underlying"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "option",
+              "shares",
+              "spread"
+            ],
+            "title": "Kind"
+          },
+          "held": {
+            "type": "boolean",
+            "title": "Held"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "monitor",
+              "refresh",
+              "eod",
+              "none"
+            ],
+            "title": "Source"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          },
+          "option": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptionLeg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stock": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StockLeg"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "campaign": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CampaignSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spread": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpreadPositionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opened": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayTrade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayTrade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spreads_available": {
+            "type": "boolean",
+            "title": "Spreads Available",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "underlying",
+          "slug",
+          "kind",
+          "held",
+          "source",
+          "degraded"
+        ],
+        "title": "PositionDetailResponse",
+        "description": "One position as the page behind a Positions row shows it: where it stands now, and the\ntrade that opened it.\n\n``kind`` follows the slug: ``option`` (``2026-11-21_P180``), ``shares`` or\n``spread`` (``spread-<id>``). ``held`` is whether the latest snapshot still has it; a\ncontract that has since been closed, rolled or has expired is still answered from the system's\nown fills, with ``closed`` saying how it ended. ``opened`` and ``closed`` are the same cards\nHome's \"Done today\" shows (premium, commission, return, Claude's stored review, the reason),\nso the figures on the two surfaces are one computation."
       },
       "PositionGroup": {
         "properties": {

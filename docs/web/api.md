@@ -368,6 +368,24 @@ expected daily field name, so no client-side remapping is needed.
 
 ---
 
+## `GET /research/{symbol}/headlines`
+
+The newest headlines for one symbol, for the position page's news section (web Home follow-ups,
+2026-10-15). It calls the headline loader only, never `materialize()`, which can start an SEC
+fundamentals ingest, so it is cheap enough to open from a Positions row. Enrichment tier: the
+headlines (each VADER-scored) reach the page and never the engine. Nothing is stored.
+
+| Param | Type | Notes |
+|---|---|---|
+| `limit` | int, 1 to 25 | default 8 |
+
+`422` when the symbol is not a ticker (`^[A-Z][A-Z0-9.-]{0,9}$` after upper-casing). An
+unreachable news source is an empty `items` list, never an error.
+
+**Response - `HeadlinesResponse`:** `{ as_of, symbol, items: NewsItem[] }`, newest first (undated last);
+`NewsItem`: `{ title, url, published_at, source, sentiment }` (the same shape as the analysis
+route's news section; an item with no title is dropped).
+
 ## `GET /research/{symbol}/options`
 
 The on-demand options-income lens (Task 6.3). Registered directly ahead of
@@ -1063,6 +1081,35 @@ captured at the same `captured_at` both appear, so the web client folds points t
 into one (the later row wins) before charting.
 
 ---
+
+### `GET /portfolio/positions/{underlying}/{slug}` (web Home follow-ups, 2026-10-15)
+
+One position's page, behind a Positions row on Home: where it stands now and the trade that
+opened it. Owner-only; read-only; never reaches IBKR. The live figures come from the same snapshot
+reading `GET /portfolio/positions` renders (`_option_legs`, `_stock_leg`), so the two never
+disagree; the initial trade comes from the system's own fills through the builders `GET /pnl/day`
+uses (`src/reporting/day.py::build_position_story`), so the figures on Home's "Done today" and on
+this page are one computation.
+
+| Slug | Meaning |
+|---|---|
+| `2026-11-21_P180` | an option contract: expiry, right (`C` or `P`), strike |
+| `shares` | the shares held in the underlying |
+| `spread-<id>` | one credit spread of the book (read through `data/spreads.db`) |
+
+- `kind` follows the slug. `held` is whether the latest snapshot still has it (a spread: whether it
+  is not closed). A contract that is no longer held but was traded by the system still answers,
+  with `closed` saying how it ended; one that is held but was never traded by the system answers
+  with `opened: null`.
+- `opened` is the initial trade (premium, commission, capital held, return, a year, days to expiry
+  at the sale, Claude's stored review, the approval id) and `closed` how it ended (a buy-back with
+  its reason, an expiry, an assignment, a roll). Both are `DayTrade` (see `GET /pnl/day`).
+- `shares` adds `campaign`, the open wheel thread (the assigned one if there are several): its
+  adjusted cost basis, premium collected and net premium.
+- `404` when neither the snapshot nor the fills know the position, or the slug is malformed; `503`
+  for a `spread-` slug when the spreads book could not be read (not the same as "no such spread").
+
+**Response - `PositionDetailResponse`:** `{ as_of, underlying, slug, kind, held, source, degraded, option: OptionLeg | null, stock: StockLeg | null, campaign: CampaignSummary | null, spread: SpreadPositionOut | null, opened: DayTrade | null, closed: DayTrade | null, spreads_available }`.
 
 ## P&L (P4 Milestone 5)
 

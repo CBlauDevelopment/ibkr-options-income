@@ -783,3 +783,52 @@ def build_month_calendar(
         n_closed=sum(counts.values()),
         complete=not incomplete,
     )
+
+
+def build_position_story(
+    session: _SessionFactory,
+    legs: Iterable[PnlLeg],
+    *,
+    underlying: str,
+    right: str,
+    strike: float,
+    expiry: date,
+) -> tuple[DayTrade | None, DayTrade | None]:
+    """One contract's initial trade and how it ended: (opened, closed or rolled).
+
+    The same cards as the day's list, for the position page: the opening with its premium,
+    commission, return and Claude's stored review; and, once the contract is no longer held, the
+    close, expiry, assignment or roll with its reason. When the same contract was sold more than
+    once, the open leg wins, else the most recent. (None, None) when the system has no fills for
+    it (a position opened outside the system)."""
+    all_legs = list(legs)
+    matches = [
+        leg
+        for leg in all_legs
+        if leg.underlying == underlying
+        and leg.right.value == right
+        and leg.strike == strike
+        and leg.expiry == expiry
+        and leg_kind(leg) is not None
+    ]
+    if not matches:
+        return None, None
+    leg = next((m for m in matches if m.outcome == VerdictOutcome.STILL_OPEN), None) or max(
+        matches, key=lambda m: m.opened_at
+    )
+    kind = leg_kind(leg)
+    assert kind is not None
+    closed_on = close_day(leg)
+    look = _lookups(
+        session,
+        {m.candidate_id for m in all_legs if m.underlying == underlying},
+        closed_on or et_date(leg.opened_at) or leg.expiry,
+        {underlying},
+    )
+    legs_by_id = {m.candidate_id: m for m in all_legs}
+    return _opened_trade(leg, kind, look), _closed_trade(leg, kind, look, legs_by_id)
+
+
+def build_spread_story(spread: SpreadDayInput) -> tuple[DayTrade, DayTrade | None]:
+    """A spread's opening card and, once it is closed, its closing card."""
+    return _spread_opened(spread), _spread_closed(spread)
