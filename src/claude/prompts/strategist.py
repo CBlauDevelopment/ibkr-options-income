@@ -531,7 +531,11 @@ def build_prompt(
     ]
 
     if history:
-        lines.extend(_format_history(history))
+        # Only the reviewed tickers' own track record. The scan loads memory for every symbol it
+        # touched, and sending the other tickers' prose with every call was ~half of a one-
+        # candidate prompt (2026-10-15: 47 rows over 18 tickers, none of them the candidate).
+        tickers = {c.underlying for c in candidates}
+        lines.extend(_format_history([r for r in history if r.underlying in tickers]))
 
     for i, c in enumerate(candidates, 1):
         lines.append(f"\n--- Candidate {i} ---")

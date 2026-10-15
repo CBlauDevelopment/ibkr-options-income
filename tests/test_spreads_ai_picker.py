@@ -307,3 +307,20 @@ def test_from_config_builds_the_ollama_settings_only_when_switched_on() -> None:
     )
     assert ClaudePicker.from_config(on).ollama.model == cfg.claude.ollama_model  # type: ignore[union-attr]
     assert ClaudePicker.from_config(off).ollama is None
+
+
+async def test_the_picker_runs_slim_and_honours_the_kill_switch() -> None:
+    calls: list = []
+    p = picker(CliResult('{"choice": "a", "reason": "fine"}', None, 1, 0.0, "{}"), calls)
+    await p.pick(PICK_REQ)
+    assert calls[0][1]["slim"] is True  # claude.slim_context ships true
+
+    p.slim = False
+    await p.pick(PICK_REQ)
+    assert calls[1][1]["slim"] is False
+
+
+def test_from_config_takes_slim_from_claude_slim_context(monkeypatch) -> None:
+    cfg = get_config()
+    monkeypatch.setattr(cfg.claude, "slim_context", False)
+    assert ClaudePicker.from_config(cfg).slim is False

@@ -354,6 +354,58 @@ class ClaudeCfg(BaseModel):
     # Space-separated tool denylist passed to --disallowedTools. Empty = don't pass the flag.
     disallowed_tools: str = "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task"
 
+    # --- Headless call weight (2026-10-15) ---
+    # Run from the repo with everything loaded, a `claude -p` call carried ~40K tokens of ambient
+    # Claude Code context (skills, CLAUDE.md, MCP tools, hooks, tool definitions) around prompts
+    # of 0.3K-10K. `slim_context` strips it (cli.build_cmd): measured on CLI 2.1.295, a trivial
+    # call went 37.7K -> 0.6K tokens, and replayed roll/news/scan prompts parsed identically.
+    # False restores the old command and runs from the repo cwd - the kill switch if a CLI update
+    # changes what these flags mean. See STATUS.md "Headless call weight".
+    slim_context: bool = True
+    # Where headless calls run. MUST be outside the repo: claude walks up from its cwd and would
+    # load this repo's CLAUDE.md (and its auto-memory) into every call. Must be absolute (or ~).
+    workdir: str = "~/.cache/ibkr-claude"
+    # Model per call kind; "" = `model` above. Every kind follows `model` (Sonnet) by default.
+    # Haiku was audited 2026-10-15 (blinded Opus audit, 8 scan reviews + 18 news cards, STATUS.md
+    # "headless call weight") and NOT adopted: on scan reviews it omitted the action-level / downtrend
+    # warnings and existing same-ticker exposure in 8 of 8 outputs and once quoted collateral 5x too
+    # low; on news it reversed the VIX/VIX3M term structure in 2 of 18. It saves ~$1/week on top of
+    # the slim call and uses the same tokens, so the setting stays for you to try, not on.
+    review_model: str = ""
+    roll_model: str = ""
+    eod_model: str = ""
+    # An LLM paragraph on the button-less roll / assignment-risk INFO alerts (delta drift, loss
+    # multiple, DTE, ...). Off: those alerts are deterministic facts, the decision card (which
+    # does get a review) is the actionable one, and a strike breach used to fire both - two calls
+    # in the same minute for one event.
+    review_info_alerts: bool = False
+    # The 15-min scan reuses a prior Claude review when the top candidates' (coarsened) signals
+    # are unchanged. A reused review is never older than this many minutes; 0 disables reuse.
+    review_reuse_minutes: int = 120
+
+    @field_validator("workdir")
+    @classmethod
+    def _workdir_outside_repo(cls, v: str) -> str:
+        p = Path(v).expanduser()
+        if not p.is_absolute():
+            raise ValueError("claude.workdir must be absolute or start with ~")
+        if p.resolve() == ROOT or ROOT in p.resolve().parents:
+            raise ValueError(
+                "claude.workdir must be outside the repo: claude would load the repo's CLAUDE.md"
+            )
+        return v
+
+    @field_validator("review_reuse_minutes")
+    @classmethod
+    def _reuse_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("claude.review_reuse_minutes must be >= 0")
+        return v
+
+    def model_for(self, kind: Literal["review", "roll", "eod"]) -> str:
+        """The model for a call kind: its own override, else the shared ``model``."""
+        return getattr(self, f"{kind}_model") or self.model
+
     # --- Local-LLM (Ollama) backend ---
     # "cli": claude -p only (default). "ollama": local model only. "cli_then_ollama": try
     # claude -p first, fall back to the local Ollama model if the CLI is unavailable, times
@@ -1327,6 +1379,10 @@ class Config(BaseModel):
 
     def spreads_halt_path(self) -> Path:
         return ROOT / self.spreads.halt_file
+
+    def claude_workdir(self) -> Path:
+        """Where headless ``claude -p`` calls run: ``~`` expanded, outside the repo (validated)."""
+        return Path(self.claude.workdir).expanduser()
 
     def spreads_ai_workdir(self) -> Path:
         """``~`` is expanded and an absolute path used as-is; a relative path still resolves under

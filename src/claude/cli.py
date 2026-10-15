@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,8 +37,43 @@ class CliResult:
     raw: str = ""  # stdout as received, kept for the record
 
 
-def build_cmd(cli_command: str, *, model: str, effort: str, disallowed_tools: str) -> list[str]:
-    cmd = [cli_command, "-p", "--output-format", "json", "--max-turns", "1", "--strict-mcp-config"]
+# The system prompt a slim call uses instead of Claude Code's default (~6K tokens of coding-agent
+# instructions). Every caller's own prompt already says exactly what to return.
+HEADLESS_SYSTEM_PROMPT = "You are a concise assistant. Follow the user's output format exactly."
+
+
+def build_cmd(
+    cli_command: str,
+    *,
+    model: str,
+    effort: str,
+    disallowed_tools: str,
+    max_turns: int = 1,
+    output_format: str = "json",
+    slim: bool = True,
+) -> list[str]:
+    """The headless ``claude -p`` command. *slim* (the default) strips the interactive session's
+    ambient context: skills, user settings and plugin hooks, tool definitions, the default system
+    prompt, and the on-disk transcript. Measured 2026-10-15 on CLI 2.1.295, a trivial call went
+    from 37.7K context tokens (repo cwd, everything loaded) to 0.6K with these flags; the real
+    roll/news/scan prompts replayed identically (docs: STATUS.md, "Headless call weight").
+    The caller must also run it from a directory with no CLAUDE.md in any ancestor (see
+    ``ClaudeCfg.workdir``): ``--setting-sources project`` would otherwise load the repo's."""
+    cmd = [cli_command, "-p", "--output-format", output_format]
+    if max_turns:
+        cmd += ["--max-turns", str(max_turns)]
+    cmd.append("--strict-mcp-config")
+    if slim:
+        cmd += [
+            "--disable-slash-commands",
+            "--setting-sources",
+            "project",
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--system-prompt",
+            HEADLESS_SYSTEM_PROMPT,
+        ]
     if disallowed_tools:
         cmd += ["--disallowedTools", disallowed_tools]
     if model:
@@ -45,6 +81,89 @@ def build_cmd(cli_command: str, *, model: str, effort: str, disallowed_tools: st
     if effort:
         cmd += ["--effort", effort]
     return cmd
+
+
+@dataclass(frozen=True)
+class Usage:
+    """What one call consumed, read from the envelope: context tokens are input + cache writes +
+    cache reads (what the call carried), output includes any thinking."""
+
+    model: str
+    ctx_tokens: int
+    out_tokens: int
+    cost_usd: float | None  # notional, from the envelope
+    duration_ms: int | None
+
+
+def _envelope(raw: str) -> dict | None:
+    try:
+        env = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return env if isinstance(env, dict) else None
+
+
+def usage_summary(raw: str) -> Usage | None:
+    """The token/cost summary of an envelope, or None when it carries no ``usage``. Never raises."""
+    env = _envelope(raw)
+    usage = env.get("usage") if env else None
+    if not isinstance(usage, dict):
+        return None
+
+    def n(key: str) -> int:
+        v = usage.get(key)
+        return int(v) if isinstance(v, int | float) else 0
+
+    models = env.get("modelUsage") if env else None
+    model = "+".join(models) if isinstance(models, dict) and models else "?"
+    cost = env.get("total_cost_usd") if env else None
+    dur = env.get("duration_ms") if env else None
+    return Usage(
+        model=model,
+        ctx_tokens=n("input_tokens")
+        + n("cache_creation_input_tokens")
+        + n("cache_read_input_tokens"),
+        out_tokens=n("output_tokens"),
+        cost_usd=float(cost) if isinstance(cost, int | float) else None,
+        duration_ms=int(dur) if isinstance(dur, int | float) else None,
+    )
+
+
+def format_usage(kind: str, u: Usage) -> str:
+    """The one-line record ``scripts/claude_usage.py`` aggregates — keep the key=value shape."""
+    cost = f"{u.cost_usd:.6f}" if u.cost_usd is not None else "?"
+    return (
+        f"claude usage: kind={kind} model={u.model} ctx={u.ctx_tokens} out={u.out_tokens} "
+        f"cost={cost}"
+    )
+
+
+def log_usage(logger: logging.Logger, kind: str, raw: str) -> None:
+    """Log what a call consumed, by call kind. Best-effort: never raises."""
+    try:
+        u = usage_summary(raw)
+        if u is not None:
+            logger.info(format_usage(kind, u))
+    except Exception:  # noqa: BLE001 — observability must never fail a call
+        pass
+
+
+_LIMIT_RE = re.compile(r"hit your .{0,24}limit|usage limit|rate.?limit", re.IGNORECASE)
+
+
+def is_usage_limit(raw: str) -> bool:
+    """True when stdout is an error envelope saying the plan's limit was reached. A retry cannot
+    succeed, so callers skip it."""
+    env = _envelope(raw)
+    if not env or not env.get("is_error"):
+        return False
+    # The real envelope (2026-10-14): api_error "usage_limit_reached", api_error_status 429, result
+    # "You've hit your session limit · resets 10:30pm (Asia/Singapore)". Structured fields first;
+    # the text is the fallback for a CLI that stops sending them.
+    if env.get("api_error") == "usage_limit_reached" or env.get("api_error_status") == 429:
+        return True
+    result = env.get("result")
+    return isinstance(result, str) and _LIMIT_RE.search(result) is not None
 
 
 async def run_claude(
@@ -56,6 +175,8 @@ async def run_claude(
     timeout_seconds: float,
     cwd: Path,
     disallowed_tools: str,
+    slim: bool = True,
+    usage_kind: str = "spreads_ai",
 ) -> CliResult:
     start = time.monotonic()
 
@@ -63,7 +184,9 @@ async def run_claude(
         return int((time.monotonic() - start) * 1000)
 
     cwd.mkdir(parents=True, exist_ok=True)
-    cmd = build_cmd(cli_command, model=model, effort=effort, disallowed_tools=disallowed_tools)
+    cmd = build_cmd(
+        cli_command, model=model, effort=effort, disallowed_tools=disallowed_tools, slim=slim
+    )
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -108,6 +231,7 @@ async def run_claude(
     reply = envelope.get("result")
     if envelope.get("is_error") or not isinstance(reply, str):
         return CliResult(None, "cli_error", elapsed(), cost, raw)
+    log_usage(log, usage_kind, raw)
     return CliResult(reply, None, elapsed(), cost, raw)
 
 

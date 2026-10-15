@@ -472,6 +472,28 @@ sent without a tap (the card says *Auto-approved*); on any other rung it waits f
 21/7-day timers, delta drift, IV spike, assignment risk and the non-leveraged loss line are
 information-only alerts.
 
+### `config/settings.yaml` — the `claude:` block: token weight (2026-10-15)
+
+Every `claude -p` call used to carry ~40K tokens of Claude Code's own context (skills, this repo's
+`CLAUDE.md`, MCP tools, hooks) around a prompt of 0.5K-10K, which is what burned the 5-hour session
+limit. These keys fix that; the shipped values are the measured ones (evidence: `STATUS.md`, "headless call weight").
+
+| Key | Shipped | Meaning |
+|---|---|---|
+| `claude.slim_context` | true | Strip that context from every headless call. `false` restores the old command and cwd (use it only if a Claude CLI update breaks the flags). |
+| `claude.workdir` | `~/.cache/ibkr-claude` | Where headless calls run. **Must be outside the repo** (validated): `claude` would otherwise reload `CLAUDE.md`. Created on demand. |
+| `claude.review_model` / `roll_model` / `eod_model` | "" / "" / "" | A model per call kind; `""` follows `claude.model` (Sonnet). **Leave empty.** Haiku was audited on scan reviews and news and not adopted: it understated risk in 8 of 8 scan reviews and once quoted collateral 5× too low (STATUS.md). News has its own pin: `news.yaml → llm.model` (Sonnet). |
+| `claude.review_info_alerts` | false | An LLM paragraph on the button-less roll / assignment-risk info alerts. Off: they carry the facts; the roll decision card still gets its review. |
+| `claude.review_reuse_minutes` | 120 | The 15-minute scan reuses a prior review while the top candidates' signals are unchanged (coarse buckets); a reused review is never older than this. `0` always reviews. |
+
+Your private `config/settings.yaml` needs no edit — each key has a code default equal to the
+shipped value. Headless calls write no session transcript any more; see where the tokens go with
+
+```bash
+python -m scripts.claude_usage                       # by call kind, all logs
+python -m scripts.claude_usage --since 2026-10-15 --by-day
+```
+
 ### `config/settings.yaml` — the `web:` block
 
 Home's monthly income target is set from the web console, under **More → Monthly income target**:
@@ -1878,6 +1900,9 @@ out of cards and digests by `tagging.noise_terms`; a 🧠 read that cites nothin
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| The logs show `usage limit reached — not retrying` / `You've hit your session limit`, and reviews, news cards or summaries come from the local model | The Claude plan's 5-hour (or weekly) limit was reached. The call is not retried; Ollama answers instead | Wait for the reset time in the message. `python -m scripts.claude_usage` shows which call kinds spend the most; the slim call (`claude.slim_context`) and Haiku routing (`claude.review_model`, `news.llm.model`) are what keep this rare |
+| Roll / delta-drift / assignment-risk info alerts carry no Claude paragraph | By design since 2026-10-15: `claude.review_info_alerts` is false (they carry no buttons; the roll decision card still gets a review) | Set `claude.review_info_alerts: true` to restore the paragraph at ~1K tokens a call |
+| `claude usage:` lines are missing from the logs, or per-call context is ~40K tokens again | The daemons are running pre-2026-10-15 code, or `claude.slim_context` is false, or `claude.workdir` was pointed somewhere that has a `CLAUDE.md` above it | Restart `./ibkr`; check `claude.slim_context`; keep `claude.workdir` outside the repo (config load refuses a path inside it) |
 | A roll card says **Let it assign**, **Let it be called away** or **Hold** instead of proposing a roll | The roll policy found no roll within its limits; the card's last lines name the reason and the skipped targets (e.g. `net below floor ×4` — no strike paid the $0.05 credit floor; `earnings before expiry`; `roll limit reached` — the chain was already rolled once) | Working as designed. To change the outcome edit `config/settings.yaml → roll:` (e.g. `new_leg.min_net_credit`, `limits.max_rolls_per_chain`) and restart the monitor. `python -m scripts.roll_backtest` shows how the alternatives have played out historically |
 | No roll card at all for a short that is in the money | It is more than `roll.trigger.evaluate_within_dte` (10) days from expiry with time value left, it is before 09:45 ET or outside RTH, or it was checked less than 30 minutes ago | Wait for the next check, or use `/options` → Propose a roll to ask now |
 | Scans complete but propose no CSP/CC; logs show `data-feed outage suspected for X: none of N call quotes had a live bid/ask` for liquid names (NVDA, META) during market hours, and most rejections are `illiquid_no_quote` | The per-batch quote wait is shorter than the time IBKR takes to fill a 40-line batch (fixed 2026-10-09: it was a hard 2 s; real-time quotes land at ~2.5-3 s) | Raise `market_data.chain_quote_ceiling_seconds` (default 8; ib_async's 45-requests/s send throttle alone delays a later batch's ticks by ~2 s) in `config/settings.yaml`. Complete batches return early, so it mainly costs time on batches that never fill; `chain_quote_settle_seconds` (2.5) bounds those. Watch for `chain-fetch budget ... exhausted` |

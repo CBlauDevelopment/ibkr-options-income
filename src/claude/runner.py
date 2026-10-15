@@ -10,10 +10,11 @@ import json
 import logging
 import subprocess
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from src.claude import ollama_runner
-from src.claude.cli import should_fall_back
+from src.claude import cli, ollama_runner
+from src.claude.cli import is_usage_limit, log_usage, should_fall_back
 from src.claude.parser import parse_claude_output, parse_journal_output, parse_roll_output
 from src.claude.prompts.eod import build_eod_prompt
 from src.claude.prompts.roll import build_roll_prompt
@@ -41,7 +42,7 @@ AnalyticsMap = dict[str, tuple[IVStats, TechnicalStats, FundamentalStats]]
 log = logging.getLogger(__name__)
 
 
-def _build_cmd(cfg: object) -> list[str]:
+def _build_cmd(cfg: object, *, model: str | None = None) -> list[str]:
     """Assemble the hardened `claude` headless command (N3).
 
     Beyond `--output-format`, this constrains the unattended subprocess so a prompt-injection
@@ -49,17 +50,53 @@ def _build_cmd(cfg: object) -> list[str]:
     denylist, an optional pinned model, and an optional effort level. All are config-tunable
     (see ClaudeCfg); a falsy value omits the corresponding flag. The flags don't change the JSON envelope, so the
     parser path is unaffected.
+
+    ``claude.slim_context`` (2026-10-15) additionally strips the interactive session's ambient
+    context (``cli.build_cmd``); the caller then runs it from ``claude.workdir``
+    (``_headless_cwd``). *model* overrides ``cfg.model`` for one call kind (``ClaudeCfg.model_for``).
     """
+    chosen = model or cfg.model  # type: ignore[attr-defined]
+    if getattr(cfg, "slim_context", False):
+        return cli.build_cmd(
+            cfg.cli_command,  # type: ignore[attr-defined]
+            model=chosen,
+            effort=getattr(cfg, "effort", ""),
+            disallowed_tools=cfg.disallowed_tools,  # type: ignore[attr-defined]
+            max_turns=cfg.max_turns,  # type: ignore[attr-defined]
+            output_format=cfg.output_format,  # type: ignore[attr-defined]
+            slim=True,
+        )
     cmd = [cfg.cli_command, "--output-format", cfg.output_format]  # type: ignore[attr-defined]
     if cfg.max_turns:  # type: ignore[attr-defined]
         cmd += ["--max-turns", str(cfg.max_turns)]  # type: ignore[attr-defined]
-    if cfg.model:  # type: ignore[attr-defined]
-        cmd += ["--model", cfg.model]  # type: ignore[attr-defined]
+    if chosen:
+        cmd += ["--model", chosen]
     if getattr(cfg, "effort", ""):
         cmd += ["--effort", cfg.effort]  # type: ignore[attr-defined]
     if cfg.disallowed_tools:  # type: ignore[attr-defined]
         cmd += ["--disallowedTools", cfg.disallowed_tools]  # type: ignore[attr-defined]
     return cmd
+
+
+def _headless_cwd(cfg: object) -> Path | None:
+    """The directory a slim call runs from (``claude.workdir``, created on demand), else None.
+
+    claude walks up from its cwd looking for CLAUDE.md, so this must be outside the repo
+    (``ClaudeCfg`` validates that). A directory that cannot be created is logged and the call
+    runs from the inherited cwd - heavier, never broken.
+    """
+    if not getattr(cfg, "slim_context", False):
+        return None
+    workdir = getattr(cfg, "workdir", "")
+    if not workdir:
+        return None
+    path = Path(workdir).expanduser()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        log.warning("claude: cannot create workdir %s - running from the inherited cwd", path)
+        return None
+    return path
 
 
 def _run_cli_outcome[T](
@@ -94,10 +131,11 @@ def _run_cli_outcome[T](
     retries = max_retries if max_retries is not None else cfg.max_retries
     error = "cli_error"
     timed_out = False
+    cwd = _headless_cwd(cfg)
     for attempt in range(retries + 1):
         try:
             result = subprocess.run(
-                cmd, input=prompt, capture_output=True, text=True, timeout=timeout
+                cmd, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=cwd
             )
         except subprocess.TimeoutExpired:
             log.warning("%s: timed out (attempt %d)", prefix, attempt + 1)
@@ -110,9 +148,12 @@ def _run_cli_outcome[T](
             log.warning("%s: rc=%d, no stdout (attempt %d)", prefix, result.returncode, attempt + 1)
             error = "cli_error"
             continue
+        if is_usage_limit(result.stdout):
+            log.warning("%s: usage limit reached — not retrying", prefix)
+            return None, ("timeout" if timed_out else "cli_error")
         parsed = parse_fn(result.stdout)
         if parsed is not None:
-            _log_cost(result.stdout)
+            _log_cost(result.stdout, prefix)
             return parsed, None
         log.warning("%s: unparseable output (attempt %d)", prefix, attempt + 1)
         error = "cli_error" if result.returncode != 0 else "bad_envelope"
@@ -209,7 +250,8 @@ def _review_candidates_cli_outcome(
 
     # Pass prompt via stdin rather than -p to avoid ARG_MAX (~128 KB) limits
     # when the candidate list + history grows large.
-    cmd = _build_cmd(cfg)
+    cmd = _build_cmd(cfg, model=cfg.model_for("review"))
+    cwd = _headless_cwd(cfg)
     candidate_ids = [c.candidate_id for c in candidates]
     error = "cli_error"
     timed_out = False
@@ -222,6 +264,7 @@ def _review_candidates_cli_outcome(
                 capture_output=True,
                 text=True,
                 timeout=cfg.timeout_seconds,
+                cwd=cwd,
             )
         except subprocess.TimeoutExpired:
             log.warning(
@@ -232,6 +275,10 @@ def _review_candidates_cli_outcome(
         except FileNotFoundError:
             log.warning("claude: CLI not found — is 'claude' on PATH?")
             return [], "cli_missing"
+
+        if is_usage_limit(result.stdout):
+            log.warning("claude: usage limit reached — not retrying")
+            return [], ("timeout" if timed_out else "cli_error")
 
         if result.returncode != 0:
             log.warning(
@@ -251,7 +298,7 @@ def _review_candidates_cli_outcome(
 
         reviews = parse_claude_output(result.stdout, candidate_ids)
         if reviews:
-            _log_cost(result.stdout)
+            _log_cost(result.stdout, "claude review")
             return reviews, None
 
         log.warning("claude: output parsed to empty list (attempt %d)", attempt + 1)
@@ -297,7 +344,10 @@ def _review_roll_cli(
         log.info("claude: disabled by config — skipping roll review")
         return None, "disabled"
     return _run_cli_outcome(
-        build_roll_prompt(alert, pos, quote, proposal=proposal), "claude roll", parse_roll_output
+        build_roll_prompt(alert, pos, quote, proposal=proposal),
+        "claude roll",
+        parse_roll_output,
+        cmd=_build_cmd(cfg, model=cfg.model_for("roll")),
     )
 
 
@@ -325,11 +375,16 @@ def _write_journal_narrative_cli(summary: EODSummary) -> tuple[str | None, str |
     if not cfg.enabled:
         log.info("claude: disabled by config — skipping EOD journal")
         return None, "disabled"
-    return _run_cli_outcome(build_eod_prompt(summary), "claude eod", parse_journal_output)
+    return _run_cli_outcome(
+        build_eod_prompt(summary),
+        "claude eod",
+        parse_journal_output,
+        cmd=_build_cmd(cfg, model=cfg.model_for("eod")),
+    )
 
 
-def _log_cost(raw: str) -> None:
-    """Best-effort cost logging from the envelope; never raises."""
+def _log_cost(raw: str, kind: str = "claude") -> None:
+    """Best-effort cost + per-call-kind usage logging from the envelope; never raises."""
     try:
         envelope = json.loads(raw)
         cost = envelope.get("total_cost_usd")
@@ -337,3 +392,4 @@ def _log_cost(raw: str) -> None:
             log.info("claude: call cost $%.6f USD", cost)
     except Exception:
         pass
+    log_usage(log, kind, raw)

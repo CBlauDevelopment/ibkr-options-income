@@ -309,9 +309,11 @@ async def _review_send_persist(
 ) -> None:
     """Review, send, and persist alerts already claimed in ``_IN_FLIGHT`` by fire_alerts."""
 
-    # Claude review in thread (subprocess — blocks; run off the event loop)
+    # Claude review in thread (subprocess — blocks; run off the event loop). Info alerts are
+    # facts only by default (claude.review_info_alerts): they carry no buttons, the decision
+    # card is the actionable one, and a strike breach used to fire both - two calls per event.
     review: RollReview | None = None
-    if cfg.claude.enabled:
+    if cfg.claude.enabled and cfg.claude.review_info_alerts:
         loop = asyncio.get_running_loop()
         try:
             review = await loop.run_in_executor(
@@ -325,10 +327,11 @@ async def _review_send_persist(
 
     from src.notify.formatters import format_assignment_alert, format_roll_alert
 
+    skipped = not cfg.claude.review_info_alerts  # on purpose: do not say "review unavailable"
     if all(a.trigger == "assignment_risk" for a in fresh):
-        text = format_assignment_alert(pos, quote, fresh, review)
+        text = format_assignment_alert(pos, quote, fresh, review, review_skipped=skipped)
     else:
-        text = format_roll_alert(pos, quote, fresh, review)
+        text = format_roll_alert(pos, quote, fresh, review, review_skipped=skipped)
     try:
         await bot.send_message(
             chat_id=chat_id, text=text, parse_mode="MarkdownV2", reply_markup=reply_markup

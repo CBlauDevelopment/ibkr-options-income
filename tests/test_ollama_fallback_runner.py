@@ -27,6 +27,7 @@ def _cfg(backend="cli_then_ollama", enabled=True, retries=1):
         model="",
         effort="",
         disallowed_tools="",
+        model_for=lambda kind: "",  # ClaudeCfg.model_for: no per-kind override
     )
 
 

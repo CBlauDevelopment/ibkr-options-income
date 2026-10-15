@@ -23,7 +23,7 @@ import time
 import uuid
 from collections.abc import Container
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ib_async import IB
 
@@ -100,10 +100,14 @@ _MEMORY_LOOKBACK_DAYS = 30
 # rows per symbol, outcomes first.
 _MEMORY_ROWS_PER_SYMBOL = 3
 
-# S5 — system_settings key holding a content hash of the prior cycle's top-candidate signal
-# vectors. When this cycle's hash matches, the intraday loop skips the `claude -p` subprocess
-# and reuses the persisted ClaudeReviews — enrichment-only, never touches gating (the fence).
-_REVIEW_HASH_KEY = "last_review_hash"
+# S5 — system_settings key holding a short log of recent fresh reviews: [{"h": fingerprint hash,
+# "t": when the LLM actually reviewed it}], newest first. A cycle whose top-candidate fingerprint is
+# in the log, and whose review is younger than claude.review_reuse_minutes, skips the `claude -p`
+# subprocess and reuses the persisted ClaudeReviews - enrichment-only, never touches gating (the
+# fence). 2026-10-15: was a single "last cycle" hash over full-precision floats, which any tick
+# defeated (10 contracts reviewed 2-4 times in a week); now coarse buckets + a bounded log.
+_REVIEW_LOG_KEY = "review_reuse_log"
+_REVIEW_LOG_MAX = 12
 
 # Max near-miss contracts to name on an empty CC/CSP screen; further rejects collapse into a
 # trailing "…and N more" line. One "closest" per strategy keeps each quiet-cycle line compact.
@@ -339,16 +343,93 @@ def _signal_vector(c: TradeCandidate, vix: float | None) -> dict:
     }
 
 
-def _candidates_review_hash(top: list[TradeCandidate], vix: float | None) -> str:
-    """Stable content hash of the top candidates' signal vectors (S5).
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
-    Keyed on each candidate's deterministic ``candidate_id`` + the exact signal snapshot Claude
-    would see. If two consecutive cycles produce the same hash, the LLM review would be identical,
-    so the intraday loop can reuse the prior ``ClaudeReview`` instead of re-invoking ``claude -p``.
+
+def _coarse(v: float | None, step: float) -> float | None:
+    """Round *v* to the nearest multiple of *step* (None stays None)."""
+    return None if v is None else round(round(v / step) * step, 6)
+
+
+def _review_fingerprint(c: TradeCandidate, vix: float | None) -> dict:
+    """What would make a fresh review read differently, in buckets small enough that a bucket
+    means "the same trade". Deliberately NOT ``_signal_vector`` (that one is frozen at full
+    precision into the outcome ledger): premium ticks, derived yields and the sentiment message
+    counts drift every cycle without changing a word of the review."""
+    return {
+        "blended": _coarse(c.blended_score, 2.0),
+        "iv_rank": _coarse(c.iv_rank, 2.0),
+        "delta": _coarse(c.delta, 0.02),
+        "vrp": _coarse(c.vrp, 1.0),  # percentage points
+        "prob_otm": _coarse(c.prob_otm, 0.02),
+        "dte": c.dte,
+        "premium": _coarse(c.premium, 0.05),
+        "scores": [
+            _coarse(x, 2.0)
+            for x in (
+                c.scores.iv_score,
+                c.scores.technical_score,
+                c.scores.fundamental_score,
+                c.scores.liquidity_score,
+                c.scores.assignment_safety_score,
+                c.scores.sentiment_score,
+            )
+        ],
+        "tags": sorted(c.rationale_tags),
+        "vix": _coarse(vix, 0.5),
+    }
+
+
+def _candidates_review_hash(top: list[TradeCandidate], vix: float | None) -> str:
+    """Stable hash of the top candidates' coarse fingerprints (S5).
+
+    Keyed on each candidate's deterministic ``candidate_id`` + ``_review_fingerprint``. If a
+    cycle's hash matches a recent fresh review, the LLM review would read the same, so the
+    intraday loop reuses the persisted ``ClaudeReview`` instead of re-invoking ``claude -p``.
     """
-    payload = sorted(((c.candidate_id, _signal_vector(c, vix)) for c in top), key=lambda x: x[0])
+    payload = sorted(
+        ((c.candidate_id, _review_fingerprint(c, vix)) for c in top), key=lambda x: x[0]
+    )
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _reuse_log() -> list[dict[str, str]]:
+    """The stored review log, tolerating a missing or corrupt value."""
+    try:
+        data = json.loads(get_setting(_REVIEW_LOG_KEY) or "[]")
+    except ValueError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [
+        e
+        for e in data
+        if isinstance(e, dict) and isinstance(e.get("h"), str) and isinstance(e.get("t"), str)
+    ]
+
+
+def _review_is_reusable(review_hash: str, now: datetime, ttl_minutes: int) -> bool:
+    """True when this fingerprint was freshly reviewed less than *ttl_minutes* ago."""
+    if ttl_minutes <= 0:
+        return False
+    for entry in _reuse_log():
+        if entry["h"] == review_hash:
+            try:
+                reviewed_at = datetime.fromisoformat(entry["t"])
+            except ValueError:
+                return False
+            return now - reviewed_at <= timedelta(minutes=ttl_minutes)
+    return False
+
+
+def _note_fresh_review(review_hash: str, now: datetime) -> None:
+    """Record that the LLM just reviewed this fingerprint. Reuse never calls this, so a reused
+    review cannot extend its own life past the window."""
+    entries = [e for e in _reuse_log() if e["h"] != review_hash]
+    entries.insert(0, {"h": review_hash, "t": now.isoformat()})
+    set_setting(_REVIEW_LOG_KEY, json.dumps(entries[:_REVIEW_LOG_MAX]))
 
 
 def _load_prior_reviews(candidate_ids: list[str]) -> dict[str, ClaudeReview]:
@@ -1633,7 +1714,8 @@ async def _run_scan_body(
             # (intraday loop only — manual /scan always reviews fresh).
             vix = result.market_conditions.vix if result.market_conditions else None
             review_hash = _candidates_review_hash(top, vix)
-            if intraday and get_setting(_REVIEW_HASH_KEY) == review_hash:
+            reuse_minutes = get_config().claude.review_reuse_minutes
+            if intraday and _review_is_reusable(review_hash, _utcnow(), reuse_minutes):
                 cached = _load_prior_reviews([c.candidate_id for c in top])
                 if len(cached) == len(top):
                     result.reviews = [cached[c.candidate_id] for c in top]
@@ -1660,7 +1742,8 @@ async def _run_scan_body(
                         analytics=analytics_map,
                     ),
                 )
-            set_setting(_REVIEW_HASH_KEY, review_hash)
+                if result.reviews and reuse_minutes > 0:
+                    _note_fresh_review(review_hash, _utcnow())
         log.info("scan: %d Claude reviews", len(result.reviews))
     except Exception:
         log.exception("scan: Claude review failed — continuing without reviews")

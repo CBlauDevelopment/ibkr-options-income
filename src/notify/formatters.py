@@ -2068,8 +2068,13 @@ def format_roll_alert(
     quote: OptionQuote,
     alerts: list[RollAlert],
     review: RollReview | None,
+    *,
+    review_skipped: bool = False,
 ) -> str:
-    """Format a roll alert for Telegram MarkdownV2."""
+    """Format a roll alert for Telegram MarkdownV2.
+
+    ``review_skipped``: no review was requested (``claude.review_info_alerts`` off), so the
+    card ends at the facts instead of saying a review is unavailable."""
     right_label = pos.right.value if pos.right else "?"
     strategy = "CC" if right_label == "C" else "CSP"
     strike_str = fmt_strike(pos.strike) if pos.strike else "?"
@@ -2106,7 +2111,7 @@ def format_roll_alert(
             parts.append(f"→ {_md(roll_info)}")
         if review.risks:
             parts.append(f"Risk: {_md(review.risks)}")
-    else:
+    elif not review_skipped:
         parts += ["", "_Claude review unavailable — manual evaluation required_"]
 
     text = "\n".join(parts)
@@ -2120,11 +2125,13 @@ def format_assignment_alert(
     quote: OptionQuote,
     alerts: list[RollAlert],
     review: RollReview | None,
+    *,
+    review_skipped: bool = False,
 ) -> str:
     """Format an assignment-risk alert for Telegram MarkdownV2.
 
     Distinct from roll alerts: frames the decision as roll / close / let-assign
-    rather than a generic trigger list.
+    rather than a generic trigger list. ``review_skipped`` as in ``format_roll_alert``.
     """
     right_label = pos.right.value if pos.right else "?"
     strategy = "CC" if right_label == "C" else "CSP"
@@ -2154,7 +2161,7 @@ def format_assignment_alert(
             parts.append(f"→ {_md(review.roll_target or review.rationale or '')}")
         if review.risks:
             parts.append(f"Risk: {_md(review.risks)}")
-    else:
+    elif not review_skipped:
         parts += ["", "_Claude review unavailable — manual evaluation required_"]
 
     text = "\n".join(parts)

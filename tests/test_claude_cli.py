@@ -10,7 +10,17 @@ from pathlib import Path
 import httpx
 import pytest
 
-from src.claude.cli import OllamaSettings, run_claude, run_ollama, should_fall_back
+from src.claude.cli import (
+    HEADLESS_SYSTEM_PROMPT,
+    OllamaSettings,
+    Usage,
+    build_cmd,
+    is_usage_limit,
+    run_claude,
+    run_ollama,
+    should_fall_back,
+    usage_summary,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -203,3 +213,111 @@ async def test_run_ollama_never_raises(monkeypatch, outcome, error) -> None:
     _patch_post(monkeypatch, outcome)
     res = await run_ollama("p", settings=OLLAMA, schema={}, timeout_seconds=5)
     assert (res.text, res.error) == (None, error)
+
+
+# --------------------------------------------------------------------------- #
+# Slim headless invocation (2026-10-15): measured on CLI 2.1.295, a "reply OK" call carried
+# 37.7K tokens of ambient Claude Code context from the repo cwd and 0.6K with these flags.
+# --------------------------------------------------------------------------- #
+
+
+def test_build_cmd_is_slim_by_default() -> None:
+    cmd = build_cmd("claude", model="m", effort="medium", disallowed_tools="Bash")
+    assert cmd[:2] == ["claude", "-p"]
+    for flag in ("--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"):
+        assert flag in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == "project"
+    assert cmd[cmd.index("--tools") + 1] == ""  # no tool definitions in the context at all
+    assert cmd[cmd.index("--system-prompt") + 1] == HEADLESS_SYSTEM_PROMPT
+    assert cmd[cmd.index("--model") + 1] == "m"
+
+
+def test_build_cmd_not_slim_drops_only_the_slim_flags() -> None:
+    cmd = build_cmd("claude", model="m", effort="", disallowed_tools="", slim=False)
+    assert "--strict-mcp-config" in cmd  # the picker always had this one
+    for flag in ("--disable-slash-commands", "--tools", "--system-prompt", "--setting-sources"):
+        assert flag not in cmd
+    assert "--effort" not in cmd and "--disallowedTools" not in cmd
+
+
+def test_build_cmd_honours_turns_and_format() -> None:
+    cmd = build_cmd(
+        "c", model="", effort="", disallowed_tools="", max_turns=0, output_format="text"
+    )
+    assert "--max-turns" not in cmd
+    assert cmd[cmd.index("--output-format") + 1] == "text"
+
+
+_ENVELOPE = {
+    "result": "ok",
+    "total_cost_usd": 0.0012,
+    "duration_ms": 3400,
+    "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 646,
+        "output_tokens": 304,
+    },
+    "modelUsage": {"claude-haiku-5-5": {"outputTokens": 304}},
+}
+
+
+def test_usage_summary_reads_context_output_model_and_cost() -> None:
+    u = usage_summary(json.dumps(_ENVELOPE))
+    assert u == Usage(
+        model="claude-haiku-5-5", ctx_tokens=1148, out_tokens=304, cost_usd=0.0012, duration_ms=3400
+    )
+
+
+@pytest.mark.parametrize("raw", ["", "not json", "[]", json.dumps({"result": "x"})])
+def test_usage_summary_is_none_when_the_envelope_has_no_usage(raw) -> None:
+    assert usage_summary(raw) is None
+
+
+def test_usage_summary_tolerates_missing_optional_fields() -> None:
+    u = usage_summary(json.dumps({"usage": {"input_tokens": 5, "output_tokens": 7}}))
+    assert u is not None and u.ctx_tokens == 5 and u.out_tokens == 7
+    assert u.model == "?" and u.cost_usd is None and u.duration_ms is None
+
+
+@pytest.mark.parametrize(
+    ("envelope", "expected"),
+    [
+        ({"is_error": True, "result": "You've hit your session limit · resets 7:40am"}, True),
+        ({"is_error": True, "result": "You've hit your weekly limit"}, True),
+        ({"is_error": True, "result": "Claude usage limit reached"}, True),
+        # the real envelope of a hit limit (captured from data/spreads.db, 2026-10-14): detected
+        # by its structured fields even if the human-readable text changes
+        (
+            {
+                "is_error": True,
+                "api_error": "usage_limit_reached",
+                "api_error_status": 429,
+                "result": "Something the CLI reworded",
+            },
+            True,
+        ),
+        ({"is_error": True, "api_error_status": 429, "result": "x"}, True),
+        ({"is_error": True, "api_error_status": 401, "result": "Invalid API key"}, False),
+        ({"is_error": True, "result": "Invalid API key"}, False),
+        ({"is_error": False, "result": "the limit of this approach is cost"}, False),
+    ],
+)
+def test_is_usage_limit_only_matches_error_envelopes(envelope, expected) -> None:
+    assert is_usage_limit(json.dumps(envelope)) is expected
+
+
+@pytest.mark.parametrize("raw", ["", "plain text", "[1]"])
+def test_is_usage_limit_false_for_non_envelopes(raw) -> None:
+    assert is_usage_limit(raw) is False
+
+
+async def test_run_claude_passes_the_slim_flags(tmp_path) -> None:
+    cli = fake_cli(
+        tmp_path,
+        'print(json.dumps({"is_error": False, "result": json.dumps({"argv": sys.argv[1:]})}))',
+    )
+    res = await _run(cli, tmp_path)
+    argv = json.loads(res.text or "")["argv"]
+    assert "--disable-slash-commands" in argv and "--no-session-persistence" in argv
+    assert argv[argv.index("--tools") + 1] == ""

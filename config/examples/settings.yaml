@@ -223,6 +223,31 @@ claude:
   # thinking); sonnet-5-5 medium 16s, 1.5K output, 3/3 parsed with fact-cited evidence.
   effort: "medium"
   disallowed_tools: "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task"
+  # Headless call weight (2026-10-15). Run from the repo with everything loaded, a `claude -p`
+  # call carried ~40K tokens of ambient Claude Code context (skills, CLAUDE.md, MCP tools, hooks,
+  # tool definitions) around prompts of 0.3K-10K. slim_context strips it: measured on CLI
+  # 2.1.295 a trivial call went 37.7K -> 0.6K tokens, and real roll/news/scan prompts replayed
+  # through the production parsers came back identical. false restores the old command and the
+  # repo cwd (the kill switch if a CLI update changes what the flags mean).
+  slim_context: true
+  # Where headless calls run. MUST be outside the repo: claude walks up from its cwd and would
+  # load the repo's CLAUDE.md into every call. Absolute, or starting with ~.
+  workdir: "~/.cache/ibkr-claude"
+  # Model per call kind ("" = `model` above, i.e. Sonnet). Haiku was audited 2026-10-15 and is
+  # NOT used: a blinded audit of 8 scan reviews found it understated risk in 8 of 8 (dropped the
+  # "spot is X% on the wrong side of the action level" warning, the below-50d/200d downtrend and
+  # existing same-ticker exposure), reasoned wrongly about puts, and once quoted collateral 5x too
+  # low ($19,250 for 5 x $192.50 puts). It saves ~$1/week once calls are slim. See STATUS.md.
+  review_model: ""
+  roll_model: ""
+  eod_model: ""
+  # An LLM paragraph on the button-less roll / assignment-risk INFO alerts. false: they carry
+  # the deterministic facts only; the roll decision card (which does get a review) is the
+  # actionable one. A strike breach used to fire both, two calls in the same minute.
+  review_info_alerts: false
+  # The 15-min scan reuses a prior Claude review while the top candidates' coarsened signals are
+  # unchanged; a reused review is never older than this many minutes. 0 disables reuse.
+  review_reuse_minutes: 120
   # Local-LLM (Ollama) backend. "cli" (default) | "ollama" | "cli_then_ollama" (try claude -p,
   # fall back to the local model on any CLI failure except a timeout: a usage limit, a missing
   # CLI, an error envelope, unparseable output - recommended once you have a claude subscription;

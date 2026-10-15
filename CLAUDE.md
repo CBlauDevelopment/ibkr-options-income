@@ -455,5 +455,10 @@ added no write beyond the `refresh` command (Task 1.4) — the API still writes 
 
 `src/claude/runner.py` shells out to `claude -p "<prompt>" --output-format json`, passing context
 (top candidates + portfolio summary + a specific question) and parsing a structured `ClaudeReview`
-back. If the CLI is unavailable or output is unparseable, the pipeline **falls back** to shipping
+back. The call is **slim** (`claude.slim_context`, via `src/claude/cli.py::build_cmd`) and runs from
+`claude.workdir`, **outside this repo**: `claude` walks up from its cwd and would load this file, the
+skill list and the MCP tools into every call (~40K tokens around a 0.5K-10K prompt — 2026-10-15). Never
+point `claude.workdir` or a spreads workdir inside the repo, and add a new headless caller through
+`cli.build_cmd`/`runner._build_cmd`, not a second command. Models are per call kind
+(`claude.review_model` etc.); `python -m scripts.claude_usage` shows where the tokens go. If the CLI is unavailable or output is unparseable, the pipeline **falls back** to shipping
 the deterministic Rules-Engine-approved list — Claude is enrichment, never a dependency.

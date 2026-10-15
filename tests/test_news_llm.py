@@ -45,9 +45,12 @@ def test_cli_command_pins_news_model(monkeypatch) -> None:
         return parse_fn('{"type":"result","result":"{\\"a\\":1}"}'), None
 
     monkeypatch.setattr("src.claude.runner._run_cli_outcome", fake_run)
-    out = llm._cli("p", "t", get_config().news.llm)
+    # a sentinel, so the test proves the pin and does not track whatever the template ships
+    news_cfg = get_config().news.llm.model_copy(update={"model": "news-pinned-model"})
+    out = llm._cli("p", "t", news_cfg)
     assert out == ('{"a":1}', None)
-    assert seen["cmd"][seen["cmd"].index("--model") + 1] == "claude-sonnet-5-5"
+    assert seen["cmd"][seen["cmd"].index("--model") + 1] == "news-pinned-model"
+    assert "news-pinned-model" != get_config().claude.model  # the override, not claude.model
     assert "--disallowedTools" in seen["cmd"]
 
 

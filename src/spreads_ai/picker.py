@@ -66,8 +66,10 @@ class ClaudePicker:
         snapshot: Snapshotter = market_snapshot,
         ollama: OllamaSettings | None = None,
         ollama_run: OllamaRunner = run_ollama,
+        slim: bool = True,
     ) -> None:
         self.cfg = cfg
+        self.slim = slim  # claude.slim_context: False restores the full interactive context
         self.cli_command = cli_command
         self.disallowed_tools = disallowed_tools
         self.workdir = workdir
@@ -96,6 +98,7 @@ class ClaudePicker:
             disallowed_tools=c.disallowed_tools,
             workdir=cfg.spreads_ai_workdir(),
             ollama=ollama,
+            slim=c.slim_context,
         )
 
     async def _market(self, now: datetime) -> SpreadMarketSnapshot:
@@ -130,6 +133,7 @@ class ClaudePicker:
                 "timeout_seconds": t,
                 "cwd": self.workdir,
                 "disallowed_tools": self.disallowed_tools,
+                "slim": self.slim,
             }
             return await self._run(prompt, **kwargs)
 
