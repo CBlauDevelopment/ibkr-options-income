@@ -1213,10 +1213,13 @@ reskinned without an edit. The structure it added:
   the `/trades` page (`TradesPage`): the strategy switcher, which also picks the views (the wheel gets
   Proposals, History and Assessed; Credit spreads gets Spreads only), kept in `?view=` beside
   `?strategy=` and, for History, `?day=YYYY-MM-DD`. With no `?view=` it opens on Proposals when a
-  proposal in the strategy waits on you and on History otherwise, decided once per visit.
+  proposal in the strategy waits on you and on History otherwise, decided once per visit (and on
+  History when the pending proposals could not be loaded, rather than a skeleton that never ends).
   `ProposalsView` reuses Home's `ProposalCard`, `ReviewSheet` and `usePendingApprovals` (ticker chips
   from two tickers up; approving in the sheet moves the card to History's In flight at once, through
-  `useSubmittedApprovals`, which survives a reload mid-command); `HistoryView` is one New York day: In
+  `useSubmittedApprovals`, which survives a reload mid-command and seeds only Approve commands; a
+  page-level `SubmittedWatcher` per approval in flight follows its command whatever view is open and,
+  when it ends failed or expired, hands the card back and clears its persisted entry); `HistoryView` is one New York day: In
   flight (the cards you approved here with their receipts, then working orders from
   `GET /options/orders?state=working`), Traded (`TradeCard`s from `GET /pnl/day`, each saying who
   approved it from `decided_by`) and Not traded (approvals raised that day that ended without a fill);

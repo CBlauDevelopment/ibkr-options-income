@@ -131,7 +131,10 @@ class ApprovalSummary(Envelope):
     # expiry, never inferred.
     decided_by: DecidedByLit | None = None
     roll_from: ApprovalRollFrom | None = None  # a roll's buy-back leg; None for an entry
-    fill_price: float | None = None  # the order's average fill per share; None until it fills
+    # The order's average fill per share, None until it fills. A roll is reported as its NET in
+    # ``premium``'s convention (credit positive, debit negative): IBKR's combo average is the
+    # opposite sign, flipped in ``_build_summary``.
+    fill_price: float | None = None
 
 
 class ApprovalDetail(ApprovalSummary):

@@ -235,6 +235,15 @@ def _build_summary(
     if contracts is None or contracts == 0:
         contracts = 1
 
+    # The snapshot says roll even when the 14-day purge has removed the candidate row.
+    is_roll = snap_fields.get("strategy") == "roll"
+    if is_roll and fill_price is not None:
+        # A roll order is a BAG: IBKR's net average (and ``roll_executor``'s
+        # ``row.avg_fill_price = net_avg``) is debit-positive, so a CREDIT is stored negative.
+        # Report it in ``premium``'s convention (credit positive, debit negative). ``0.0 - x``
+        # rather than ``-x`` so a flat fill never becomes ``-0.0``.
+        fill_price = 0.0 - fill_price
+
     return ApprovalSummary(
         as_of=datetime.now(UTC),
         id=approval.id,
@@ -252,8 +261,7 @@ def _build_summary(
         expires_at=as_utc_opt(approval.expires_at),
         decided_at=as_utc_opt(approval.decided_at),
         order_state=order_state,
-        # The snapshot says roll even when the 14-day purge has removed the candidate row.
-        source="roll" if snap_fields.get("strategy") == "roll" else _source_from_run_id(run_id),
+        source="roll" if is_roll else _source_from_run_id(run_id),
         review=review,
         rationale_tags=rationale_tags,
         decided_by=_decider(getattr(approval, "decided_by", None)),

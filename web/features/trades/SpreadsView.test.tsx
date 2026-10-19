@@ -60,6 +60,23 @@ describe("SpreadsView", () => {
     expect(within(rows[1]).getByText("Baseline")).toBeInTheDocument();
   });
 
+  it("labels a pick that was refused before it traded as chosen, not sent, with the reason", async () => {
+    renderWithQuery(<SpreadsView />, {
+      "/spreads/picks": day({
+        picks: [pick({ pick_id: 3, spread_id: null, filled: false, send_rejected: true, send_reasons: ["stale_pick"] })],
+        positions: [],
+      }),
+    });
+    const other = await screen.findByRole("region", { name: "Other picks" });
+    const card = within(other).getByRole("article", { name: "SPY · Claude picked A" });
+    fireEvent.click(within(card).getByRole("button", { name: /The menu Claude saw/ }));
+    const rows = within(within(card).getByRole("list", { name: "Menu" })).getAllByRole("listitem");
+    expect(within(rows[0]).queryByText("Sent")).toBeNull();
+    expect(within(rows[0]).getByText("Chosen, did not trade")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Did not trade: stale pick.")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Claude's pick")).toBeInTheDocument();
+  });
+
   it("lists picks without a spread on this page under Other picks", async () => {
     renderWithQuery(<SpreadsView />, {
       "/spreads/picks": day({

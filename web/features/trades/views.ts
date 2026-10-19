@@ -27,10 +27,12 @@ export function explicitView(raw: string | null | undefined, strategy: StrategyF
 /**
  * With no view asked for: Proposals when something waits on you, History otherwise (the account
  * runs on full autonomy, so most visits have nothing to approve). Null until the count is known.
+ * When the pending proposals could not be loaded (`failed`), the count never arrives, so the
+ * answer is History, the "nothing waits on you" default, rather than a skeleton that never ends.
  */
-export function defaultView(strategy: StrategyFilter, pending: number | null): TradesView | null {
+export function defaultView(strategy: StrategyFilter, pending: number | null, failed = false): TradesView | null {
   if (strategy === "spread") return "spreads";
-  if (pending === null) return null;
+  if (pending === null) return failed ? "history" : null;
   return pending > 0 ? "proposals" : "history";
 }
 

@@ -36,4 +36,10 @@ describe("useSubmittedApprovals", () => {
     const { result } = renderHook(() => useSubmittedApprovals());
     expect(result.current.submitted.has(1)).toBe(true);
   });
+  it("is seeded only with Approve commands: a persisted Reject is not an approval", () => {
+    savePersistedCommand(1, command);
+    savePersistedCommand(2, { ...command, id: 8, kind: "reject" });
+    const { result } = renderHook(() => useSubmittedApprovals());
+    expect([...result.current.submitted.keys()]).toEqual([1]);
+  });
 });

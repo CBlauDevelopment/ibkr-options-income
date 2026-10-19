@@ -9,6 +9,15 @@ export function timeET(iso: string): string {
   return Number.isNaN(t) ? "time n/a" : `${TIME_ET.format(new Date(t)).replace(/[  ]/g, " ")} ET`;
 }
 
+/** True for a "YYYY-MM-DD" that is a real calendar date, so "2026-13-45" never reaches the formatters. */
+export function isCalendarDay(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
 /** "Thu, Oct 15" for a "YYYY-MM-DD" New York day (formatted in UTC so the date never shifts). */
 export function dayLabel(isoDate: string): string {
   return DAY.format(new Date(`${isoDate}T00:00:00Z`));

@@ -24,8 +24,10 @@ export function useSubmittedApprovals(): SubmittedApprovals {
   const [submitted, setSubmitted] = useState<Map<number, CommandStatus>>(() => new Map());
 
   useEffect(() => {
-    const persisted = loadAllPersistedCommands();
-    if (persisted.size > 0) setSubmitted(persisted);
+    // Only Approve commands: a Reject persisted mid-flight is not an approval, and seeding it
+    // would put the card under In flight reading "You approved this."
+    const approvals = new Map([...loadAllPersistedCommands()].filter(([, command]) => command.kind === "approve"));
+    if (approvals.size > 0) setSubmitted(approvals);
   }, []);
 
   const markSubmitted = useCallback(

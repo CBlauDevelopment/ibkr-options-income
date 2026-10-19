@@ -21,7 +21,9 @@ export function creditWords(premium: number | null, minCredit: number | null): s
 
 function Figure({ value }: { value: number | null }) {
   if (value == null) return <span className="hatch font-mono text-unknown">{UNKNOWN}</span>;
-  return <span className="tabular font-mono">${value.toFixed(2)}</span>;
+  // A debit roll's net is below zero: the minus sign leads the dollar sign, never "$-0.30".
+  const text = value < 0 ? `−$${Math.abs(value).toFixed(2)}` : `$${value.toFixed(2)}`;
+  return <span className="tabular font-mono">{text}</span>;
 }
 
 function StrikeBand({ lo, hi, strike }: { lo: number; hi: number; strike: number }) {

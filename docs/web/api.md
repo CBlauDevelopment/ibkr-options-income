@@ -775,13 +775,20 @@ entry auto-queue on the WHITELIST or FULL rung, and the roll pipeline's auto-app
 `null` means not recorded and is never inferred: an approval decided before the column
 existed, or before the trading service was restarted onto it, an expiry, and a pending
 approval all read `null`. It is a record for the console only; nothing in `src/engine/`,
-`src/strategies/` or `src/execution/` reads it.
+`src/strategies/` or `src/execution/` reads it. The column is added by `init_db`, which the
+trading service, the monitor and the scripts run and the API process never does: an API started
+onto this code before one of them has migrated `data/income_system.db` answers 500 on the
+approvals reads and on `/pnl/day` until the column exists, so restart the trading service first
+(or run `python -m scripts.healthcheck`), then the API.
 `roll_from` is a roll's buy-back leg from the frozen snapshot: `{ strike, expiry, right,
 contracts, old_mid, new_mid }`, the mids per share at which the roll was priced when it was
 proposed (a quote, never a fill; either may be `null`). `null` for an entry and for a roll
 frozen before the 2026-10-11 redesign.
 `fill_price` is the order's average fill per share, `null` until it fills (or when no order
-exists).
+exists). For a **roll** (the snapshot's strategy is `roll`, the rule `source` uses) it is the
+roll's **net per share in `premium`'s convention**: a credit is positive and a debit negative.
+IBKR's combo average, which `OrderRow.avg_fill_price` stores, has the opposite sign (a credit is
+negative), so the API flips it; a single-leg order keeps its own price.
 `created_at` is the approval's actual raise time (`ApprovalRow.created_at`) — never
 confuse it with the envelope's `as_of`, which is `datetime.now(UTC)` at response-build
 time and therefore always "now" no matter how old the approval is. The web renders
@@ -1473,8 +1480,8 @@ never imports `src.spreads`). Owner-only; writes nothing; never reaches IBKR.
 Every figure was computed by `src/spreads/menu.py` when the menu was built; credits are per share.
 `contracts` is set by the spreads gate, never by Claude; `dist_spot_pts` is the short strike's
 distance from spot (positive is out of the money), `dist_em_multiple` the same in expected
-moves, `be_nominal_exits` the break-even win rate (0 to 1) under the configured exits; the last
-three and `short_delta` may be `null`.
+moves, `be_nominal_exits` the break-even win rate (0 to 1) under the configured exits;
+`short_delta`, `dist_em_multiple` and `be_nominal_exits` may be `null`. `dist_spot_pts` never is.
 
 ## News (news thread, spec §7.6)
 

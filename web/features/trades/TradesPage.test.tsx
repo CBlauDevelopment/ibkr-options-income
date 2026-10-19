@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // test-query registers the @/lib/api mock when it is evaluated, so it must load before anything
 // that imports @/lib/api (lib/commands does), or that module keeps the real apiFetch.
 import { apiFetchMock } from "@/lib/test-query";
-import { savePersistedCommand, type CommandStatus } from "@/lib/commands";
+import { loadPersistedCommand, savePersistedCommand, type CommandStatus } from "@/lib/commands";
 
 const nav = vi.hoisted(() => ({ replace: vi.fn(), params: new URLSearchParams() }));
 vi.mock("next/navigation", () => ({
@@ -29,9 +29,21 @@ const pendingCommand = {
   confirm_token: null, created_at: "", applied_at: null, as_of: "",
 };
 
-function serve(world: { drainHealthy?: boolean; pending?: unknown[] } = {}) {
+type World = {
+  drainHealthy?: boolean;
+  pending?: unknown[];
+  /** The pending-approvals request rejects (the API is down, or answers 500). */
+  pendingFails?: boolean;
+  /** What a poll of GET /commands/{id} answers; the Approve itself (POST /commands) is always pending. */
+  command?: { status: "pending" | "failed" | "expired"; needs_confirmation?: boolean };
+};
+
+function serve(world: World = {}) {
   apiFetchMock.mockImplementation(async (path: string) => {
-    if (path === "/options/approvals?status=pending") return { as_of: "", approvals: world.pending ?? [aapl] };
+    if (path === "/options/approvals?status=pending") {
+      if (world.pendingFails) throw new Error("API unavailable");
+      return { as_of: "", approvals: world.pending ?? [aapl] };
+    }
     if (path.startsWith("/options/approvals?status=all")) return { as_of: "", approvals: [] };
     if (path === "/options/approvals/1") return aapl;
     if (path === "/options/controls") {
@@ -55,7 +67,8 @@ function serve(world: { drainHealthy?: boolean; pending?: unknown[] } = {}) {
         previous_day: null, next_day: null, picks: [], positions: [],
       };
     }
-    if (path === "/commands" || path.startsWith("/commands/")) return { ...pendingCommand, created: true };
+    if (path === "/commands") return { ...pendingCommand, created: true };
+    if (path.startsWith("/commands/")) return { ...pendingCommand, ...world.command };
     throw new Error(`no mocked response for ${path}`);
   });
 }
@@ -69,7 +82,7 @@ const tree = (qc: QueryClient) => (
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const r = render(tree(qc));
-  return { rerenderPage: () => r.rerender(tree(qc)) };
+  return { qc, rerenderPage: () => r.rerender(tree(qc)) };
 }
 
 const viewNames = (group: HTMLElement) =>
@@ -163,6 +176,96 @@ describe("TradesPage", () => {
     const flight = await screen.findByRole("region", { name: "In flight" });
     const sent = await within(flight).findByRole("article", { name: "AAPL · Sell $180 put" });
     expect(within(sent).getByTestId("command-receipt")).toBeInTheDocument();
+  });
+
+  it("opens History, with the view chips, when the pending proposals could not be loaded", async () => {
+    serve({ pendingFails: true });
+    mount();
+    const views = await screen.findByRole("group", { name: "View" });
+    await waitFor(() => expect(within(views).getByRole("button", { name: /^History/ })).toHaveAttribute("aria-pressed", "true"));
+    expect(await screen.findByRole("region", { name: "Traded" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading trades" })).toBeNull();
+    // Proposals is one tap away and says for itself that it could not load.
+    fireEvent.click(within(views).getByRole("button", { name: /^Proposals/ }));
+    expect(nav.replace).toHaveBeenCalledWith("/trades?view=proposals", { scroll: false });
+  });
+
+  it("keeps History when the pending proposals load after the first attempt failed", async () => {
+    const world: World = { pendingFails: true };
+    serve(world);
+    const { qc } = mount();
+    const views = await screen.findByRole("group", { name: "View" });
+    await waitFor(() => expect(within(views).getByRole("button", { name: /^History/ })).toHaveAttribute("aria-pressed", "true"));
+    world.pendingFails = false;
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["options", "approvals", "pending"] });
+    });
+    await waitFor(() => expect(within(views).getByRole("button", { name: /^Proposals/ }).textContent).toMatch(/1$/));
+    expect(within(views).getByRole("button", { name: /^History/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  describe("an Approve that ends failed or expired, with the sheet closed and History never opened", () => {
+    /** Review, Approve, confirm, close the sheet: the card is out of Proposals and in flight. */
+    async function approveAndCloseTheSheet() {
+      const card = await screen.findByRole("article", { name: "AAPL · Sell $180 put" });
+      fireEvent.click(within(card).getByRole("button", { name: "Review" }));
+      const sheet = screen.getByRole("dialog", { name: "Review trade" });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Approve" }));
+      const confirm = within(sheet).getByRole("dialog", { name: "Approve this contract" });
+      const buttons = confirm.querySelectorAll("button");
+      fireEvent.click(buttons[buttons.length - 1]);
+      await waitFor(() => expect(screen.queryByRole("article", { name: "AAPL · Sell $180 put" })).toBeNull());
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review trade" })).toBeNull());
+    }
+
+    /** Stands in for the 2-second poll: ask the command's status again now. */
+    const pollNow = (qc: QueryClient) =>
+      act(async () => {
+        await qc.invalidateQueries({ queryKey: ["command"] });
+      });
+
+    it.each(["failed", "expired"] as const)("hands the card back to Proposals when the command %s", async (status) => {
+      const world: World = {};
+      serve(world);
+      const { qc } = mount();
+      await approveAndCloseTheSheet();
+      const views = screen.getByRole("group", { name: "View" });
+      expect(within(views).getByRole("button", { name: /^Proposals/ })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByText("Nothing needs you right now.")).toBeInTheDocument();
+      expect(loadPersistedCommand(1)).not.toBeNull();
+
+      world.command = { status };
+      await pollNow(qc);
+
+      expect(await screen.findByRole("article", { name: "AAPL · Sell $180 put" })).toBeInTheDocument();
+      await waitFor(() => expect(within(views).getByRole("button", { name: /^Proposals/ }).textContent).toMatch(/1$/));
+      expect(within(views).getByRole("button", { name: /^Proposals/ })).toHaveAttribute("aria-pressed", "true");
+      // The persisted entry is gone, so a later visit does not hide the card again.
+      expect(loadPersistedCommand(1)).toBeNull();
+    });
+
+    it("does not hand a command back while it still waits on the LIVE confirmation", async () => {
+      const world: World = {};
+      serve(world);
+      const { qc } = mount();
+      await approveAndCloseTheSheet();
+      world.command = { status: "pending", needs_confirmation: true };
+      await pollNow(qc);
+      expect(screen.queryByRole("article", { name: "AAPL · Sell $180 put" })).toBeNull();
+      expect(screen.getByText("Nothing needs you right now.")).toBeInTheDocument();
+      expect(loadPersistedCommand(1)).not.toBeNull();
+    });
+
+    it("follows a command carried over from a reload, with Proposals open", async () => {
+      const world: World = { command: { status: "failed" } };
+      serve(world);
+      savePersistedCommand(1, pendingCommand as CommandStatus);
+      nav.params = new URLSearchParams("view=proposals");
+      mount();
+      expect(await screen.findByRole("article", { name: "AAPL · Sell $180 put" })).toBeInTheDocument();
+      await waitFor(() => expect(loadPersistedCommand(1)).toBeNull());
+    });
   });
 
   it("warns in words when the trading service is not draining commands", async () => {

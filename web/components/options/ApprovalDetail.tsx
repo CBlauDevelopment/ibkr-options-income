@@ -6,7 +6,7 @@ import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/Card";
 import { StatusWord } from "@/components/ui/StatusWord";
-import { Stub } from "@/components/ui/Stub";
+import { Stub, formatStubValue } from "@/components/ui/Stub";
 import { proposalTitle } from "@/features/home/ProposalCard";
 import { decisionWords, proposalSentence, proposalStub, rollSentence, rollStub } from "@/features/home/proposal";
 import { apiFetch } from "@/lib/api";
@@ -49,6 +49,15 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const Unknown = () => <span className="hatch text-unknown">{UNKNOWN}</span>;
+
+/**
+ * A price per share. A roll's is a net, credit positive and debit negative (the API reports the
+ * fill in `premium`'s convention), so it is written signed: "+$0.45" or "−$0.30", never "$-0.30".
+ * A single-leg price is always a credit taken and keeps the plain dollar figure.
+ */
+function perShare(value: number, net: boolean): string {
+  return net ? formatStubValue(value, "signed-money") : `$${value.toFixed(2)}`;
+}
 
 const LEFT = "min-w-0 lg:col-start-1";
 
@@ -99,10 +108,12 @@ export function ApprovalDetailCard({ detail }: { detail: ApprovalDetail }) {
           <dl className="mt-3">
             <Fact label="Contracts">{detail.contracts}</Fact>
             <Fact label={isRoll ? "Net a share, as priced" : "Premium a share"}>
-              {detail.premium != null ? `$${detail.premium.toFixed(2)}` : <Unknown />}
+              {detail.premium != null ? perShare(detail.premium, isRoll) : <Unknown />}
             </Fact>
             {detail.order_state === "filled" || detail.order_state === "partial" ? (
-              <Fact label="Filled at">{detail.fill_price != null ? `$${detail.fill_price.toFixed(2)}` : <Unknown />}</Fact>
+              <Fact label={isRoll ? "Net filled, a share" : "Filled at"}>
+                {detail.fill_price != null ? perShare(detail.fill_price, isRoll) : <Unknown />}
+              </Fact>
             ) : null}
             <Fact label="Score">{detail.blended_score != null ? detail.blended_score.toFixed(1) : <Unknown />}</Fact>
             <Fact label="Expiry">{detail.expiry ?? <Unknown />}</Fact>

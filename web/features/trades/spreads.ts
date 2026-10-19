@@ -73,6 +73,26 @@ export function pickSentence(p: SpreadPick): string {
   return `${head}Sent ${what}. No result is recorded yet.`;
 }
 
+/**
+ * What to say beside the menu item the service tried to send, from the stored flags only.
+ * `executed_letter` is the item chosen for sending, set before anything is sent, so it is never
+ * proof of an order: "Sent" is said only when the spread filled. A did-not-trade pick covers both
+ * a refusal before sending (a stale pick, a halted day, the re-gate) and an order that went out and
+ * did not fill, which the flags do not tell apart, so the words are true of both. Null for any
+ * other letter.
+ */
+export function itemOutcome(p: SpreadPick, letter: string): { word: string; why: string | null } | null {
+  if (p.executed_letter !== letter) return null;
+  if (p.filled) return { word: "Sent", why: null };
+  if (p.send_rejected) {
+    return {
+      word: "Chosen, did not trade",
+      why: p.send_reasons.length > 0 ? p.send_reasons.map(codeWords).join(", ") : null,
+    };
+  }
+  return { word: "Chosen, no result recorded yet", why: null };
+}
+
 /** The position page reads the running (paper) book only; shadow and baseline spreads have none. */
 export function positionHref(p: SpreadPosition, underlying: string): string | null {
   return p.mode === "paper" ? `/positions/${encodeURIComponent(underlying)}/spread-${p.spread_id}` : null;

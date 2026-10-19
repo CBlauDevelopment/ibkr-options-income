@@ -14,7 +14,7 @@ import type { SpreadPosition } from "@/features/home/types";
 import { apiFetch } from "@/lib/api";
 import { UNKNOWN } from "@/lib/format";
 import { formatMoneyCell } from "@/lib/money";
-import { BOOK_LABEL, bookRow, breakEven, dayLabel, itemDetail, itemLabel, pickSentence, pickTitle, timeET } from "./spreads";
+import { BOOK_LABEL, bookRow, breakEven, dayLabel, itemDetail, itemLabel, itemOutcome, pickSentence, pickTitle, timeET } from "./spreads";
 import type { SpreadMenuItem, SpreadPick, SpreadPicksResponse } from "./types";
 
 const H2 = "mb-2.5 text-[0.8125rem] font-semibold text-muted";
@@ -280,6 +280,7 @@ function PickCard({ pick, underlying }: { pick: SpreadPick; underlying: string }
 
 function MenuRow({ item, pick }: { item: SpreadMenuItem; pick: SpreadPick }) {
   const be = breakEven(item);
+  const outcome = itemOutcome(pick, item.letter);
   return (
     <li className="grid grid-cols-[28px_1fr_auto] items-start gap-x-2.5 border-t border-border py-2.5 first:border-t-0">
       <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-full bg-sunk font-mono text-[0.8125rem] font-semibold">
@@ -293,8 +294,9 @@ function MenuRow({ item, pick }: { item: SpreadMenuItem; pick: SpreadPick }) {
           </span>
           {item.position === "baseline" && <StatusWord>Baseline</StatusWord>}
           {pick.choice === item.letter && <StatusWord>Claude&apos;s pick</StatusWord>}
-          {pick.executed_letter === item.letter && <StatusWord>Sent</StatusWord>}
+          {outcome && <StatusWord>{outcome.word}</StatusWord>}
         </p>
+        {outcome?.why && <p className="mt-0.5 text-[0.8125rem]">Did not trade: {outcome.why}.</p>}
         <p className="mt-0.5 text-[0.8125rem] text-muted">
           {itemDetail(item)} ·{" "}
           {be === null ? (

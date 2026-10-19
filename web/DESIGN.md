@@ -503,8 +503,9 @@ it from 1024px, then the shadow book when it has rows. A row is "SPY 763/758 put
 word, the contracts and credit, and the credit taken or the P&L realised at the right; only a
 paper spread links to its position page. A paper spread carries **The menu Claude saw**, collapsed
 (a Disclosure): the outcome sentence, "Claude's view:" with Claude's reason, then the lettered menu
-under a perforation, each row a letter, the strikes, Baseline, Claude's pick and Sent as words, and
-its figures in the stub face. **Other picks** follow as short cards (a skip, a fallback with
+under a perforation, each row a letter, the strikes, Baseline, Claude's pick and what became of the
+chosen item as words (Sent only when the spread filled; otherwise "Chosen, did not trade" with the
+stored reason, or "Chosen, no result recorded yet"), and its figures in the stub face. **Other picks** follow as short cards (a skip, a fallback with
 nothing sent, a send refusal, a pick whose spread is not on record), each with its menu collapsed.
 A menu that no longer parses says "This menu could not be read." beside a small hatched mark, never
 with the hatch drawn over the sentence. No lime.

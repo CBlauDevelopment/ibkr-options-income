@@ -26,6 +26,11 @@ describe("IdealZoneBar", () => {
     expect(screen.getByText("$3.10")).toBeDefined();
     expect(screen.getByText(/above it/)).toBeDefined();
   });
+  it("writes a debit roll's negative net with the minus sign first, never $-0.30", () => {
+    render(<IdealZoneBar ideal={{ lo: 185, hi: 192, min_credit: 3.1 }} premium={-0.3} strike={190} />);
+    expect(screen.getByText("−$0.30")).toBeDefined();
+    expect(document.body.textContent).not.toMatch(/\$-/);
+  });
   it("renders an unknown floor as n/a with the hatch", () => {
     render(<IdealZoneBar ideal={{ lo: 185, hi: 192, min_credit: null }} premium={3.25} strike={190} />);
     const na = screen.getByText("n/a");

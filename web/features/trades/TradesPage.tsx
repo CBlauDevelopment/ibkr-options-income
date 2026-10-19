@@ -11,6 +11,7 @@ import { useStrategyFilter } from "@/lib/useStrategyFilter";
 import { HistoryView, useInFlightCount } from "./HistoryView";
 import { ProposalsView } from "./ProposalsView";
 import { SpreadsView } from "./SpreadsView";
+import { SubmittedWatcher } from "./SubmittedWatcher";
 import { todayInNewYork } from "./time";
 import { useSubmittedApprovals } from "./useSubmittedApprovals";
 import { useTradesDay, useTradesView } from "./useTradesView";
@@ -26,7 +27,8 @@ export function TradesPage() {
   const scoped = usePendingApprovals(strategy);
   // What waits on you: pending proposals, less any whose Approve is already in flight.
   const pendingCount = scoped.data ? scoped.visible.filter((a) => !submitted.has(a.id)).length : null;
-  const [view, setView] = useTradesView(strategy, pendingCount);
+  // The count never arrives when that request failed: the default view must not wait for it forever.
+  const [view, setView] = useTradesView(strategy, pendingCount, scoped.isError && !scoped.data);
   const [dayParam, setDay] = useTradesDay();
   const inFlight = useInFlightCount(strategy, submitted);
   const controls = useControls();
@@ -54,6 +56,11 @@ export function TradesPage() {
   return (
     <div className={SHELL}>
       {heading}
+      {/* One null-rendering watcher per Approve in flight, so a failed or expired one comes back
+          from any view (hooks cannot be looped, hence a component per id). */}
+      {[...submitted].map(([approvalId, command]) => (
+        <SubmittedWatcher key={approvalId} approvalId={approvalId} commandId={command.id} onSettled={clearSubmitted} />
+      ))}
       <SegmentedControl label="Strategy" options={strategyOptions} value={strategy} onChange={setStrategy} className="mt-4" />
       {views.length > 1 && view !== null && (
         <div className="mt-4">

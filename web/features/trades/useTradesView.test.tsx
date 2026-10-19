@@ -31,6 +31,23 @@ describe("useTradesView", () => {
     expect(renderHook(() => useTradesView("all", 0)).result.current[0]).toBe("history");
     expect(renderHook(() => useTradesView("all", null)).result.current[0]).toBeNull();
   });
+  it("opens History when the pending count could not be loaded, and keeps it if the load later recovers", () => {
+    const { result, rerender } = renderHook(
+      ({ n, failed }: { n: number | null; failed: boolean }) => useTradesView("all", n, failed),
+      { initialProps: { n: null as number | null, failed: true } },
+    );
+    expect(result.current[0]).toBe("history");
+    rerender({ n: 2, failed: false });
+    expect(result.current[0]).toBe("history");
+  });
+  it("still waits while the pending count is loading and has not failed", () => {
+    const { result } = renderHook(() => useTradesView("all", null, false));
+    expect(result.current[0]).toBeNull();
+  });
+  it("lets a count that arrives before the failure decide, not the failure", () => {
+    const { result } = renderHook(() => useTradesView("all", 2, true));
+    expect(result.current[0]).toBe("proposals");
+  });
   it("keeps the default it chose when the last proposal is approved", () => {
     const { result, rerender } = renderHook(({ n }: { n: number | null }) => useTradesView("all", n), {
       initialProps: { n: 1 },
@@ -58,6 +75,14 @@ describe("useTradesDay", () => {
     expect(renderHook(() => useTradesDay()).result.current[0]).toBe("2026-10-09");
     nav.params = new URLSearchParams("day=yesterday");
     expect(renderHook(() => useTradesDay()).result.current[0]).toBeNull();
+  });
+  it("accepts only a real calendar date: a well-shaped impossible one falls back to today", () => {
+    for (const bad of ["2026-13-45", "2026-02-30", "2026-00-10", "2026-10-00", "2025-02-29"]) {
+      nav.params = new URLSearchParams(`day=${bad}`);
+      expect(renderHook(() => useTradesDay()).result.current[0], bad).toBeNull();
+    }
+    nav.params = new URLSearchParams("day=2028-02-29");
+    expect(renderHook(() => useTradesDay()).result.current[0]).toBe("2028-02-29");
   });
   it("writes and clears the day, keeping the rest of the URL", () => {
     nav.params = new URLSearchParams("view=history");

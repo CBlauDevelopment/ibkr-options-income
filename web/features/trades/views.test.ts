@@ -39,6 +39,10 @@ describe("defaultView", () => {
     expect(defaultView("all", null)).toBeNull();
     expect(defaultView("spread", null)).toBe("spreads");
   });
+  it("falls back to History when the pending count failed to load, and prefers a known count", () => {
+    expect(defaultView("all", null, true)).toBe("history");
+    expect(defaultView("all", 2, true)).toBe("proposals");
+  });
 });
 
 describe("tickerCounts", () => {

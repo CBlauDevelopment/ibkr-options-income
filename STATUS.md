@@ -427,8 +427,12 @@ with what happened, not with an empty queue.
 **Operator checks owed:** `./ibkr restart` twice over. The API process serves `GET /spreads/picks`
 and the new fields only after a restart, and the trading service (`approval_service`, the scan
 loop, the monitor) writes `decided_by` only after one; until then new approvals read only
-"Approved". The column itself is added by whichever process starts first (`init_db`'s
-`_ensure_added_columns`).
+"Approved". The column is added by `init_db`'s `_ensure_added_columns`, and the API process never
+runs `init_db`: `approval_service`, the monitor and the scripts (for example
+`python -m scripts.healthcheck`) do. If the API is restarted onto this code before one of those has
+migrated `data/income_system.db`, the approvals reads and `/pnl/day` answer 500 until the column
+exists (seconds, under `./ibkr restart`). Restart the trading service first, or run
+`python -m scripts.healthcheck` once, then the API.
 
 **Known limitations (Part 2):**
 

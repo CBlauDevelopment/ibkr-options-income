@@ -807,10 +807,14 @@ features/trades/    Web overhaul Part 2: TradesPage (the strategy switcher with 
                     view chips, the drain warning, then the view), views.ts (the views a strategy
                     has, `explicitView`, `defaultView`, `tickerCounts`), useTradesView +
                     useTradesDay (`?view=` and `?day=` through router.replace; the smart default is
-                    decided once per visit, when the pending count first loads),
+                    decided once per visit, when the pending count first loads, or History when
+                    that load failed; `?day=` accepts only a real calendar date),
                     useSubmittedApprovals (the Map of approvals whose Approve this browser sent,
                     seeded after mount from `loadAllPersistedCommands()` so a reload mid-command
-                    keeps the card in flight), ProposalsView (ticker chips from two tickers up,
+                    keeps the card in flight; Approve commands only), SubmittedWatcher (one
+                    null-rendering component per approval in flight, mounted by TradesPage whatever
+                    the view: follows the command and, when it ends failed or expired, hands the
+                    card back and clears its persisted entry), ProposalsView (ticker chips from two tickers up,
                     then Home's ProposalCard and ReviewSheet), HistoryView + useInFlightCount +
                     useWorkingOrders (one New York day: In flight, Traded, Not traded), history.ts
                     (`notTradedRows`, `orderContract`, `IN_FLIGHT_STATES`), time.ts (New York

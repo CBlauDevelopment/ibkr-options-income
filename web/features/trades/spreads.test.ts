@@ -7,6 +7,7 @@ import {
   dayLabel,
   fallbackWords,
   itemDetail,
+  itemOutcome,
   pickSentence,
   pickTitle,
   positionHref,
@@ -53,6 +54,29 @@ describe("pickTitle", () => {
     expect(pickTitle(pick(), "SPY")).toBe("SPY · Claude picked B");
     expect(pickTitle(pick({ choice: "skip", executed_letter: null }), "SPY")).toBe("SPY · Claude skipped");
     expect(pickTitle(pick({ choice: "skip", fallback_reason: "timeout" }), "SPY")).toBe("SPY · Claude's pick not used");
+  });
+});
+
+describe("itemOutcome", () => {
+  it("says Sent only for an item whose spread filled", () => {
+    expect(itemOutcome(pick(), "B")).toEqual({ word: "Sent", why: null });
+  });
+  it("says a chosen item that did not trade did not trade, with the stored reasons in words", () => {
+    const refused = pick({ filled: false, send_rejected: true, send_reasons: ["stale_pick", "entries_blocked"] });
+    expect(itemOutcome(refused, "B")).toEqual({ word: "Chosen, did not trade", why: "stale pick, entries blocked" });
+  });
+  it("does not invent a reason when none was recorded", () => {
+    expect(itemOutcome(pick({ filled: false, send_rejected: true, send_reasons: [] }), "B")).toEqual({
+      word: "Chosen, did not trade",
+      why: null,
+    });
+  });
+  it("calls a chosen item with no result yet unrecorded, never Sent", () => {
+    expect(itemOutcome(pick({ filled: false }), "B")).toEqual({ word: "Chosen, no result recorded yet", why: null });
+  });
+  it("marks nothing on a letter that was not the one chosen", () => {
+    expect(itemOutcome(pick(), "A")).toBeNull();
+    expect(itemOutcome(pick({ executed_letter: null, filled: false }), "B")).toBeNull();
   });
 });
 

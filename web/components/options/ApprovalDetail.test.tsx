@@ -170,6 +170,47 @@ describe("ApprovalDetailCard", () => {
     expect(screen.getByText(/At the quotes it was priced at/)).toBeDefined();
   });
 
+  describe("what a filled roll filled at", () => {
+    const rollOf = (net: number, fill: number): ApprovalDetail => ({
+      ...base,
+      status: "approved",
+      decided_by: "system",
+      order_state: "filled",
+      source: "roll",
+      strategy: "roll",
+      strike: 190,
+      expiry: "2026-10-30",
+      premium: net,
+      fill_price: fill,
+      roll_from: { strike: 190, expiry: "2026-10-23", right: "P", contracts: 1, old_mid: 2.1, new_mid: 3.275 },
+    });
+    const valueOf = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+
+    it("reads as a signed net, labelled so it cannot pass for a single-leg price", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(0.45, 0.45)} />);
+      expect(valueOf("Net filled, a share")).toBe("+$0.45");
+      expect(valueOf("Net a share, as priced")).toBe("+$0.45");
+      expect(screen.queryByText("Filled at")).toBeNull();
+    });
+
+    it("writes a debit roll with the minus sign, never $-0.30", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(-0.3, -0.3)} />);
+      expect(valueOf("Net filled, a share")).toBe("−$0.30");
+      expect(valueOf("Net a share, as priced")).toBe("−$0.30");
+      expect(document.body.textContent).not.toMatch(/\$-/);
+    });
+
+    it("leaves a flat fill as $0", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(0, 0)} />);
+      expect(valueOf("Net filled, a share")).toBe("$0");
+    });
+
+    it("keeps a single-leg order's own price under Filled at", () => {
+      withClient(<ApprovalDetailCard detail={{ ...base, status: "approved", order_state: "filled", fill_price: 3.2 }} />);
+      expect(valueOf("Filled at")).toBe("$3.20");
+    });
+  });
+
   it("puts the decision after the trade and the review, the phone's order", () => {
     withClient(<ApprovalDetailCard detail={base} />);
     const trade = screen.getByRole("heading", { name: "The trade" });

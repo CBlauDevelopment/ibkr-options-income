@@ -736,3 +736,40 @@ def test_the_fill_price_comes_from_the_order_and_is_null_until_it_fills(client) 
     assert by_cid["working"]["fill_price"] is None
     detail = client.get(f"/options/approvals/{by_cid['c1']['id']}", headers=AUTH).json()
     assert (detail["fill_price"], detail["decided_by"], detail["roll_from"]) == (3.2, None, None)
+
+
+def _seed_filled_order(s, candidate_id: str, snapshot: dict, avg_fill_price: float | None) -> int:
+    ap = _seed_approval(s, candidate_id=candidate_id, status="approved", snapshot=snapshot)
+    s.flush()
+    s.add(
+        OrderRow(candidate_id=candidate_id, approval_id=ap.id, state="filled",
+                 limit_price=1.0, avg_fill_price=avg_fill_price, snapshot=snapshot)
+    )  # fmt: skip
+    return ap.id
+
+
+def test_a_filled_roll_reports_its_net_credit_not_ibkrs_combo_sign(client) -> None:
+    """A roll order is a BAG whose net average is debit-positive: IBKR (and ``roll_executor``,
+    ``row.avg_fill_price = net_avg``) report a credit as negative. The API speaks the same sign
+    as ``premium``: a credit is positive, a debit negative."""
+    with session_scope() as s:
+        credit_id = _seed_filled_order(s, "roll-credit", _roll_snapshot(), -0.45)
+        debit_id = _seed_filled_order(s, "roll-debit", _roll_snapshot(), 0.30)
+        entry_id = _seed_filled_order(s, "entry", _snapshot(), 3.2)
+    by_cid = _all_by_cid(client)
+    assert by_cid["roll-credit"]["fill_price"] == 0.45
+    assert by_cid["roll-debit"]["fill_price"] == -0.30
+    assert by_cid["entry"]["fill_price"] == 3.2  # a single-leg order keeps its own price
+    for approval_id, expected in ((credit_id, 0.45), (debit_id, -0.30), (entry_id, 3.2)):
+        detail = client.get(f"/options/approvals/{approval_id}", headers=AUTH).json()
+        assert detail["fill_price"] == expected
+
+
+def test_a_roll_filled_flat_has_no_negative_zero_and_an_unfilled_one_has_none(client) -> None:
+    with session_scope() as s:
+        _seed_filled_order(s, "roll-flat", _roll_snapshot(), 0.0)
+        _seed_filled_order(s, "roll-unfilled", _roll_snapshot(), None)
+    by_cid = _all_by_cid(client)
+    assert by_cid["roll-unfilled"]["fill_price"] is None
+    assert by_cid["roll-flat"]["fill_price"] == 0.0
+    assert str(by_cid["roll-flat"]["fill_price"]) == "0.0"  # never "-0.0"
