@@ -2,22 +2,59 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft } from "lucide-react";
+import type { ReactNode } from "react";
+import { Card } from "@/components/ui/Card";
+import { StatusWord } from "@/components/ui/StatusWord";
+import { Stub } from "@/components/ui/Stub";
+import { proposalTitle } from "@/features/home/ProposalCard";
+import { decisionWords, proposalSentence, proposalStub, rollSentence, rollStub } from "@/features/home/proposal";
 import { apiFetch } from "@/lib/api";
-import { UNKNOWN, relativeAge } from "@/lib/format";
+import { UNKNOWN, formatDateTime, relativeAge } from "@/lib/format";
+import { STRATEGY_EYEBROW, kindOf } from "@/lib/strategy";
+import { AlternativesTable } from "./AlternativesTable";
 import { DecideControls } from "./DecideControls";
 import { IdealZoneBar } from "./IdealZoneBar";
-import { ReviewPanel } from "./ReviewPanel";
 import { RationaleTags } from "./RationaleTags";
-import { AlternativesTable } from "./AlternativesTable";
+import { ReviewPanel, hasReviewContent } from "./ReviewPanel";
 import type { ApprovalDetail, ControlsResponse } from "./types";
 
+const STATUS_WORD: Record<string, string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  expired: "Expired",
+};
+
+export function BackToTrades() {
+  return (
+    <Link
+      href="/trades"
+      aria-label="Back to Trades"
+      className="inline-flex min-h-11 items-center gap-1 text-[0.8125rem] font-semibold text-muted hover:text-content md:min-h-8"
+    >
+      <ChevronLeft size={16} aria-hidden="true" />
+      Trades
+    </Link>
+  );
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-t border-border py-2 text-sm first:border-t-0">
+      <dt className="text-muted">{label}</dt>
+      <dd className="tabular text-right font-semibold">{children}</dd>
+    </div>
+  );
+}
+
+const Unknown = () => <span className="hatch text-unknown">{UNKNOWN}</span>;
+
+const LEFT = "min-w-0 lg:col-start-1";
+
 export function ApprovalDetailCard({ detail }: { detail: ApprovalDetail }) {
-  // The drain's health drives the receipt's `stalled` state (spec §9.2 rule 3).
-  // Fetching it here (same as <ApprovalsList/>) lets the detail page's receipt
-  // state "the trading service is not draining commands" in words when the
-  // worker is dead — a hardcoded `true` would hide that, violating rule 3 on
-  // this surface. `true` is the placeholder while the query loads so a
-  // not-yet-known drain is NOT falsely reported as dead.
+  // The drain's health drives the receipt's `stalled` state (spec §9.2 rule 3). `true` while the
+  // query loads, so a not-yet-known drain is never falsely reported as dead.
   const controls = useQuery({
     queryKey: ["options", "controls"],
     queryFn: () => apiFetch<ControlsResponse>("/options/controls"),
@@ -25,121 +62,126 @@ export function ApprovalDetailCard({ detail }: { detail: ApprovalDetail }) {
     refetchInterval: 30_000,
   });
   const drainHealthy = controls.data?.drain_healthy ?? true;
-  return (
-    <div className="space-y-6">
-      <div>
-        <Link
-          href="/trades"
-          className="text-xs text-muted hover:text-content"
-        >
-          Back to approvals
-        </Link>
-      </div>
+  const kind = kindOf(detail.strategy, detail.right);
+  const isRoll = detail.source === "roll";
+  const eyebrow = isRoll ? "Roll" : kind ? STRATEGY_EYEBROW[kind] : detail.strategy;
+  const decision = decisionWords(detail.status, detail.decided_by ?? null);
+  const roll = isRoll ? rollStub(detail) : [];
 
-      <header className="flex items-baseline justify-between gap-3">
-        <h1 className="font-mono text-2xl text-content">
-          {detail.underlying} {detail.strike.toFixed(2)} {detail.right}
-        </h1>
-        <span className="text-sm text-muted">
-          {detail.status} - {detail.source}
-        </span>
+  return (
+    <div className="space-y-4">
+      <BackToTrades />
+      <header>
+        <p className="text-xs font-bold uppercase tracking-[0.04em] text-muted">
+          {eyebrow} · raised {formatDateTime(detail.created_at)}
+        </p>
+        <h1 className="mt-1 text-2xl font-extrabold tracking-[-0.015em]">{proposalTitle(detail)}</h1>
+        <p className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted">
+          <StatusWord>{STATUS_WORD[detail.status] ?? detail.status}</StatusWord>
+          {decision && decision !== STATUS_WORD[detail.status] && <span>{decision}</span>}
+          <span>{isRoll ? "A roll of a position you hold" : "From the scan"}</span>
+          {detail.order_state && <span>order {detail.order_state}</span>}
+        </p>
       </header>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm tabular">
-        <Field label="Contracts" value={String(detail.contracts)} />
-        <Field
-          label="Premium"
-          value={detail.premium != null ? `$${detail.premium.toFixed(2)}/sh` : UNKNOWN}
-        />
-        <Field
-          label="Total"
-          value={
-            detail.premium != null
-              ? `$${(detail.premium * detail.contracts * 100).toFixed(0)}`
-              : UNKNOWN
-          }
-        />
-        <Field
-          label="Score"
-          value={detail.blended_score != null ? detail.blended_score.toFixed(1) : UNKNOWN}
-        />
-        <Field
-          label="Expiry"
-          value={detail.expiry ?? UNKNOWN}
-        />
-        {detail.order_state && (
-          <Field label="Order" value={detail.order_state} />
+      {/* One grid placed by CSS: the DOM order is the phone's (trade, review, decision, the rest);
+          from 1024px the decision takes a 340px column on the right beside everything else. */}
+      <div className="grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <Card as="section" aria-labelledby="trade-title" className={LEFT}>
+          <h2 id="trade-title" className="text-[1.0625rem] font-bold">
+            The trade
+          </h2>
+          <p className="mt-1 text-sm">{isRoll ? rollSentence(detail) : proposalSentence(detail)}</p>
+          {!isRoll && (
+            <Stub label={`${detail.underlying} ${detail.right === "C" ? "call" : "put"} math`} lines={proposalStub(detail, new Date())} />
+          )}
+          {roll.length > 0 && <Stub label={`${detail.underlying} roll math`} lines={roll} />}
+          <dl className="mt-3">
+            <Fact label="Contracts">{detail.contracts}</Fact>
+            <Fact label={isRoll ? "Net a share, as priced" : "Premium a share"}>
+              {detail.premium != null ? `$${detail.premium.toFixed(2)}` : <Unknown />}
+            </Fact>
+            {detail.order_state === "filled" || detail.order_state === "partial" ? (
+              <Fact label="Filled at">{detail.fill_price != null ? `$${detail.fill_price.toFixed(2)}` : <Unknown />}</Fact>
+            ) : null}
+            <Fact label="Score">{detail.blended_score != null ? detail.blended_score.toFixed(1) : <Unknown />}</Fact>
+            <Fact label="Expiry">{detail.expiry ?? <Unknown />}</Fact>
+          </dl>
+          <div className="mt-3">
+            <RationaleTags tags={detail.rationale_tags} />
+          </div>
+        </Card>
+
+        {hasReviewContent(detail.review) && (
+          <Card as="section" aria-labelledby="review-title" className={LEFT}>
+            <h2 id="review-title" className="text-[1.0625rem] font-bold">
+              Claude&apos;s review
+            </h2>
+            <p className="mb-3 text-[0.8125rem] text-muted">Claude&apos;s view of this proposal. It decides nothing.</p>
+            <ReviewPanel review={detail.review} />
+          </Card>
+        )}
+
+        <Card as="section" aria-labelledby="decision-title" className="lg:sticky lg:top-4 lg:col-start-2 lg:row-span-6 lg:row-start-1">
+          <h2 id="decision-title" className="text-[1.0625rem] font-bold">
+            Decision
+          </h2>
+          <div className="mt-3">
+            <DecideControls approval={detail} drainHealthy={drainHealthy} />
+          </div>
+        </Card>
+
+        {detail.ideal && (
+          <Card as="section" aria-labelledby="ideal-title" className={LEFT}>
+            <h2 id="ideal-title" className="text-[1.0625rem] font-bold">
+              Ideal zone
+            </h2>
+            <div className="mt-2">
+              <IdealZoneBar ideal={detail.ideal} premium={detail.premium} strike={detail.strike} />
+            </div>
+          </Card>
+        )}
+
+        {detail.gate_reasons.length > 0 && (
+          <Card as="section" aria-labelledby="gate-title" className={LEFT}>
+            <h2 id="gate-title" className="text-[1.0625rem] font-bold">
+              Gate reasons
+            </h2>
+            <ul className="mt-1 list-disc space-y-1 pl-[18px] text-sm">
+              {detail.gate_reasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        {detail.alternatives.length > 0 && (
+          <Card as="section" className={LEFT} aria-label="Other contracts assessed on this run">
+            <AlternativesTable alternatives={detail.alternatives} />
+          </Card>
+        )}
+
+        {detail.fills.length > 0 && (
+          <Card as="section" aria-labelledby="fills-title" className={LEFT}>
+            <h2 id="fills-title" className="text-[1.0625rem] font-bold">
+              Fills
+            </h2>
+            <ul className="mt-1">
+              {detail.fills.map((f) => (
+                <li key={f.id} className="flex items-baseline justify-between gap-3 border-t border-border py-2.5 text-sm first:border-t-0">
+                  <p>
+                    <span className="font-bold">{f.action}</span> {f.filled_qty.toFixed(0)} at{" "}
+                    <span className="tabular font-mono">${f.avg_price.toFixed(2)}</span>
+                  </p>
+                  <p className="flex-none text-right text-xs text-muted">
+                    {relativeAge(f.filled_at)} · {f.is_live ? "live" : "paper"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Card>
         )}
       </div>
-
-      <RationaleTags tags={detail.rationale_tags} />
-
-      {detail.ideal && (
-        <section>
-          <h2 className="mb-2 text-xs font-medium tracking-wide text-muted">
-            Ideal zone
-          </h2>
-          <IdealZoneBar ideal={detail.ideal} premium={detail.premium} />
-        </section>
-      )}
-
-      {detail.gate_reasons.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-xs font-medium tracking-wide text-muted">
-            Gate reasons
-          </h2>
-          <ul className="space-y-1 text-sm text-content">
-            {detail.gate_reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <ReviewPanel review={detail.review} />
-
-      <AlternativesTable alternatives={detail.alternatives} />
-
-      {detail.fills.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-xs font-medium tracking-wide text-muted">
-            Fills
-          </h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted">
-                <th className="py-2 font-medium">When</th>
-                <th className="py-2 font-medium">Action</th>
-                <th className="py-2 font-medium">Qty</th>
-                <th className="py-2 font-medium">Price</th>
-                <th className="py-2 font-medium">Mode</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {detail.fills.map((f) => (
-                <tr key={f.id}>
-                  <td className="py-2 text-xs text-muted">{relativeAge(f.filled_at)}</td>
-                  <td className="py-2 text-content">{f.action}</td>
-                  <td className="py-2 tabular text-content">{f.filled_qty.toFixed(0)}</td>
-                  <td className="py-2 tabular text-content">${f.avg_price.toFixed(2)}</td>
-                  <td className="py-2 text-xs text-muted">{f.is_live ? "live" : "paper"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      <DecideControls approval={detail} drainHealthy={drainHealthy} />
     </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <span>
-      <span className="text-xs text-muted">{label} </span>
-      <span className="text-content">{value}</span>
-    </span>
   );
 }

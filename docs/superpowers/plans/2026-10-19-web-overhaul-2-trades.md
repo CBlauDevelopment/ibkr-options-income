@@ -80,8 +80,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 6 Assessed | done | 7911958 | vitest 881 (101 files, Task 5 + 2); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | none. Both new tests failed first; every existing Assessed, AssessedRow and ApprovalDetail test passed unchanged. |
 | 7 Spreads view | done | 2636741 | vitest 906 (103 files, Task 6 + 25: 16 logic, 9 view); tsc, lint clean; da-vinci lint exit 0. Section B exit met: every `web/features/trades/*.test.*` and `web/features/home/*.test.*` green. Protected files byte-identical to `main` | 2026-10-19 | none. Observation, not a Task 7 change: `grep -rn "submitCommand\|confirmCommand" web/features` is not empty, because `web/features/more/TargetCard.tsx` (Part 1 / Home follow-ups, on `main`) calls `submitCommand` directly; Global Constraints says it should print nothing. Nothing under `features/trades` matches. Left for the finish review. |
 | **C entry checks** | done | (none) | C1-C5 pass, orchestrator-run (C2 included a production build in a scratch copy) | 2026-10-19 | Ruling: C4 (and the same grep repeated as an `Expected: prints nothing` check in Tasks 10 and 11) is read as "no file this plan creates or changes under `web/features` calls `submitCommand`/`confirmCommand`". The only allowed hits are `web/features/more/TargetCard.tsx` and `web/features/more/TargetCard.test.tsx`, which were on `main` before this plan (Home follow-ups, the income-target form) and are not touched. Cost if wrong: the operator decides TargetCard should go through a `components/options` flow, which is a separate change. |
-| 8 Trades page assembly | done | this commit (`git log --oneline` for the hash) | vitest 899 (102 files: Task 7's 906 + 10 TradesPage tests - 17 removed with the legacy page test and TickerPillBar's test; HomePage's 5 tests unchanged after `useHydrated` moved); tsc, lint clean; da-vinci lint exit 0. Protected files byte-identical to `main` | 2026-10-19 | Ruling: in `TradesPage.test.tsx` the `@/lib/test-query` import comes before `@/lib/commands`, with a comment saying why. The plan listed them the other way round; `test-query` registers the `@/lib/api` mock when it is evaluated, so `lib/commands` (which imports `@/lib/api`) loaded first kept the real `apiFetch` and "approving in the sheet moves the card to History at once" never reached `POST /commands`. Cost if wrong: none, test-only. Also ticked the unticked step boxes of Tasks 1 and 2 and the A and C entry checks. |
-| 9 Approval detail page | | | | | |
+| 8 Trades page assembly | done | 0a0a152 | vitest 899 (102 files: Task 7's 906 + 10 TradesPage tests - 17 removed with the legacy page test and TickerPillBar's test; HomePage's 5 tests unchanged after `useHydrated` moved); tsc, lint clean; da-vinci lint exit 0. Protected files byte-identical to `main` | 2026-10-19 | Ruling: in `TradesPage.test.tsx` the `@/lib/test-query` import comes before `@/lib/commands`, with a comment saying why. The plan listed them the other way round; `test-query` registers the `@/lib/api` mock when it is evaluated, so `lib/commands` (which imports `@/lib/api`) loaded first kept the real `apiFetch` and "approving in the sheet moves the card to History at once" never reached `POST /commands`. Cost if wrong: none, test-only. Also ticked the unticked step boxes of Tasks 1 and 2 and the A and C entry checks. |
+| 9 Approval detail page | done | this commit (`git log --oneline` for the hash) | vitest 910 (103 files, Task 8's 899 + 11: 6 detail, 5 IdealZoneBar); tsc, lint clean; da-vinci lint exit 0. Every existing `ApprovalDetail`, `ReviewPanel` and `RationaleTags` test passed unmodified (the decide-flow tests included); the replaced back-link assertion is the only changed one. Protected files byte-identical to `main` | 2026-10-19 | none. All 11 new/replaced tests failed first. |
 | 10 Roll moves to the position page | | | | | |
 | **D entry checks** | | | | | |
 | 11 Docs, da-vinci finish, full gate | | | | | |
@@ -5329,12 +5329,12 @@ band, in share price) and `min_credit` and `premium` (per-share option prices) o
 the premium marker sat at a meaningless point. The restyle shows the two as what they are: the
 strike against the strike zone, and the premium against the least credit worth taking.
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded. Brief: the Position page's anatomy
+- [x] **Step 1: Load da-vinci** if it is not already loaded. Brief: the Position page's anatomy
   (back link, the contract as a title with a status word, content left and a 340px column
   right); the decision lives in the right column on desktop and directly after the trade and
   Claude's review on a phone; the protected decide controls keep their recorded look.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 In `web/components/options/ApprovalDetail.test.tsx`, replace the body of
 `it("renders a not-found state with a link back to the list", ...)` with:
@@ -5448,12 +5448,12 @@ describe("IdealZoneBar", () => {
 });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `cd web && npx vitest run components/options/ApprovalDetail.test.tsx components/options/IdealZoneBar.test.tsx`
 Expected: FAIL (no "Back to Trades" link, no level-1 title, no `zoneWords`).
 
-- [ ] **Step 4: Rewrite `web/components/options/IdealZoneBar.tsx`**
+- [x] **Step 4: Rewrite `web/components/options/IdealZoneBar.tsx`**
 
 ```tsx
 import clsx from "clsx";
@@ -5546,7 +5546,7 @@ export function IdealZoneBar({
 
 The bar is `aria-hidden`: the sentence above it says the same thing in words.
 
-- [ ] **Step 5: Rewrite `web/components/options/ReviewPanel.tsx`**
+- [x] **Step 5: Rewrite `web/components/options/ReviewPanel.tsx`**
 
 ```tsx
 import type { ClaudeReviewPayload } from "./types";
@@ -5637,7 +5637,7 @@ Expected: PASS unchanged (it asserts labels, tags, texts, the verdict and the ev
 kept). If `components/explain/FactCard` is now imported by nothing, leave it: the explain pages
 use it.
 
-- [ ] **Step 6: Rewrite `web/components/options/AlternativesTable.tsx`**
+- [x] **Step 6: Rewrite `web/components/options/AlternativesTable.tsx`**
 
 ```tsx
 import { UNKNOWN } from "@/lib/format";
@@ -5674,7 +5674,7 @@ export function AlternativesTable({ alternatives }: { alternatives: AlternativeS
 }
 ```
 
-- [ ] **Step 7: Restyle `RationaleTags`** — in `web/components/options/RationaleTags.tsx` change
+- [x] **Step 7: Restyle `RationaleTags`** — in `web/components/options/RationaleTags.tsx` change
   the two `className` strings on the `<li>` to:
 
 ```tsx
@@ -5683,7 +5683,7 @@ export function AlternativesTable({ alternatives }: { alternatives: AlternativeS
                 : "rounded-[6px] bg-sunk px-2 py-px text-xs font-semibold text-muted"
 ```
 
-- [ ] **Step 8: Rewrite `web/components/options/ApprovalDetail.tsx`**
+- [x] **Step 8: Rewrite `web/components/options/ApprovalDetail.tsx`**
 
 ```tsx
 "use client";
@@ -5882,7 +5882,7 @@ stub and says so. The header's status word says Approved, Rejected or Expired; t
 beside it add who decided only when that was recorded (so "Approved" never appears twice). Part 4 moves this file into `features/trades/`, which is why it may import from
 `features/home` today.
 
-- [ ] **Step 9: Rewrite `web/app/trades/[approvalId]/page.tsx`**
+- [x] **Step 9: Rewrite `web/app/trades/[approvalId]/page.tsx`**
 
 ```tsx
 "use client";
@@ -5937,7 +5937,7 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ appro
 }
 ```
 
-- [ ] **Step 10: Run the tests to verify they pass, then the gate**
+- [x] **Step 10: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run components/options && npx tsc --noEmit && npm run lint && python3 ~/.claude/skills/da-vinci/scripts/lint.py components/options/ApprovalDetail.tsx components/options/ReviewPanel.tsx components/options/IdealZoneBar.tsx components/options/AlternativesTable.tsx`
 Expected: PASS: every existing `ApprovalDetail`, `ReviewPanel` and `RationaleTags` test, the
@@ -5945,7 +5945,7 @@ replaced back-link assertion, 6 new detail tests and 5 IdealZoneBar tests; tsc 0
 da-vinci lint exit 0. The detail tests that drive Approve, the confirm dialog and the stalled
 receipt must pass unmodified: they are the decide flow's guarantee on this page.
 
-- [ ] **Step 11: Commit** (with the Progress log row for Task 8 filled in)
+- [x] **Step 11: Commit** (with the Progress log row for Task 8 filled in)
 
 ```bash
 git add web/components/options/ApprovalDetail.tsx web/components/options/ApprovalDetail.test.tsx \

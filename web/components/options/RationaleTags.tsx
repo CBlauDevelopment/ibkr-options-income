@@ -26,8 +26,8 @@ export function RationaleTags({ tags }: { tags: string[] | undefined }) {
             key={tag}
             className={
               unknown
-                ? "hatch rounded border border-border px-2 py-0.5 text-unknown"
-                : "rounded border border-border px-2 py-0.5 text-muted"
+                ? "hatch rounded-[6px] px-2 py-px text-xs font-semibold text-unknown"
+                : "rounded-[6px] bg-sunk px-2 py-px text-xs font-semibold text-muted"
             }
           >
             {rationaleTagLabel(tag)}
