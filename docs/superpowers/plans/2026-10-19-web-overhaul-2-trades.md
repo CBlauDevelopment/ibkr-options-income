@@ -77,8 +77,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 3 Trades contract, views, Proposals | done | ad32f5c | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
 | 4 Rolls say what they roll | done | 2f3dbf4 | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
 | 5 History | done | a642822 | vitest 879 (101 files, Task 4 + 23: 10 logic, 12 HistoryView, 1 calendar); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | Ruling: `timeET` strips both U+202F and U+00A0 (`/[  ]/g`) instead of the plan's single literal character, because a literal narrow no-break space is invisible in a diff and easy to lose; same behaviour, one more character class. |
-| 6 Assessed | done | (hash in Task 7's row) | vitest 881 (101 files, Task 5 + 2); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | none. Both new tests failed first; every existing Assessed, AssessedRow and ApprovalDetail test passed unchanged. |
-| 7 Spreads view | | | | | |
+| 6 Assessed | done | 7911958 | vitest 881 (101 files, Task 5 + 2); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | none. Both new tests failed first; every existing Assessed, AssessedRow and ApprovalDetail test passed unchanged. |
+| 7 Spreads view | done | this commit (`git log --oneline` for the hash) | vitest 906 (103 files, Task 6 + 25: 16 logic, 9 view); tsc, lint clean; da-vinci lint exit 0. Section B exit met: every `web/features/trades/*.test.*` and `web/features/home/*.test.*` green. Protected files byte-identical to `main` | 2026-10-19 | none. Observation, not a Task 7 change: `grep -rn "submitCommand\|confirmCommand" web/features` is not empty, because `web/features/more/TargetCard.tsx` (Part 1 / Home follow-ups, on `main`) calls `submitCommand` directly; Global Constraints says it should print nothing. Nothing under `features/trades` matches. Left for the finish review. |
 | **C entry checks** | | | | | |
 | 8 Trades page assembly | | | | | |
 | 9 Approval detail page | | | | | |
@@ -4071,13 +4071,13 @@ follows when it has rows.
     `bookRow(p, underlying): BookRow`, `BOOK_LABEL`
   - `SpreadsView()`
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded. Brief: the spreads lead, as Position
+- [x] **Step 1: Load da-vinci** if it is not already loaded. Brief: the spreads lead, as Position
   rows grouped by book, paper and baseline side by side from 1024px; the menu is a stub-like
   lettered list under a perforation, collapsed under the spread it opened; Claude's reason is
   labelled as Claude's view; nothing on this view is an action, so no lime; an unreadable menu is
   said in words with the hatch.
 
-- [ ] **Step 2: Write the failing logic tests** — `web/features/trades/spreads.test.ts`
+- [x] **Step 2: Write the failing logic tests** — `web/features/trades/spreads.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -4215,7 +4215,7 @@ describe("the book's rows", () => {
 });
 ```
 
-- [ ] **Step 3: Write the types** — `web/features/trades/types.ts`
+- [x] **Step 3: Write the types** — `web/features/trades/types.ts`
 
 ```ts
 import type { SpreadPosition } from "@/features/home/types";
@@ -4285,12 +4285,12 @@ export type SpreadPicksResponse = {
 
 Check the field names against Section B's entry check B4 output; a difference is fixed here.
 
-- [ ] **Step 4: Run the logic tests to verify they fail**
+- [x] **Step 4: Run the logic tests to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/spreads.test.ts`
 Expected: FAIL (`./spreads` not found).
 
-- [ ] **Step 5: Write `web/features/trades/spreads.ts`**
+- [x] **Step 5: Write `web/features/trades/spreads.ts`**
 
 ```ts
 import type { SpreadPosition } from "@/features/home/types";
@@ -4408,7 +4408,7 @@ export function bookRow(p: SpreadPosition, underlying: string): BookRow {
 Run: `cd web && npx vitest run features/trades/spreads.test.ts`
 Expected: PASS (16 tests).
 
-- [ ] **Step 6: Write the failing view tests** — `web/features/trades/SpreadsView.test.tsx`
+- [x] **Step 6: Write the failing view tests** — `web/features/trades/SpreadsView.test.tsx`
 
 ```tsx
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -4540,12 +4540,12 @@ describe("SpreadsView", () => {
 `renderWithQuery` answers an exact key before a prefix, so `"/spreads/picks?day=2026-10-09"`
 wins over `"/spreads/picks"` for that one request.
 
-- [ ] **Step 7: Run them to verify they fail**
+- [x] **Step 7: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/SpreadsView.test.tsx`
 Expected: FAIL (`./SpreadsView` not found).
 
-- [ ] **Step 8: Write `web/features/trades/SpreadsView.tsx`**
+- [x] **Step 8: Write `web/features/trades/SpreadsView.tsx`**
 
 ```tsx
 "use client";
@@ -4860,12 +4860,12 @@ A paper spread whose pick's menu no longer parses still shows its row; its discl
 menu could not be read, under the outcome sentence (which names the letter that was sent) and the
 reason. An unreadable menu on an other pick says so on the card itself, with no disclosure to open.
 
-- [ ] **Step 9: Run the tests to verify they pass, then the gate**
+- [x] **Step 9: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run features/trades && npx tsc --noEmit && npm run lint && python3 ~/.claude/skills/da-vinci/scripts/lint.py features/trades`
 Expected: PASS (16 logic + 9 view tests new, and Task 5's `time.test.ts` still green); tsc 0; lint clean; da-vinci lint exit 0.
 
-- [ ] **Step 10: Commit** (with the Progress log row for Task 6 filled in)
+- [x] **Step 10: Commit** (with the Progress log row for Task 6 filled in)
 
 ```bash
 git add web/features/trades/types.ts web/features/trades/spreads.ts web/features/trades/spreads.test.ts \
