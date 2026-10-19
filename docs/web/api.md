@@ -760,13 +760,28 @@ alone — the joined rows are enrichment whose absence never 500s.
 | `as_of` | datetime |
 | `approvals` | `ApprovalSummary[]` |
 
-`ApprovalSummary`: `{ as_of, id, candidate_id, status, underlying, strategy, right, strike, expiry, contracts, premium, blended_score, created_at, expires_at, decided_at, order_state, source, review, rationale_tags }`.
+`ApprovalSummary`: `{ as_of, id, candidate_id, status, underlying, strategy, right, strike, expiry, contracts, premium, blended_score, created_at, expires_at, decided_at, order_state, source, review, rationale_tags, decided_by, roll_from, fill_price }`.
 `rationale_tags` is the frozen snapshot's tag list (`[]` when absent). The one the console
 renders specially is `iv_rank_unavailable` (scan-loop Task 9): the name had no IV history, so
 its IV score is the neutral `missing_iv_rank_score` placeholder, shown with the hatch/unknown
 styling rather than as real data. Display only.
 `premium` is per share, always. `order_state` is `null` when no order exists.
-`source` is `"scan"` or `"roll"`, derived from the candidate's `run_id` prefix.
+`source` is `"scan"` or `"roll"`: `"roll"` whenever the frozen snapshot's strategy is `roll`
+(so a roll whose candidate the 14-day purge has pruned still reads as a roll, never a scan),
+else derived from the candidate's `run_id` prefix.
+`decided_by` (web overhaul Part 2, 2026-10-19) is who decided the approval: `"system"` (the
+entry auto-queue on the WHITELIST or FULL rung, and the roll pipeline's auto-approve on FULL),
+`"web"` (the command drain's approve or reject) or `"telegram"` (a button tap), or `null`.
+`null` means not recorded and is never inferred: an approval decided before the column
+existed, or before the trading service was restarted onto it, an expiry, and a pending
+approval all read `null`. It is a record for the console only; nothing in `src/engine/`,
+`src/strategies/` or `src/execution/` reads it.
+`roll_from` is a roll's buy-back leg from the frozen snapshot: `{ strike, expiry, right,
+contracts, old_mid, new_mid }`, the mids per share at which the roll was priced when it was
+proposed (a quote, never a fill; either may be `null`). `null` for an entry and for a roll
+frozen before the 2026-10-11 redesign.
+`fill_price` is the order's average fill per share, `null` until it fills (or when no order
+exists).
 `created_at` is the approval's actual raise time (`ApprovalRow.created_at`) — never
 confuse it with the envelope's `as_of`, which is `datetime.now(UTC)` at response-build
 time and therefore always "now" no matter how old the approval is. The web renders
@@ -1347,7 +1362,17 @@ and a rolled position) Claude's stored view, which carries `source: "claude"`.
   could not be read: the spreads cards are then missing, not absent.
 
 **Response - `DayTradesResponse`:** `{ as_of, date, book, strategy, trades: DayTrade[], spreads_available }`, newest first.
-`DayTrade`: `{ key, action: "opened" | "closed" | "rolled", how, kind: "csp" | "cc" | "spread" | "other", source: "wheel" | "spreads", underlying, right, strike, long_strike, expiry, contracts, at, is_live, premium, bought_back, commissions, commissions_complete, net_pnl, capital, roc_pct, annualized_pct, pct_kept, dte_at_open, days_held, reason, facts: DayFact[], approval_id, review: DayReview | null, rolled_to: DayRolledTo | null }`.
+`DayTrade`: `{ key, action: "opened" | "closed" | "rolled", how, kind: "csp" | "cc" | "spread" | "other", source: "wheel" | "spreads", underlying, right, strike, long_strike, expiry, contracts, at, is_live, premium, bought_back, commissions, commissions_complete, net_pnl, capital, roc_pct, annualized_pct, pct_kept, dte_at_open, days_held, reason, facts: DayFact[], approval_id, review: DayReview | null, rolled_to: DayRolledTo | null, decided_by }`.
+
+**Who approved it (web overhaul Part 2).** `decided_by` (`"system"` | `"web"` | `"telegram"` | `null`) is on
+the opened and the rolled cards only, read from the approval the card links to (`approval_id`); a
+closed card, a spreads card, and any approval decided before the record existed carry `null`,
+which means not recorded, never guessed.
+
+**History's days.** `DayTradesResponse` also carries `previous_day` and `next_day`: the nearest
+New York days before and after `date` with a wheel trade (opened, closed or rolled) or a wheel
+proposal raised, in the requested `strategy`'s scope, or `null` at either end. Spreads are not
+counted (the Spreads view navigates over `GET /spreads/picks`).
 
 ### `GET /pnl/calendar` (web Home follow-ups, 2026-10-15)
 
@@ -1395,6 +1420,61 @@ with SQLite `mode=ro` and plain SQL. Owner-only; writes nothing; never reaches I
 **Response — `SpreadPositionsResponse`:** `{ as_of, available, underlying, mode, positions: SpreadPositionOut[] }`.
 `SpreadPositionOut`: `{ as_of, spread_id, mode, side: "put"|"call", expiry, short_strike, long_strike, width, contracts_opened, contracts, entry_credit, entry_commission, opened_at, status, exit_debit, exit_commission, exit_reason, closed_at, realized_pnl_usd }`
 (`contracts` is what is still open; credits and debits are per share).
+
+### `GET /spreads/picks` (web overhaul Part 2)
+
+One New York day of the spreads picker for Trades, Credit spreads: each menu Claude was shown,
+its choice and what the service did with it, beside every spread any book opened that day. Same
+access path as `GET /spreads/positions` (`src/api/spreads_db.py`, `mode=ro`, plain SQL; the API
+never imports `src.spreads`). Owner-only; writes nothing; never reaches IBKR.
+
+| Param | Type | Notes |
+|---|---|---|
+| `day` | `YYYY-MM-DD` | default: today in New York. A malformed date is **422** |
+
+- **`available`** is `false` only when `data/spreads.db` does not exist or cannot be read, or its
+  `spread_positions` table cannot be read: a `200`, never a `500`, and never an empty-day claim.
+  A file with no `spread_picks` table (the picker never ran) is `available: true` with no
+  `picks`. An older `spread_positions` table with no `pick_id` column still lists the day's
+  spreads; none of them is then tied to a pick.
+- **`picks`** are the day's `spread_picks`, newest first. A stored menu that no longer parses
+  (schema drift, a damaged row) comes back `menu_readable: false` with an empty `menu`, and
+  every other pick on the day still renders.
+- **`positions`** are every spread any book (`paper`, `shadow`, `baseline`) opened that New York
+  day, oldest first, in the `GET /spreads/positions` shape. A pick's `spread_id` is the position
+  it opened, when one did.
+- **`previous_day` / `next_day`** are the nearest New York days with a pick or an opened spread.
+
+**Response - `SpreadPicksResponse`:** `{ as_of, available, underlying, mode, ai_enabled, day, previous_day, next_day, picks: SpreadPickOut[], positions: SpreadPositionOut[] }`.
+
+| `SpreadPicksResponse` field | Meaning |
+|---|---|
+| `underlying` | the spreads book's underlying (SPY) |
+| `mode` | the spreads service's configured book mode (`shadow` or `paper`) |
+| `ai_enabled` | `config spreads.ai.enabled`: whether menus are offered at all |
+| `day` | the New York day shown |
+
+`SpreadPickOut`: `{ pick_id, created_at, book_mode, choice, reason, fallback_reason, executed_letter, send_rejected, send_reasons, filled, model, regime, side, plan_bias, event_flag, menu_readable, menu: SpreadMenuItemOut[], spread_id }`.
+
+| `SpreadPickOut` field | Meaning |
+|---|---|
+| `choice` | the menu letter Claude picked, or `skip` |
+| `reason` | Claude's stated reason (Claude's view; the console labels it as such), `""` when it gave none |
+| `fallback_reason` | set when Claude's answer could not be used (`timeout`, `off_menu`, `unparseable` or `picker_error`); the service then took the baseline item when there was one |
+| `executed_letter` | the item the service tried to send; `null` when nothing was sent |
+| `send_rejected` | `true` when it did not trade: refused before sending (the gate, stale quotes) **or** an order that did not fill |
+| `send_reasons` | the refusal reasons, as codes |
+| `filled` | the order filled |
+| `model`, `regime`, `side`, `plan_bias`, `event_flag` | what Claude was asked, the gamma regime and side it saw, the day's plan bias, and whether an event day was flagged |
+| `menu_readable` | `false` when the stored menu no longer parses; `menu` is then empty |
+| `spread_id` | the position this pick opened, `null` when none did |
+
+`SpreadMenuItemOut`: `{ letter, position: "inside" | "baseline" | "outer", side: "put" | "call", short_strike, long_strike, width, contracts, credit_mid, credit_after_costs, max_loss_per_contract_usd, short_delta, spot, dist_spot_pts, dist_em_multiple, be_nominal_exits }`.
+Every figure was computed by `src/spreads/menu.py` when the menu was built; credits are per share.
+`contracts` is set by the spreads gate, never by Claude; `dist_spot_pts` is the short strike's
+distance from spot (positive is out of the money), `dist_em_multiple` the same in expected
+moves, `be_nominal_exits` the break-even win rate (0 to 1) under the configured exits; the last
+three and `short_delta` may be `null`.
 
 ## News (news thread, spec §7.6)
 
