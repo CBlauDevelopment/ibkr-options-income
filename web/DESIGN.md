@@ -600,8 +600,34 @@ news directly under it), so da-vinci's structure workshop was skipped: pinned be
 - **FINISH:** unreviewed and undocumented is unfinished.
 
 ### Trades
-Operate. Proposals, Working, Decided, Assessed and Spreads segments. Proposal cards as on Home, at
-full width; the review sheet opens from Review. Spreads is read-only.
+Operate. Dials as the project default. Built in web overhaul Part 2
+(docs/superpowers/plans/2026-10-19-web-overhaul-2-trades.md).
+- **THESIS:** what the wheel did and why, a day at a time, and the few things that wait on you.
+  The account runs on full autonomy, so the page leads with what happened, not with an empty
+  queue. Refuses the order-management grid: a proposal is a card you judge, a trade is the card
+  Home shows, an order or a passed-over proposal is a sentence with a state word, and a spreads
+  menu is the menu Claude saw, kept as the reason under the spread it opened.
+- **OWN-WORLD:** the payslip. Proposal and trade cards exactly as on Home (lime only on Review);
+  in-flight orders and not-traded proposals as rows without table chrome; who approved a trade
+  in words ("Approved by the system"), from the record only; the spreads menu as a lettered list
+  under a perforation, its figures in the stub face. Nothing on History or Spreads is an action
+  apart from the unchanged decide flow inside a sent card's receipt.
+- **STORY:** what needs me (Proposals), what the wheel did today or on any day (History: in
+  flight, traded, not traded), what the scan passed over and why (Assessed), and, under Credit
+  spreads, what each book traded and the menu behind it (Spreads).
+- **FIRST VIEWPORT:** the title, the strategy switcher (All, CSPs, CCs, Credit spreads, with
+  pending counts), the view chips (Proposals, History, Assessed; Proposals carries the pending
+  count, History the in-flight count), a flag line when the trading service is not draining
+  commands, then the view. With no view in the URL the page opens on Proposals when something
+  waits on you and on History otherwise, decided once per visit. Proposals: ticker chips (from
+  two tickers up), then proposal cards, one column below 1024px and two from 1024px. History: the
+  day with previous, next and Today, then In flight (today only), Traded, Not traded. Credit
+  spreads has one view, so its chips are hidden and Spreads shows.
+- **FORM:** one page; the view and the day live in the URL (`?view=history&day=2026-10-09`)
+  beside the strategy (`?strategy=csp`), so a link or a reload keeps all three. Review opens the
+  review sheet exactly as on Home; approving moves the card to History's In flight at once, and
+  a failed command hands it back.
+- **FINISH:** unreviewed and undocumented is unfinished.
 
 ### Portfolio
 Operate. Positions, Campaigns, Expiry calendar. Position rows as on Home; "Propose a roll" moves

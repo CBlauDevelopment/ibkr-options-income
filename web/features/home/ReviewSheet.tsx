@@ -7,6 +7,7 @@ import type { ApprovalDetail, ApprovalSummary } from "@/components/options/types
 import { useControls } from "@/components/shell/BotCard";
 import { Sheet } from "@/components/ui/Sheet";
 import { apiFetch } from "@/lib/api";
+import type { CommandStatus } from "@/lib/commands";
 import { ProposalBody, proposalTitle } from "./ProposalCard";
 
 /** How often the open sheet asks the server whether the approval is still pending. */
@@ -21,15 +22,21 @@ export function ReviewSheet({
   approval,
   open,
   onClose,
+  onSubmitted,
+  onSettled,
 }: {
   approval: ApprovalSummary | null;
   open: boolean;
   onClose: () => void;
+  /** Passed to DecideControls: fired the instant Approve is confirmed (Trades moves the card to History's In flight). */
+  onSubmitted?: (id: number, command: CommandStatus) => void;
+  /** Passed to DecideControls: fired when that command fails or expires (the card goes back). */
+  onSettled?: (id: number) => void;
 }) {
   if (!approval) return null;
   return (
     <Sheet open={open} onClose={onClose} title="Review trade">
-      <ReviewBody approval={approval} />
+      <ReviewBody approval={approval} onSubmitted={onSubmitted} onSettled={onSettled} />
     </Sheet>
   );
 }
@@ -57,7 +64,15 @@ function useSentFromHere(): boolean {
 }
 
 /** Mounted only while the sheet is open, so these queries run only then. */
-function ReviewBody({ approval }: { approval: ApprovalSummary }) {
+function ReviewBody({
+  approval,
+  onSubmitted,
+  onSettled,
+}: {
+  approval: ApprovalSummary;
+  onSubmitted?: (id: number, command: CommandStatus) => void;
+  onSettled?: (id: number) => void;
+}) {
   const controls = useControls();
   const sentFromHere = useSentFromHere();
   // The sheet outlives its card: once the approval is decided it leaves the pending list and the
@@ -85,7 +100,12 @@ function ReviewBody({ approval }: { approval: ApprovalSummary }) {
       )}
       <div className="mt-5">
         {/* Once decided, DecideControls replaces Approve and Reject with "Decision: <status>". */}
-        <DecideControls approval={{ ...approval, status }} drainHealthy={controls.data?.drain_healthy ?? true} />
+        <DecideControls
+          approval={{ ...approval, status }}
+          drainHealthy={controls.data?.drain_healthy ?? true}
+          onApprovalSubmitted={onSubmitted}
+          onApprovalSettled={onSettled}
+        />
       </div>
     </>
   );

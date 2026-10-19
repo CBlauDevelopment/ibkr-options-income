@@ -72,9 +72,9 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | **Plan revised** (operator review) | done | (plan file only) | n/a | 2026-10-19 | Operator rulings of 2026-10-19 written in (see "Rulings made up front"): smart default; Working and Decided merged into History, one New York day at a time; who approved recorded in `approvals.decided_by`; rolls show both legs on the card, rows and detail page; Spreads only under Credit spreads, trade-first; Cancel moved to a new Part 5; Activity keeps the raw fills and orders ledger (Part 3). Tasks renumbered 1–11. |
 | **A entry checks** (baseline) | done | (none) | A1–A5 pass. pytest 3836 passed, 1 skipped; vitest 817 passed (94 files); ruff, mypy, tsc, lint clean | 2026-10-19 | Ruling: executed inline in a git worktree (`.claude/worktrees/web-overhaul-2`, branch renamed to `feat/web-overhaul-2`), no subagents and no per-task review, at the operator's request to save tokens. Entry checks ran in the worktree at 13ce361 (identical to `main`). |
 | 1 Spreads picks API | done | 1c635b8 | pytest 3848 (baseline + 12); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | none |
-| 2 Who decided, the roll's leg, the fill, History's days | done | (committed with the next section's first commit, see below) | pytest 3867 (Task 1 + 19); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | Ruling: `DayTradesResponse` annotates `previous_day`/`next_day` as `dt.date` (`import datetime as dt`), because its own `date` field shadows the type inside the class body and mypy rejects `date \| None` there. Ruling: `reporting/day.py` types the decider as `DecidedBy = Literal["system","web","telegram"]` and narrows with one `cast`, because `in (...)` does not narrow a `str` for mypy. Ruling: ran `ruff format` on the four files this task wrote or extended (`spreads_db.py`, `day.py`, the two new test files); other pre-existing format drift left alone. |
-| **B entry checks** | | | | | |
-| 3 Trades contract, views, Proposals | | | | | |
+| 2 Who decided, the roll's leg, the fill, History's days | done | 36c2f4d | pytest 3867 (Task 1 + 19); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | Ruling: `DayTradesResponse` annotates `previous_day`/`next_day` as `dt.date` (`import datetime as dt`), because its own `date` field shadows the type inside the class body and mypy rejects `date \| None` there. Ruling: `reporting/day.py` types the decider as `DecidedBy = Literal["system","web","telegram"]` and narrows with one `cast`, because `in (...)` does not narrow a `str` for mypy. Ruling: ran `ruff format` on the four files this task wrote or extended (`spreads_db.py`, `day.py`, the two new test files); other pre-existing format drift left alone. |
+| **B entry checks** | done | (none) | B1-B5 pass | 2026-10-19 | none |
+| 3 Trades contract, views, Proposals | done | (hash in Task 4's row; the plan edit rides with Task 4's commit) | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
 | 4 Rolls say what they roll | | | | | |
 | 5 History | | | | | |
 | 6 Assessed | | | | | |
@@ -1766,13 +1766,13 @@ changes Home's proposal and trade cards (rolls and who approved), which Home sho
 
 **Entry checks (run before Task 3):**
 
-- [ ] **B1. Section A landed.** `git log --oneline main..HEAD` shows two commits; Tasks 1 and 2
+- [x] **B1. Section A landed.** `git log --oneline main..HEAD` shows two commits; Tasks 1 and 2
   are ticked.
-- [ ] **B2. Both gates green.** `python -m pytest -q && ruff check . && mypy src` and
+- [x] **B2. Both gates green.** `python -m pytest -q && ruff check . && mypy src` and
   `cd web && npx vitest run && npx tsc --noEmit && npm run lint`.
-- [ ] **B3. The routes answer.** `python -m pytest -q tests/test_api_spread_picks.py tests/test_approval_decided_by.py tests/test_api_pnl_day.py`
+- [x] **B3. The routes answer.** `python -m pytest -q tests/test_api_spread_picks.py tests/test_approval_decided_by.py tests/test_api_pnl_day.py`
   passes.
-- [ ] **B4. The hand-written client types will match the contract.** This prints the field names
+- [x] **B4. The hand-written client types will match the contract.** This prints the field names
   that Task 7's `web/features/trades/types.ts` and Task 2's optional fields must use. Compare them
   with Task 7 Step 3 and Task 2 Step 7. If any differ, fix the types there (not the API) and
   record the ruling:
@@ -1789,7 +1789,7 @@ changes Home's proposal and trade cards (rolls and who approved), which Home sho
   EOF
   ```
 
-- [ ] **B5. The pieces Section B reuses exist under these names.** Each line prints a match:
+- [x] **B5. The pieces Section B reuses exist under these names.** Each line prints a match:
 
   ```bash
   cd web
@@ -1845,12 +1845,12 @@ changes Home's proposal and trade cards (rolls and who approved), which Home sho
     `onApprovalSettled`
   - `ProposalsView({ strategy, submitted, onSubmitted, onSettled })`
 
-- [ ] **Step 1: Load da-vinci.** Invoke the `da-vinci` skill. It reads `web/DESIGN.md` (ratified)
+- [x] **Step 1: Load da-vinci.** Invoke the `da-vinci` skill. It reads `web/DESIGN.md` (ratified)
   instead of interviewing. The Trades composition below is fixed by the roadmap and DESIGN.md
   (pinned beats roll), so skip the structure workshop; da-vinci's job in this task is the craft
   floor of `ProposalsView` and the contract's wording.
 
-- [ ] **Step 2: Write the Trades contract into `web/DESIGN.md`.** Replace the three-line
+- [x] **Step 2: Write the Trades contract into `web/DESIGN.md`.** Replace the three-line
   `### Trades` block under `## Surfaces` (it starts "Operate. Proposals, Working, Decided,
   Assessed and Spreads segments.") with:
 
@@ -1889,7 +1889,7 @@ Operate. Dials as the project default. Built in web overhaul Part 2
 Run: `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md`
 Expected: exit 0.
 
-- [ ] **Step 3: Write the failing tests for the view rules** — `web/features/trades/views.test.ts`
+- [x] **Step 3: Write the failing tests for the view rules** — `web/features/trades/views.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -2069,12 +2069,12 @@ describe("useSubmittedApprovals", () => {
 });
 ```
 
-- [ ] **Step 4: Run them to verify they fail**
+- [x] **Step 4: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 5: Write the three modules**
+- [x] **Step 5: Write the three modules**
 
 `web/features/trades/views.ts`:
 
@@ -2249,12 +2249,12 @@ export function useSubmittedApprovals(): SubmittedApprovals {
 }
 ```
 
-- [ ] **Step 6: Run them to verify they pass**
+- [x] **Step 6: Run them to verify they pass**
 
 Run: `cd web && npx vitest run features/trades`
 Expected: PASS (21 tests).
 
-- [ ] **Step 7: Give `ReviewSheet` the two callbacks** — `web/features/home/ReviewSheet.tsx`
+- [x] **Step 7: Give `ReviewSheet` the two callbacks** — `web/features/home/ReviewSheet.tsx`
 
 Add `import type { CommandStatus } from "@/lib/commands";` to the imports. Change the
 `ReviewSheet` signature and its `ReviewBody` call to:
@@ -2302,7 +2302,7 @@ Nothing else in the file changes. Home passes neither prop, so Home is unchanged
 Run: `cd web && npx vitest run features/home`
 Expected: PASS (every existing Home test, including `ReviewSheet.test.tsx`).
 
-- [ ] **Step 8: Write the failing Proposals view tests** — `web/features/trades/ProposalsView.test.tsx`
+- [x] **Step 8: Write the failing Proposals view tests** — `web/features/trades/ProposalsView.test.tsx`
 
 ```tsx
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -2435,12 +2435,12 @@ describe("ProposalsView", () => {
 });
 ```
 
-- [ ] **Step 9: Run them to verify they fail**
+- [x] **Step 9: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/ProposalsView.test.tsx`
 Expected: FAIL (`./ProposalsView` not found).
 
-- [ ] **Step 10: Write `web/features/trades/ProposalsView.tsx`**
+- [x] **Step 10: Write `web/features/trades/ProposalsView.tsx`**
 
 ```tsx
 "use client";
@@ -2536,16 +2536,16 @@ export function ProposalsView({
 }
 ```
 
-- [ ] **Step 11: Run the tests to verify they pass, then the gate**
+- [x] **Step 11: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run features/trades features/home && npx tsc --noEmit && npm run lint`
 Expected: PASS (29 new tests); tsc 0; lint clean.
 
-- [ ] **Step 12: da-vinci check.** Run `python3 ~/.claude/skills/da-vinci/scripts/lint.py web/features/trades`
+- [x] **Step 12: da-vinci check.** Run `python3 ~/.claude/skills/da-vinci/scripts/lint.py web/features/trades`
   (exit 0 clean, 1 findings). Fix every finding in the code, not by exception; record anything
   left in the Progress log.
 
-- [ ] **Step 13: Commit** (with the Progress log row for Task 2 filled in)
+- [x] **Step 13: Commit** (with the Progress log row for Task 2 filled in)
 
 ```bash
 git add web/DESIGN.md web/features/trades web/features/home/ReviewSheet.tsx docs/superpowers/plans/2026-10-19-web-overhaul-2-trades.md
