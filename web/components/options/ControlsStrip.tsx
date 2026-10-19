@@ -73,7 +73,7 @@ export function ControlsStrip() {
 export function DrainWarning({ lastSeen }: { lastSeen: string | null }) {
   return (
     <p
-      className="rounded-md border border-border bg-surface px-4 py-2 text-xs text-content"
+      className="rounded-xl bg-flag px-3 py-2.5 text-[0.8125rem] text-on-flag"
       data-testid="drain-dead-warning"
     >
       the trading service is not draining commands

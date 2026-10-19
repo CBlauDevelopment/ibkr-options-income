@@ -75,8 +75,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 2 Who decided, the roll's leg, the fill, History's days | done | 36c2f4d | pytest 3867 (Task 1 + 19); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | Ruling: `DayTradesResponse` annotates `previous_day`/`next_day` as `dt.date` (`import datetime as dt`), because its own `date` field shadows the type inside the class body and mypy rejects `date \| None` there. Ruling: `reporting/day.py` types the decider as `DecidedBy = Literal["system","web","telegram"]` and narrows with one `cast`, because `in (...)` does not narrow a `str` for mypy. Ruling: ran `ruff format` on the four files this task wrote or extended (`spreads_db.py`, `day.py`, the two new test files); other pre-existing format drift left alone. |
 | **B entry checks** | done | (none) | B1-B5 pass | 2026-10-19 | none |
 | 3 Trades contract, views, Proposals | done | ad32f5c | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
-| 4 Rolls say what they roll | done | (hash in Task 5's row) | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
-| 5 History | | | | | |
+| 4 Rolls say what they roll | done | 2f3dbf4 | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
+| 5 History | done | (hash in Task 6's row) | vitest 879 (101 files, Task 4 + 23: 10 logic, 12 HistoryView, 1 calendar); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | Ruling: `timeET` strips both U+202F and U+00A0 (`/[  ]/g`) instead of the plan's single literal character, because a literal narrow no-break space is invisible in a diff and easy to lose; same behaviour, one more character class. |
 | 6 Assessed | | | | | |
 | 7 Spreads view | | | | | |
 | **C entry checks** | | | | | |
@@ -2875,13 +2875,13 @@ York day. The approvals route filters by UTC date, so the view asks for the day 
 keeps the rows whose `created_at` falls on the New York day (an approval raised at 22:00 New York
 time is the next UTC day).
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded. Brief: Home's trade cards at page
+- [x] **Step 1: Load da-vinci** if it is not already loaded. Brief: Home's trade cards at page
   width; in-flight orders and not-traded proposals as rows without table chrome (Position row
   anatomy: the whole row a link where there is somewhere to go, a state word, the value
   right-aligned with its label beneath); who decided in words; nothing lime; empty sections
   omitted, except Traded, which says so.
 
-- [ ] **Step 2: Write the failing logic tests**
+- [x] **Step 2: Write the failing logic tests**
 
 `web/features/trades/time.test.ts`:
 
@@ -2988,12 +2988,12 @@ describe("orderContract", () => {
 });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/time.test.ts features/trades/history.test.ts`
 Expected: FAIL (modules not found).
 
-- [ ] **Step 4: Write `web/features/trades/time.ts`**
+- [x] **Step 4: Write `web/features/trades/time.ts`**
 
 ```ts
 const TIME_ET = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
@@ -3029,7 +3029,7 @@ export function shiftDay(isoDate: string, n: number): string {
 }
 ```
 
-- [ ] **Step 5: Write `web/features/trades/history.ts`**
+- [x] **Step 5: Write `web/features/trades/history.ts`**
 
 ```ts
 import type { ApprovalSummary } from "@/components/options/types";
@@ -3097,12 +3097,12 @@ export function notTradedRows(approvals: ApprovalSummary[], day: string, strateg
 Run: `cd web && npx vitest run features/trades/time.test.ts features/trades/history.test.ts`
 Expected: PASS (10 tests).
 
-- [ ] **Step 6: Restyle `DrainWarning`** — in `web/components/options/ControlsStrip.tsx`, change
+- [x] **Step 6: Restyle `DrainWarning`** — in `web/components/options/ControlsStrip.tsx`, change
   only the `<p>`'s `className` in `DrainWarning` to
   `"rounded-xl bg-flag px-3 py-2.5 text-[0.8125rem] text-on-flag"`. The words and the
   `data-testid` stay exactly as they are (ControlsStrip and shell tests read them).
 
-- [ ] **Step 7: Write the failing view tests** — `web/features/trades/HistoryView.test.tsx`
+- [x] **Step 7: Write the failing view tests** — `web/features/trades/HistoryView.test.tsx`
 
 ```tsx
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -3333,12 +3333,12 @@ Append inside `describe("RealisedCalendar")` in `web/features/home/RealisedCalen
   });
 ```
 
-- [ ] **Step 8: Run them to verify they fail**
+- [x] **Step 8: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/HistoryView.test.tsx features/home/RealisedCalendar.test.tsx`
 Expected: FAIL (`./HistoryView` not found; no "Open this day in History" link).
 
-- [ ] **Step 9: Write `web/features/trades/HistoryView.tsx`**
+- [x] **Step 9: Write `web/features/trades/HistoryView.tsx`**
 
 ```tsx
 "use client";
@@ -3678,7 +3678,7 @@ export function HistoryView({
 The traded-section heading carries the day heading's level (h2) because the page's h1 is
 "Trades" and the day line is the view's own heading.
 
-- [ ] **Step 10: The calendar's link** — `web/features/home/RealisedCalendar.tsx`
+- [x] **Step 10: The calendar's link** — `web/features/home/RealisedCalendar.tsx`
 
 Add `import Link from "next/link";`. Give `DayCloses` a second prop,
 `onLeave: () => void`, and add at the end of its `<section>`, after the list/empty/error branch:
@@ -3697,13 +3697,13 @@ Add `import Link from "next/link";`. Give `DayCloses` a second prop,
 `RealisedCalendarButton` renders `<CalendarBody now={now} onLeave={() => setOpen(false)} />`, so
 following the link closes the sheet on Home and on Trades alike.
 
-- [ ] **Step 11: Run the tests to verify they pass, then the gate**
+- [x] **Step 11: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run features/trades features/home components/options components/shell && npx tsc --noEmit && npm run lint && python3 ~/.claude/skills/da-vinci/scripts/lint.py features/trades`
 Expected: PASS: 10 logic tests, 12 HistoryView tests and 1 calendar test new; every existing
 `ControlsStrip`, shell and Home test unchanged; tsc 0; lint clean; da-vinci lint exit 0.
 
-- [ ] **Step 12: Commit** (with the Progress log row for Task 4 filled in)
+- [x] **Step 12: Commit** (with the Progress log row for Task 4 filled in)
 
 ```bash
 git add web/features/trades/time.ts web/features/trades/time.test.ts web/features/trades/history.ts \
