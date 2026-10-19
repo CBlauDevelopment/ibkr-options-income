@@ -654,3 +654,85 @@ def test_rationale_tags_come_from_the_frozen_snapshot(client) -> None:
 
 def test_rationale_tags_default_to_empty(client) -> None:
     assert client.get("/options/approvals/1", headers=AUTH).json()["rationale_tags"] == []
+
+
+# --- web overhaul Part 2, Task 2: who decided, a roll's leg, the fill --------------------------
+
+
+def _roll_snapshot(*, with_leg: bool = True) -> dict:
+    snap = _snapshot(underlying="AAPL", strategy="roll", strike=250.0, premium=1.175)
+    if with_leg:
+        snap["roll_from"] = {
+            "con_id": 8, "candidate_id": "c0", "strike": 250.0, "expiry": "2026-10-23",
+            "right": "P", "contracts": 1, "chain_id": "c0", "seq": 1,
+            "original_expiry": "2026-10-23", "old_mid": 2.1, "new_mid": 3.275, "allow_debit": False,
+        }  # fmt: skip
+    return snap
+
+
+def _all_by_cid(client) -> dict:
+    r = client.get("/options/approvals?status=all", headers=AUTH)
+    assert r.status_code == 200
+    return {a["candidate_id"]: a for a in r.json()["approvals"]}
+
+
+def test_who_decided_is_reported_and_an_unrecorded_one_is_null(client) -> None:
+    with session_scope() as s:
+        row = _seed_approval(s, candidate_id="auto", status="approved", decided_at=datetime.now(UTC))
+        row.decided_by = "system"
+    by_cid = _all_by_cid(client)
+    assert by_cid["auto"]["decided_by"] == "system"
+    assert by_cid["c1"]["decided_by"] is None
+
+
+def test_an_unrecognised_decider_reads_as_null_never_an_error(client) -> None:
+    with session_scope() as s:
+        row = _seed_approval(s, candidate_id="odd", status="approved")
+        row.decided_by = "cron"
+    assert _all_by_cid(client)["odd"]["decided_by"] is None
+
+
+def test_a_roll_carries_the_leg_it_buys_back(client) -> None:
+    with session_scope() as s:
+        _seed_candidate(s, candidate_id="r1", run_id="roll-1", underlying="AAPL", strategy="roll", strike=250.0)
+        _seed_approval(s, candidate_id="r1", snapshot=_roll_snapshot())
+    by_cid = _all_by_cid(client)
+    leg = by_cid["r1"]["roll_from"]
+    assert (leg["strike"], leg["expiry"], leg["right"], leg["contracts"]) == (250.0, "2026-10-23", "P", 1)
+    assert (leg["old_mid"], leg["new_mid"]) == (2.1, 3.275)
+    assert by_cid["r1"]["premium"] == 1.175  # the net, per share
+    assert by_cid["c1"]["roll_from"] is None  # an entry has no leg to buy back
+
+
+def test_a_roll_from_before_the_redesign_has_no_leg(client) -> None:
+    with session_scope() as s:
+        _seed_approval(s, candidate_id="old-roll", snapshot=_roll_snapshot(with_leg=False))
+    a = _all_by_cid(client)["old-roll"]
+    assert a["roll_from"] is None and a["source"] == "roll"
+
+
+def test_a_roll_is_a_roll_even_when_its_candidate_was_pruned(client) -> None:
+    with session_scope() as s:
+        _seed_approval(s, candidate_id="pruned-roll", snapshot=_roll_snapshot())
+    assert _all_by_cid(client)["pruned-roll"]["source"] == "roll"
+
+
+def test_the_fill_price_comes_from_the_order_and_is_null_until_it_fills(client) -> None:
+    with session_scope() as s:
+        ap = s.query(ApprovalRow).first()
+        s.add(
+            OrderRow(candidate_id=ap.candidate_id, approval_id=ap.id, state="filled",
+                     limit_price=3.25, avg_fill_price=3.2, snapshot=_snapshot())
+        )  # fmt: skip
+        _seed_approval(s, candidate_id="working")
+        s.flush()
+        working = s.query(ApprovalRow).filter_by(candidate_id="working").one()
+        s.add(
+            OrderRow(candidate_id="working", approval_id=working.id, state="submitted",
+                     limit_price=3.0, snapshot=_snapshot())
+        )  # fmt: skip
+    by_cid = _all_by_cid(client)
+    assert (by_cid["c1"]["order_state"], by_cid["c1"]["fill_price"]) == ("filled", 3.2)
+    assert by_cid["working"]["fill_price"] is None
+    detail = client.get(f"/options/approvals/{by_cid['c1']['id']}", headers=AUTH).json()
+    assert (detail["fill_price"], detail["decided_by"], detail["roll_from"]) == (3.2, None, None)

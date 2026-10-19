@@ -197,7 +197,9 @@ def read_activity_days(session: Session) -> set[date]:
     file lacks contributes nothing."""
     days: set[date] = set()
     try:
-        for (d,) in session.execute(text("SELECT DISTINCT day FROM spread_picks").columns(day=Date)):
+        for (d,) in session.execute(
+            text("SELECT DISTINCT day FROM spread_picks").columns(day=Date)
+        ):
             if d is not None:
                 days.add(d)
     except Exception:  # noqa: BLE001 - no picks table: the picker never ran

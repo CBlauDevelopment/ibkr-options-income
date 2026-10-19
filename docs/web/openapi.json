@@ -4161,6 +4161,43 @@
             "type": "array",
             "title": "Rationale Tags"
           },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "roll_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalRollFrom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fill_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Price"
+          },
           "snapshot": {
             "additionalProperties": true,
             "type": "object",
@@ -4247,6 +4284,58 @@
           "as_of"
         ],
         "title": "ApprovalListResponse"
+      },
+      "ApprovalRollFrom": {
+        "properties": {
+          "strike": {
+            "type": "number",
+            "title": "Strike"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "right": {
+            "type": "string",
+            "title": "Right"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "old_mid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Mid"
+          },
+          "new_mid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Mid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strike",
+          "expiry",
+          "right",
+          "contracts"
+        ],
+        "title": "ApprovalRollFrom",
+        "description": "The short a roll buys back, from the frozen snapshot's ``roll_from`` (2026-10-11 roll\nredesign). The mids are what the roll was priced at when it was proposed, per share: a quote,\nnever a fill."
       },
       "ApprovalSummary": {
         "properties": {
@@ -4391,6 +4480,43 @@
             },
             "type": "array",
             "title": "Rationale Tags"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "roll_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalRollFrom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fill_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Price"
           }
         },
         "type": "object",
@@ -6491,6 +6617,22 @@
             ],
             "title": "Approval Id"
           },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
           "review": {
             "anyOf": [
               {
@@ -6567,6 +6709,30 @@
           "spreads_available": {
             "type": "boolean",
             "title": "Spreads Available"
+          },
+          "previous_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Day"
+          },
+          "next_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Day"
           }
         },
         "type": "object",

@@ -70,9 +70,9 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | Section / task | Status | Commits | Gate | Date | Rulings |
 |---|---|---|---|---|---|
 | **Plan revised** (operator review) | done | (plan file only) | n/a | 2026-10-19 | Operator rulings of 2026-10-19 written in (see "Rulings made up front"): smart default; Working and Decided merged into History, one New York day at a time; who approved recorded in `approvals.decided_by`; rolls show both legs on the card, rows and detail page; Spreads only under Credit spreads, trade-first; Cancel moved to a new Part 5; Activity keeps the raw fills and orders ledger (Part 3). Tasks renumbered 1–11. |
-| **A entry checks** (baseline) | | | | | |
-| 1 Spreads picks API | | | | | |
-| 2 Who decided, the roll's leg, the fill, History's days | | | | | |
+| **A entry checks** (baseline) | done | (none) | A1–A5 pass. pytest 3836 passed, 1 skipped; vitest 817 passed (94 files); ruff, mypy, tsc, lint clean | 2026-10-19 | Ruling: executed inline in a git worktree (`.claude/worktrees/web-overhaul-2`, branch renamed to `feat/web-overhaul-2`), no subagents and no per-task review, at the operator's request to save tokens. Entry checks ran in the worktree at 13ce361 (identical to `main`). |
+| 1 Spreads picks API | done | 1c635b8 | pytest 3848 (baseline + 12); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | none |
+| 2 Who decided, the roll's leg, the fill, History's days | done | (committed with the next section's first commit, see below) | pytest 3867 (Task 1 + 19); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | Ruling: `DayTradesResponse` annotates `previous_day`/`next_day` as `dt.date` (`import datetime as dt`), because its own `date` field shadows the type inside the class body and mypy rejects `date \| None` there. Ruling: `reporting/day.py` types the decider as `DecidedBy = Literal["system","web","telegram"]` and narrows with one `cast`, because `in (...)` does not narrow a `str` for mypy. Ruling: ran `ruff format` on the four files this task wrote or extended (`spreads_db.py`, `day.py`, the two new test files); other pre-existing format drift left alone. |
 | **B entry checks** | | | | | |
 | 3 Trades contract, views, Proposals | | | | | |
 | 4 Rolls say what they roll | | | | | |

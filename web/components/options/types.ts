@@ -3,6 +3,16 @@
 // options routes are new and `npm run gen:api` will pick them up on the next
 // regeneration pass.
 
+/** A roll's buy-back leg and the mids it was priced at (per share; a quote, never a fill). */
+export type ApprovalRollFrom = {
+  strike: number;
+  expiry: string;
+  right: string;
+  contracts: number;
+  old_mid: number | null;
+  new_mid: number | null;
+};
+
 export type ApprovalSummary = {
   as_of: string;
   id: number;
@@ -24,6 +34,14 @@ export type ApprovalSummary = {
   review: ClaudeReviewPayload | null;
   /** Frozen candidate tags, e.g. `iv_rank_unavailable` (display only). */
   rationale_tags?: string[];
+  /** Who decided: the system (auto-approved), you on the web, or you in Telegram. Null when not
+   *  recorded (decided before 2026-10-19, or expired); never inferred. Optional so fixtures
+   *  written before the field still type-check. */
+  decided_by?: "system" | "web" | "telegram" | null;
+  /** A roll's buy-back leg; null for an entry or a roll frozen before the 2026-10-11 redesign. */
+  roll_from?: ApprovalRollFrom | null;
+  /** The order's average fill per share; null until it fills. */
+  fill_price?: number | null;
 };
 
 export type IdealZonePayload = {

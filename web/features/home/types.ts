@@ -124,6 +124,7 @@ export type DayTrade = {
   reason: string | null;
   facts: DayFact[];
   approval_id: number | null;
+  decided_by?: "system" | "web" | "telegram" | null;
   review: ClaudeReviewPayload | null;
   rolled_to: DayRolledTo | null;
 };
@@ -135,6 +136,8 @@ export type DayTradesResponse = {
   strategy: "all" | "csp" | "cc" | "spread";
   trades: DayTrade[];
   spreads_available: boolean;
+  previous_day?: string | null;
+  next_day?: string | null;
 };
 
 export type CalendarDay = { date: string; realized: number; n_closed: number; complete: boolean };

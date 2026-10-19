@@ -522,3 +522,39 @@ def test_an_expiry_counts_on_its_expiry_date(db) -> None:
     put_leg(db, "a", expiry=DAY, sold=(1.0, at(14, 0, DAY - timedelta(days=7)), 1.0))
     cal = build_month_calendar(build_legs(db), [], month=DAY, strategy="all")
     assert [d.date for d in cal.days] == [DAY] and cal.days[0].realized == pytest.approx(99.0)
+
+
+# --- who approved it (web overhaul Part 2, Task 2) ------------------------------------------
+
+
+def test_an_opened_card_says_who_approved_it(db) -> None:
+    put_leg(db, "c1")
+    with db() as s:
+        s.add(ApprovalRow(candidate_id="c1", status="approved", decided_by="system"))
+    [t] = day_trades(db)
+    assert t.decided_by == "system"
+
+
+def test_an_unrecorded_decider_stays_unknown(db) -> None:
+    put_leg(db, "c1")
+    with db() as s:
+        s.add(ApprovalRow(candidate_id="c1", status="approved"))
+    [t] = day_trades(db)
+    assert t.decided_by is None
+
+
+def test_a_closed_card_never_borrows_the_opening_decision(db) -> None:
+    put_leg(db, "c1", sold=(2.35, at(14), 1.3), bought=(0.5, at(17), 1.3, "profit_take"))
+    with db() as s:
+        s.add(ApprovalRow(candidate_id="c1", status="approved", decided_by="web"))
+    trades = day_trades(db)
+    assert by_key(trades, "c1:opened").decided_by == "web"
+    assert by_key(trades, "c1:closed").decided_by is None
+
+
+def test_a_rolled_card_says_who_approved_the_roll(db) -> None:
+    seed_roll(db)
+    with db() as s:
+        s.query(ApprovalRow).filter_by(candidate_id="new").update({"decided_by": "system"})
+    [t] = day_trades(db)
+    assert t.decided_by == "system"

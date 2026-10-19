@@ -184,11 +184,12 @@ def _process_button(approval_id: int, action: str) -> tuple[bool, str, str]:
 
     Deferred so ``approval_service`` (which imports this module at import time
     for ``drain_once``) is not a circular import. Tests monkeypatch THIS name to
-    assert the handler delegates rather than reimplementing.
+    assert the handler delegates rather than reimplementing. The one thing it adds is who
+    decided: a decision drained from the console is recorded as "web".
     """
     from src.notify.approval_service import _process_button as real
 
-    return real(approval_id, action)
+    return real(approval_id, action, decided_by="web")
 
 
 def _apply_approval_decision(*, command: Any, action: str, **_: Any) -> dict:

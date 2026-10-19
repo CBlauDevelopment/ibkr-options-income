@@ -20,7 +20,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -42,6 +42,7 @@ from src.storage.models import ApprovalRow, ClaudeReviewRow, FillRow, RollAlertR
 
 _ET = ZoneInfo("America/New_York")
 _SessionFactory = Callable[[], Session]
+DecidedBy = Literal["system", "web", "telegram"]
 OPTION_MULTIPLIER = 100
 
 
@@ -161,6 +162,7 @@ class _Lookups:
     roll_new_ids: dict[str, list[str]]  # roll order id -> candidate ids it sold
     decisions: dict[str, list[RollAlertRow]]  # underlying -> roll_decision rows, newest first
     claude_views: dict[str, list[RollAlertRow]]  # underlying -> alert rows with a Claude view
+    decided_by: dict[int, DecidedBy]  # approval id -> who decided it
 
 
 def _lookups(
@@ -172,6 +174,7 @@ def _lookups(
     start, end = _day_window(day)
     with session() as sess:
         approvals: dict[str, int] = {}
+        decided: dict[int, DecidedBy] = {}
         reviews: dict[str, DayReview] = {}
         if candidate_ids:
             for a in sess.execute(
@@ -180,6 +183,8 @@ def _lookups(
                 .order_by(ApprovalRow.id)
             ).scalars():
                 approvals[a.candidate_id] = a.id  # the newest wins
+                if a.decided_by in ("system", "web", "telegram"):
+                    decided[a.id] = cast(DecidedBy, a.decided_by)
             for r in sess.execute(
                 select(ClaudeReviewRow)
                 .where(ClaudeReviewRow.candidate_id.in_(candidate_ids))
@@ -218,7 +223,13 @@ def _lookups(
                     decisions[row.underlying].append(row)
                 elif row.claude_recommendation:
                     views[row.underlying].append(row)
-    return _Lookups(approvals, reviews, roll_close, new_ids, decisions, views)
+    return _Lookups(approvals, reviews, roll_close, new_ids, decisions, views, decided)
+
+
+def _decider(look: _Lookups, candidate_id: str | None) -> DecidedBy | None:
+    """Who approved the trade a candidate opened; None when unrecorded or there is no approval."""
+    approval_id = look.approval_by_candidate.get(candidate_id or "")
+    return look.decided_by.get(approval_id) if approval_id is not None else None
 
 
 def _trigger_label(code: str) -> str:
@@ -507,6 +518,8 @@ def _rolled_trade(
         "key": f"{leg.candidate_id}:rolled",
         "approval_id": look.approval_by_candidate.get(new_cid or "")
         or look.approval_by_candidate.get(leg.candidate_id),
+        # Only the roll's own approval; never the old leg's, which approval_id falls back to.
+        "decided_by": _decider(look, new_cid),
     }
     return DayTrade(
         **base,
@@ -545,8 +558,44 @@ def _opened_trade(leg: PnlLeg, kind: Literal["csp", "cc"], look: _Lookups) -> Da
         annualized_pct=_annualised(roc, dte),
         dte_at_open=dte,
         approval_id=look.approval_by_candidate.get(leg.candidate_id),
+        decided_by=_decider(look, leg.candidate_id),
         review=look.review_by_candidate.get(leg.candidate_id),
     )
+
+
+def _approval_kind(snapshot: Any) -> Literal["csp", "cc"] | None:
+    """The side of the book a proposal's snapshot is on, as leg_kind does for a leg."""
+    if not isinstance(snapshot, dict):
+        return None
+    s, r = snapshot.get("strategy"), snapshot.get("right")
+    if s == "cash_secured_put" or (s == "roll" and r == "P"):
+        return "csp"
+    if s == "covered_call" or (s == "roll" and r == "C"):
+        return "cc"
+    return None
+
+
+def activity_days(
+    session: _SessionFactory, legs: Iterable[PnlLeg], *, strategy: PayStrategy
+) -> set[date]:
+    """New York days with a wheel trade (opened, closed, rolled) or a wheel proposal raised, in
+    the strategy's scope: History's previous and next day. Spreads are not counted; the spreads
+    view navigates over GET /spreads/picks."""
+    days: set[date] = set()
+    for leg in legs:
+        if not _kind_in_scope(leg_kind(leg), strategy):
+            continue
+        for d in (et_date(leg.opened_at), close_day(leg)):
+            if d is not None:
+                days.add(d)
+    with session() as sess:
+        for created_at, snapshot in sess.execute(
+            select(ApprovalRow.created_at, ApprovalRow.snapshot)
+        ):
+            d = et_date(created_at)
+            if d is not None and _kind_in_scope(_approval_kind(snapshot), strategy):
+                days.add(d)
+    return days
 
 
 # --------------------------------------------------------------------------- #

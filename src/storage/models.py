@@ -112,6 +112,11 @@ class ApprovalRow(Base):
     telegram_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chat_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Who decided it (web overhaul Part 2, 2026-10-19): "system" (auto-approved on WHITELIST or
+    # FULL autonomy, entries and rolls), "web" (the console, through the command drain) or
+    # "telegram" (a tap). Null on a row decided before the column existed, and on an expiry.
+    # A record for the console only: nothing on the trading path reads it.
+    decided_by: Mapped[str | None] = mapped_column(String(12), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Frozen TradeCandidate payload the human was shown when this approval was raised (N2a).
     # Copied onto the OrderRow at approval time so execution runs the size/premium that was

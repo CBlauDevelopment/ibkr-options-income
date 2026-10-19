@@ -1450,6 +1450,11 @@ export interface components {
             review?: components["schemas"]["ClaudeReviewPayload"] | null;
             /** Rationale Tags */
             rationale_tags?: string[];
+            /** Decided By */
+            decided_by?: ("system" | "web" | "telegram") | null;
+            roll_from?: components["schemas"]["ApprovalRollFrom"] | null;
+            /** Fill Price */
+            fill_price?: number | null;
             /** Snapshot */
             snapshot: {
                 [key: string]: unknown;
@@ -1473,6 +1478,29 @@ export interface components {
             as_of: string;
             /** Approvals */
             approvals?: components["schemas"]["ApprovalSummary"][];
+        };
+        /**
+         * ApprovalRollFrom
+         * @description The short a roll buys back, from the frozen snapshot's ``roll_from`` (2026-10-11 roll
+         *     redesign). The mids are what the roll was priced at when it was proposed, per share: a quote,
+         *     never a fill.
+         */
+        ApprovalRollFrom: {
+            /** Strike */
+            strike: number;
+            /**
+             * Expiry
+             * Format: date
+             */
+            expiry: string;
+            /** Right */
+            right: string;
+            /** Contracts */
+            contracts: number;
+            /** Old Mid */
+            old_mid?: number | null;
+            /** New Mid */
+            new_mid?: number | null;
         };
         /**
          * ApprovalSummary
@@ -1528,6 +1556,11 @@ export interface components {
             review?: components["schemas"]["ClaudeReviewPayload"] | null;
             /** Rationale Tags */
             rationale_tags?: string[];
+            /** Decided By */
+            decided_by?: ("system" | "web" | "telegram") | null;
+            roll_from?: components["schemas"]["ApprovalRollFrom"] | null;
+            /** Fill Price */
+            fill_price?: number | null;
         };
         /** AssessedContract */
         AssessedContract: {
@@ -2379,6 +2412,8 @@ export interface components {
             facts?: components["schemas"]["DayFact"][];
             /** Approval Id */
             approval_id?: number | null;
+            /** Decided By */
+            decided_by?: ("system" | "web" | "telegram") | null;
             review?: components["schemas"]["DayReview"] | null;
             rolled_to?: components["schemas"]["DayRolledTo"] | null;
         };
@@ -2411,6 +2446,10 @@ export interface components {
             trades: components["schemas"]["DayTrade"][];
             /** Spreads Available */
             spreads_available: boolean;
+            /** Previous Day */
+            previous_day?: string | null;
+            /** Next Day */
+            next_day?: string | null;
         };
         /** EarningsOut */
         EarningsOut: {

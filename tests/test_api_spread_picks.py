@@ -160,8 +160,17 @@ def test_a_pick_carries_its_menu_choice_and_outcome(client, spreads_file, frozen
     assert [i["letter"] for i in p["menu"]] == ["A", "B"]
     b = p["menu"][1]
     assert b["position"] == "baseline"
-    assert (b["side"], b["short_strike"], b["long_strike"], b["contracts"]) == ("put", 762.0, 757.0, 2)
-    assert (b["credit_mid"], b["credit_after_costs"], b["be_nominal_exits"]) == (0.25, 0.144, 0.9493)
+    assert (b["side"], b["short_strike"], b["long_strike"], b["contracts"]) == (
+        "put",
+        762.0,
+        757.0,
+        2,
+    )
+    assert (b["credit_mid"], b["credit_after_costs"], b["be_nominal_exits"]) == (
+        0.25,
+        0.144,
+        0.9493,
+    )
     # Stored naive UTC leaves the API with an offset, so a browser never reads it as local time.
     assert p["created_at"].endswith(("Z", "+00:00"))
 
@@ -192,7 +201,9 @@ def test_a_pick_names_the_spread_it_opened(client, spreads_file, frozen_now) -> 
     assert body["picks"][0]["spread_id"] == "20261015-P762-757-101726"
 
 
-def test_the_day_lists_every_book_opened_that_new_york_day(client, spreads_file, frozen_now) -> None:
+def test_the_day_lists_every_book_opened_that_new_york_day(
+    client, spreads_file, frozen_now
+) -> None:
     _make_db(
         spreads_file,
         positions=[
@@ -211,7 +222,9 @@ def test_the_day_lists_every_book_opened_that_new_york_day(client, spreads_file,
 def test_previous_and_next_skip_days_with_nothing(client, spreads_file, frozen_now) -> None:
     _make_db(
         spreads_file,
-        picks=[_pick(day=date(2026, 10, 9), created_at=datetime(2026, 10, 9, 14, 0), episode_key="a")],
+        picks=[
+            _pick(day=date(2026, 10, 9), created_at=datetime(2026, 10, 9, 14, 0), episode_key="a")
+        ],
         positions=[_position(spread_id="later", opened_at=datetime(2026, 10, 20, 14, 0))],
     )
     body = client.get("/spreads/picks?day=2026-10-15", headers=OWNER).json()
@@ -230,7 +243,9 @@ def test_an_old_file_without_the_picks_table_is_available_with_no_picks(
     assert len(body["positions"]) == 1
 
 
-def test_an_older_positions_table_without_pick_id_still_reads(client, spreads_file, frozen_now) -> None:
+def test_an_older_positions_table_without_pick_id_still_reads(
+    client, spreads_file, frozen_now
+) -> None:
     con = sqlite3.connect(spreads_file)
     con.execute(
         "CREATE TABLE spread_positions (id INTEGER PRIMARY KEY, spread_id TEXT, mode TEXT, "

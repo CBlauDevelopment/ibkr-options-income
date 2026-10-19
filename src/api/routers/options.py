@@ -13,6 +13,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from src.api.deps import OwnerUser, TradingDb
@@ -21,6 +22,7 @@ from src.api.models.options import (
     AlternativeStrike,
     ApprovalDetail,
     ApprovalListResponse,
+    ApprovalRollFrom,
     ApprovalSourceLit,
     ApprovalSummary,
     AssessedContract,
@@ -179,11 +181,32 @@ def _snapshot_fields(snap: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+_DECIDERS = ("system", "web", "telegram")
+
+
+def _roll_from(snap: dict[str, Any]) -> ApprovalRollFrom | None:
+    """A roll's buy-back leg from its snapshot. None for an entry, or for a roll frozen before
+    the 2026-10-11 redesign (no ``roll_from``), or for one that no longer parses."""
+    raw = snap.get("roll_from")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return ApprovalRollFrom.model_validate(raw)
+    except ValidationError:
+        return None
+
+
+def _decider(raw: Any) -> Any:
+    """The recorded decider, or None for anything unrecorded or unrecognised (never a 500)."""
+    return raw if raw in _DECIDERS else None
+
+
 def _build_summary(
     approval: Any,
     cand: Any | None,
     order_state: str | None,
     review: ClaudeReviewPayload | None = None,
+    fill_price: float | None = None,
 ) -> ApprovalSummary:
     """Build an ``ApprovalSummary`` from the joined rows, preferring the snapshot."""
     snap = approval.snapshot or {}
@@ -229,9 +252,13 @@ def _build_summary(
         expires_at=as_utc_opt(approval.expires_at),
         decided_at=as_utc_opt(approval.decided_at),
         order_state=order_state,
-        source=_source_from_run_id(run_id),
+        # The snapshot says roll even when the 14-day purge has removed the candidate row.
+        source="roll" if snap_fields.get("strategy") == "roll" else _source_from_run_id(run_id),
         review=review,
         rationale_tags=rationale_tags,
+        decided_by=_decider(getattr(approval, "decided_by", None)),
+        roll_from=_roll_from(snap),
+        fill_price=fill_price,
     )
 
 
@@ -359,23 +386,25 @@ def list_approvals(
         )
         cand_map = {c.candidate_id: c for c in cands}
 
-    order_map: dict[int, str] = {}
+    order_map: dict[int, tuple[str, float | None]] = {}
     if approval_ids:
         orders = db.execute(
-            select(OrderRow.approval_id, OrderRow.state).where(
+            select(OrderRow.approval_id, OrderRow.state, OrderRow.avg_fill_price).where(
                 OrderRow.approval_id.in_(approval_ids)
             )
         ).all()
-        order_map = {row[0]: row[1] for row in orders if row[0] is not None}
+        order_map = {row[0]: (row[1], row[2]) for row in orders if row[0] is not None}
 
     review_map = _latest_reviews_by_candidate(db, candidate_ids)
 
-    summaries = [
-        _build_summary(
-            a, cand_map.get(a.candidate_id), order_map.get(a.id), review_map.get(a.candidate_id)
+    summaries = []
+    for a in approvals:
+        state, fill_price = order_map.get(a.id, (None, None))
+        summaries.append(
+            _build_summary(
+                a, cand_map.get(a.candidate_id), state, review_map.get(a.candidate_id), fill_price
+            )
         )
-        for a in approvals
-    ]
     return ApprovalListResponse(as_of=now, approvals=summaries)
 
 
@@ -405,13 +434,16 @@ def get_approval(
 
     order_state: str | None = None
     order_id: int | None = None
+    fill_price: float | None = None
     fills: list[FillSummary] = []
     if approval.id is not None:
         order_row = db.execute(
-            select(OrderRow.id, OrderRow.state).where(OrderRow.approval_id == approval.id)
+            select(OrderRow.id, OrderRow.state, OrderRow.avg_fill_price).where(
+                OrderRow.approval_id == approval.id
+            )
         ).first()
         if order_row is not None:
-            order_id, order_state = order_row
+            order_id, order_state, fill_price = order_row
             # The approval-to-fill lineage the console otherwise needs two more
             # requests (GET /options/orders, GET /options/fills) to assemble.
             fill_rows = (
@@ -439,7 +471,7 @@ def get_approval(
                 for f in fill_rows
             ]
 
-    summary = _build_summary(approval, cand, order_state)
+    summary = _build_summary(approval, cand, order_state, fill_price=fill_price)
 
     # Ideal zone from the RiskVerdictRow (denormalised lo / hi / min_credit).
     # risk_verdicts stores one row per assessed contract PER RUN, so a candidate
@@ -545,6 +577,9 @@ def get_approval(
         source=summary.source,
         review=review,
         rationale_tags=summary.rationale_tags,
+        decided_by=summary.decided_by,
+        roll_from=summary.roll_from,
+        fill_price=summary.fill_price,
         snapshot=approval.snapshot or {},
         ideal=ideal,
         gate_reasons=gate_reasons,

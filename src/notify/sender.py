@@ -424,6 +424,7 @@ async def _auto_queue_candidates(
                         status=ApprovalStatus.APPROVED,
                         chat_id=chat_id,
                         decided_at=datetime.now(UTC),
+                        decided_by="system",  # auto-approved: shown on the web, never read back
                         expires_at=expires_at,
                         snapshot=snapshot,
                     )

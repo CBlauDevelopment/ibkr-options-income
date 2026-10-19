@@ -86,6 +86,20 @@ class FillSummary(Envelope):
 
 ApprovalStatusLit = Literal["pending", "approved", "rejected", "expired"]
 ApprovalSourceLit = Literal["scan", "roll"]
+DecidedByLit = Literal["system", "web", "telegram"]
+
+
+class ApprovalRollFrom(BaseModel):
+    """The short a roll buys back, from the frozen snapshot's ``roll_from`` (2026-10-11 roll
+    redesign). The mids are what the roll was priced at when it was proposed, per share: a quote,
+    never a fill."""
+
+    strike: float
+    expiry: date
+    right: str  # "C" | "P"
+    contracts: int
+    old_mid: float | None = None  # to buy the old leg back
+    new_mid: float | None = None  # the new leg's price
 
 
 class ApprovalSummary(Envelope):
@@ -113,6 +127,11 @@ class ApprovalSummary(Envelope):
     # The frozen candidate's rationale tags (e.g. ``iv_rank_unavailable`` - Task 9: the IV
     # component was scored neutral because the name has no IV history). Display only.
     rationale_tags: list[str] = Field(default_factory=list)
+    # Web overhaul Part 2 (2026-10-19). Who decided: None before the record existed, or on an
+    # expiry, never inferred.
+    decided_by: DecidedByLit | None = None
+    roll_from: ApprovalRollFrom | None = None  # a roll's buy-back leg; None for an entry
+    fill_price: float | None = None  # the order's average fill per share; None until it fills
 
 
 class ApprovalDetail(ApprovalSummary):
