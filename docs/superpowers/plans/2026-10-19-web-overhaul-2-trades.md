@@ -82,9 +82,9 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | **C entry checks** | done | (none) | C1-C5 pass, orchestrator-run (C2 included a production build in a scratch copy) | 2026-10-19 | Ruling: C4 (and the same grep repeated as an `Expected: prints nothing` check in Tasks 10 and 11) is read as "no file this plan creates or changes under `web/features` calls `submitCommand`/`confirmCommand`". The only allowed hits are `web/features/more/TargetCard.tsx` and `web/features/more/TargetCard.test.tsx`, which were on `main` before this plan (Home follow-ups, the income-target form) and are not touched. Cost if wrong: the operator decides TargetCard should go through a `components/options` flow, which is a separate change. |
 | 8 Trades page assembly | done | 0a0a152 | vitest 899 (102 files: Task 7's 906 + 10 TradesPage tests - 17 removed with the legacy page test and TickerPillBar's test; HomePage's 5 tests unchanged after `useHydrated` moved); tsc, lint clean; da-vinci lint exit 0. Protected files byte-identical to `main` | 2026-10-19 | Ruling: in `TradesPage.test.tsx` the `@/lib/test-query` import comes before `@/lib/commands`, with a comment saying why. The plan listed them the other way round; `test-query` registers the `@/lib/api` mock when it is evaluated, so `lib/commands` (which imports `@/lib/api`) loaded first kept the real `apiFetch` and "approving in the sheet moves the card to History at once" never reached `POST /commands`. Cost if wrong: none, test-only. Also ticked the unticked step boxes of Tasks 1 and 2 and the A and C entry checks. |
 | 9 Approval detail page | done | f7a9d8d | vitest 910 (103 files, Task 8's 899 + 11: 6 detail, 5 IdealZoneBar); tsc, lint clean; da-vinci lint exit 0. Every existing `ApprovalDetail`, `ReviewPanel` and `RationaleTags` test passed unmodified (the decide-flow tests included); the replaced back-link assertion is the only changed one. Protected files byte-identical to `main` | 2026-10-19 | none. 11 of the 12 new or replaced tests failed first; "says when no zone was derived" passes on the old bar too, as a guard. |
-| 10 Roll moves to the position page | done | this commit (`git log --oneline` for the hash) | vitest 922 (105 files, Task 9's 910 + 12: 7 RollCard, 2 PositionPage, 2 `positions.alert`, 1 PositionsCard); tsc, lint clean; da-vinci lint exit 0; `design_md_check.py web/DESIGN.md` exit 0. `ShortsTable.test.tsx` (22 tests) passes UNMODIFIED and is byte-identical to `main`, which is the proof the extraction changed no behaviour. Protected files byte-identical to `main`. `grep -rn "submitCommand\|confirmCommand" web/features` prints only `features/more/TargetCard.tsx` and `TargetCard.test.tsx` (the C entry checks ruling). Section C exit met: three commits (Tasks 8-10), `/trades` is the new page, `app/trades/page.test.tsx` is deleted and its cases live in `TradesPage.test.tsx` | 2026-10-19 | Ruling: `ShortsRow`'s receipt row now renders `RollReceipt` (payslip classes: `rounded-xl bg-sunk`, semibold underlined links) instead of the old `border-border` markup, as the plan's replacement file does; the row itself (cells, the button) is unchanged and `ShortsRow` is not mounted anywhere, so no visible change. Cost if wrong: none, unmounted until Part 4 deletes it. The Roll alert test on `PositionsCard` did not get a separate red run (its implementation and test were written in the same step after `positions.alert.test.ts` had failed first). |
-| **D entry checks** | | | | | |
-| 11 Docs, da-vinci finish, full gate | | | | | |
+| 10 Roll moves to the position page | done | 91f74d7 | vitest 922 (105 files, Task 9's 910 + 12: 7 RollCard, 2 PositionPage, 2 `positions.alert`, 1 PositionsCard); tsc, lint clean; da-vinci lint exit 0; `design_md_check.py web/DESIGN.md` exit 0. `ShortsTable.test.tsx` (22 tests) passes UNMODIFIED and is byte-identical to `main`, which is the proof the extraction changed no behaviour. Protected files byte-identical to `main`. `grep -rn "submitCommand\|confirmCommand" web/features` prints only `features/more/TargetCard.tsx` and `TargetCard.test.tsx` (the C entry checks ruling). Section C exit met: three commits (Tasks 8-10), `/trades` is the new page, `app/trades/page.test.tsx` is deleted and its cases live in `TradesPage.test.tsx` | 2026-10-19 | Ruling: `ShortsRow`'s receipt row now renders `RollReceipt` (payslip classes: `rounded-xl bg-sunk`, semibold underlined links) instead of the old `border-border` markup, as the plan's replacement file does; the row itself (cells, the button) is unchanged and `ShortsRow` is not mounted anywhere, so no visible change. Cost if wrong: none, unmounted until Part 4 deletes it. The Roll alert test on `PositionsCard` did not get a separate red run (its implementation and test were written in the same step after `positions.alert.test.ts` had failed first). |
+| **D entry checks** | done | (none) | D1-D3 were run by the orchestrator before Task 11 and pass (gates green, the production build green in a scratch copy, protected files untouched). D4 passes: the Playwright browser tools loaded and drove the pages below | 2026-10-19 | none |
+| 11 Docs, da-vinci finish, full gate | done (Step 7, the whole-branch review and the finish, is the orchestrator's) | 0273d16 (da-vinci finish), c085f3b (docs) | pytest 3867 passed, 1 skipped (baseline 3836 + 31); vitest 922 passed (105 files; no test added, the two finish-fix tests were changed in place); ruff, mypy (266 files), tsc and `npm run lint` clean; `design_md_check.py web/DESIGN.md` exit 0; the scratch-copy `next build` passes; protected files diff against `main` empty; the `submitCommand` / `confirmCommand` grep over `web/features` prints only `features/more/TargetCard.tsx` and its test (the C entry ruling). da-vinci lint: exit 0 over every non-test source file; the full three-directory command exits 1, only on 20 em dashes in the describe/it titles of 7 legacy test files (ruling 1). **Visual check** (mock API on 8799 and a dev server on a scratch copy on 3100, both killed; 21 screenshots kept in the scratchpad `shots/` folder, not the repo). Taken, 1440px light: Proposals, History (today), Spreads (menu closed and open, paper and baseline side by side), Assessed (open), `/trades/6` (the roll, both legs and the net), `/trades/1`, the position page with its Roll card and one alert, Home's Needs you column with the roll card, and `/trades` with PENDING emptied (it opened on History). 1440px dark: History. 390px light: Proposals, the review sheet, Approve's confirmation (cancelled, nothing released), History, `/trades/6`. 390px dark: `/trades/6`, before and after the finish fix. 320px: History, Proposals and Spreads with a menu open, and no element past the viewport on Proposals or Spreads (document and main `scrollWidth` 320). **Not taken:** Spreads and the Roll card in dark, History for a past day (the mock answers the same day for any date; the Today button and the empty-Traded sentence are covered by HistoryView tests), the Roll card and Home at 390px. **da-vinci critique and audit** (Operate surface, rendered, then lint and token contrast, with the review written down before the tool output): working well: the switcher and view chips with the URL as state, History's order (In flight, Traded, Not traded) with who approved in words, the roll stub (Buy back, Sell, Net credit), the Roll card staying secondary. Fixed (0273d16, RED first: both tests failed before the change, 2 failed and 10 passed): P2, the unknown hatch was drawn over whole sentences (an unreadable spreads menu, twice, and the detail page's IV-rank-unavailable tag), putting same-coloured lines through every letter and making the wrapped tag hard to read in dark at 390px; it is now a small hatched mark beside the words, which stay `text-unknown`. Proposed, not coded (`web/DESIGN.md` Open Decisions): P3, a disabled quiet button takes the sunk fill by the Buttons rule, so History's and Spreads' day arrow at the end of the range reads as a filled circle while the live one is bare; keeping it transparent changes a shared component's rule for every variant. Left: P3, the detail and Assessed pages state times in labelled UTC while Trades uses New York time (an older, deliberate convention with its own tests); P3, at 320px the strategy switcher (a Part 1 component) wraps into a two-row pill; P3, Approve and Reject inside the sheet are short of 44px (the protected decide controls' recorded exception); the Next.js dev indicator overlapped the bot card (dev only). No new colour, font, radius, elevation or token. | 2026-10-19 | Ruling 1: the plan expects `lint.py web/features web/components/options web/components/ui` to exit 0, but it exits 1 on `main` too: 20 EM_DASH hits in describe/it titles of `ApprovalCard`, `ApprovalsList`, `AssessedRow`, `AutonomyControl`, `CommandReceipt`, `HaltControl` and `ShortsTable` tests, byte-identical to `main`, none of it user-facing copy (three of the files test protected components). Read as: exit 0 over every non-test source file. Cost if wrong: the operator wants those titles reworded, a 20-line test-only edit. Ruling 2: Playwright may only write under the worktree, so screenshots were saved to `.playwright-mcp/` (git-ignored), copied to the scratchpad and the folder deleted. Cost if wrong: none. Ruling 3: the plan's DESIGN.md text calls "This menu could not be read." hatched; after the finish fix it is a hatched mark beside the sentence, and the Components entry says so. Cost if wrong: revert 0273d16 and one DESIGN.md clause. Ruling 4: ARCHITECTURE.md's data-flow section has no approval-lifecycle passage to amend, so it gained an `ApprovalRow` row in its schema table (the decision records who made it). Cost if wrong: none. Ruling 5: `web/CLAUDE.md`'s old tabbed `options/` page entry is replaced by a short retirement note (not by a copy of the new page), the stale `TickerPillBar` paragraph under `components/options/` is removed, and the ideal zone is described as two sentences with a bar under the first, which is what the page draws. Cost if wrong: none. Ruling 6: STATUS.md also had its "Web platform" table row and Part 1's "Deferred (Parts 2-4)" line updated to say Part 2 is built; ARCHITECTURE.md's "Parts 2-4 recompose" sentence likewise. Cost if wrong: none. Ruling 7: da-vinci's sync check answered OK (7 days), so no sync researcher was launched. The mock API was extended in the scratchpad only (a baseline spread, a held short with one alert, two assessed contracts, an empty-PENDING switch). README.md is unchanged (no Telegram command, no top-level directory). Doc counts: the new Components entries (In-flight order row, Not-traded row, History, Spreads books, Assessed card), the Strategy switcher sentence, a Decision Log entry and the marker date are in `web/DESIGN.md`; `design_md_check.py` exit 0. |
 
 ## Roadmap (this plan is Part 2 of 5)
 
@@ -6747,13 +6747,13 @@ Looks at the result in a browser, runs the da-vinci finish, sweeps the docs and 
 
 **Entry checks (run before Task 11):**
 
-- [ ] **D1. Section C landed.** `git log --oneline main..HEAD` shows ten commits (plus any review
+- [x] **D1. Section C landed.** `git log --oneline main..HEAD` shows ten commits (plus any review
   fix passes recorded in the Progress log); Tasks 8–10 are ticked.
-- [ ] **D2. Every gate and the build green.** `python -m pytest -q && ruff check . && mypy src`,
+- [x] **D2. Every gate and the build green.** `python -m pytest -q && ruff check . && mypy src`,
   `cd web && npx vitest run && npx tsc --noEmit && npm run lint`, and the scratch-copy build from
   C2.
-- [ ] **D3. The safety checks still hold.** C4 and C5 print nothing.
-- [ ] **D4. A browser is available for the visual check.** The Claude-in-Chrome or Playwright
+- [x] **D3. The safety checks still hold.** C4 and C5 print nothing.
+- [x] **D4. A browser is available for the visual check.** The Claude-in-Chrome or Playwright
   tools load, or the operator agrees to take the screenshots in Step 2 by hand.
 
 **Section exit (plan done):** eleven task commits (plus any review fix passes) and the Progress-log
@@ -6774,7 +6774,7 @@ push without the operator.
 - Consumes: the whole branch.
 - Produces: the finished Part 2; the Progress log complete.
 
-- [ ] **Step 1: Run a synthetic API for the visual check.** Never point the console at the live
+- [x] **Step 1: Run a synthetic API for the visual check.** Never point the console at the live
   API for this. Write this script to the scratchpad (not the repo) and run it in the background:
 
 ```python
@@ -6888,7 +6888,7 @@ S="$(mktemp -d)/web" && rsync -a --exclude node_modules --exclude .next web/ "$S
 Run both in the background. Pages that read a route the mock lacks show their error sentence,
 which is fine: the check is Trades, the detail page and the Roll card.
 
-- [ ] **Step 2: Look at it.** At 1440px and 390px wide, in light and in dark (More → theme), open:
+- [x] **Step 2: Look at it.** At 1440px and 390px wide, in light and in dark (More → theme), open:
   `/trades` (it opens on Proposals, since the mock has some waiting; then History for today and
   for a past day, Assessed, then CSPs and Credit spreads on the switcher), Review on the AAPL
   card (the sheet, then Approve's confirmation; do not release anything), the AMD roll card and
@@ -6899,7 +6899,7 @@ which is fine: the check is Trades, the detail page and the Roll card.
   entry with one alert) and open that page. Take a screenshot of each; keep them in the
   scratchpad, not the repo.
 
-- [ ] **Step 3: da-vinci finish.** With da-vinci loaded, run its `critique` and `audit` over
+- [x] **Step 3: da-vinci finish.** With da-vinci loaded, run its `critique` and `audit` over
   `/trades` (all views), `/trades/[id]` and the Roll card, then `polish` what they find. Rules for
   the fixes:
   - every behaviour change gets a test (RED first, then GREEN), recorded in the Progress log;
@@ -6910,7 +6910,7 @@ which is fine: the check is Trades, the detail page and the Roll card.
     exits 0 at the end.
   Commit the fixes on their own: `git commit -m "fix(web): da-vinci finish of Trades, the detail page and the Roll card"`.
 
-- [ ] **Step 4: The doc sweep** (the root CLAUDE.md's mandatory doc-update table). Each item is a
+- [x] **Step 4: The doc sweep** (the root CLAUDE.md's mandatory doc-update table). Each item is a
   concrete edit:
   - **`web/DESIGN.md`**: under `## Components` add **In-flight order row** (History, today only:
     the ticker and contract bold, a state word, flag only for Partial, limit price and fills in
@@ -7011,7 +7011,7 @@ which is fine: the check is Trades, the detail page and the Roll card.
   - **`README.md`**: no change (no new Telegram command or top-level directory). Confirm and say
     so in the Progress log.
 
-- [ ] **Step 5: The full gate.** All of these, with the counts recorded:
+- [x] **Step 5: The full gate.** All of these, with the counts recorded:
 
 ```bash
 python -m pytest -q && ruff check . && mypy src
@@ -7028,7 +7028,7 @@ git diff --stat main -- web/components/options/DecideControls.tsx web/components
 and the scratch-copy `next build` from C2. Expected: pytest = baseline + 31; vitest green with
 every new test; everything else clean.
 
-- [ ] **Step 6: Commit the docs, then the Progress log**
+- [x] **Step 6: Commit the docs, then the Progress log**
 
 ```bash
 git add web/DESIGN.md web/CLAUDE.md ARCHITECTURE.md STATUS.md SETUP.md CLAUDE.md docs/web/api.md
