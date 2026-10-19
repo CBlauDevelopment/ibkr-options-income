@@ -26,10 +26,13 @@ export function RationaleTags({ tags }: { tags: string[] | undefined }) {
             key={tag}
             className={
               unknown
-                ? "hatch rounded-[6px] px-2 py-px text-xs font-semibold text-unknown"
+                ? "rounded-[6px] bg-sunk px-2 py-px text-xs font-semibold text-unknown"
                 : "rounded-[6px] bg-sunk px-2 py-px text-xs font-semibold text-muted"
             }
           >
+            {/* The texture is a mark beside the words, never over them: hatching the sentence drew
+                same-coloured lines through every letter. */}
+            {unknown && <span aria-hidden="true" className="hatch mr-1.5 inline-block h-2.5 w-5 rounded-[6px] align-middle" />}
             {rationaleTagLabel(tag)}
           </li>
         );

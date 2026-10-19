@@ -230,15 +230,26 @@ function MenuDisclosure({ pick, withSentence = true }: { pick: SpreadPick; withS
           ))}
         </ul>
       ) : (
-        <p className="mt-3 border-t-2 border-dashed border-perforation pt-2 text-[0.8125rem]">
-          <span className="hatch text-unknown">This menu could not be read.</span>
-        </p>
+        <UnreadableMenu className="mt-3" />
       )}
       <p className="mt-1 text-xs text-muted">
         Asked {pick.model} · gamma {pick.regime}
         {pick.event_flag ? " · event day" : ""}
       </p>
     </Disclosure>
+  );
+}
+
+/**
+ * A stored menu that no longer parses. The unknown texture is a small mark beside the words, never
+ * over them: hatching the whole sentence drew same-coloured lines through every letter.
+ */
+function UnreadableMenu({ className }: { className?: string }) {
+  return (
+    <p className={clsx("border-t-2 border-dashed border-perforation pt-2 text-[0.8125rem]", className)}>
+      <span aria-hidden="true" className="hatch mr-2 inline-block h-3 w-6 rounded-[6px] align-middle" />
+      <span className="text-unknown">This menu could not be read.</span>
+    </p>
   );
 }
 
@@ -260,9 +271,7 @@ function PickCard({ pick, underlying }: { pick: SpreadPick; underlying: string }
         {pick.menu_readable ? (
           <MenuDisclosure pick={pick} withSentence={false} />
         ) : (
-          <p className="border-t-2 border-dashed border-perforation pt-2 text-[0.8125rem]">
-            <span className="hatch text-unknown">This menu could not be read.</span>
-          </p>
+          <UnreadableMenu />
         )}
       </div>
     </Card>

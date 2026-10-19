@@ -80,7 +80,12 @@ describe("SpreadsView", () => {
     });
     const other = await screen.findByRole("region", { name: "Other picks" });
     const bad = within(other).getByRole("article", { name: "SPY · Claude picked B" });
-    expect(within(bad).getByText("This menu could not be read.")).toHaveClass("hatch");
+    // The unknown texture is a small mark beside the words: hatching the sentence itself drew
+    // same-coloured lines through every letter (da-vinci finish, 2026-10-19).
+    const note = within(bad).getByText("This menu could not be read.");
+    expect(note).not.toHaveClass("hatch");
+    expect(note).toHaveClass("text-unknown");
+    expect(note.parentElement?.querySelector(".hatch")).not.toBeNull();
     expect(screen.getByRole("region", { name: "Paper book" })).toBeInTheDocument();
   });
 
