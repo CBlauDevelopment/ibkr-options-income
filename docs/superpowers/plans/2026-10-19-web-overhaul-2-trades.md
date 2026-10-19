@@ -78,9 +78,9 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 4 Rolls say what they roll | done | 2f3dbf4 | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
 | 5 History | done | a642822 | vitest 879 (101 files, Task 4 + 23: 10 logic, 12 HistoryView, 1 calendar); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | Ruling: `timeET` strips both U+202F and U+00A0 (`/[  ]/g`) instead of the plan's single literal character, because a literal narrow no-break space is invisible in a diff and easy to lose; same behaviour, one more character class. |
 | 6 Assessed | done | 7911958 | vitest 881 (101 files, Task 5 + 2); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | none. Both new tests failed first; every existing Assessed, AssessedRow and ApprovalDetail test passed unchanged. |
-| 7 Spreads view | done | this commit (`git log --oneline` for the hash) | vitest 906 (103 files, Task 6 + 25: 16 logic, 9 view); tsc, lint clean; da-vinci lint exit 0. Section B exit met: every `web/features/trades/*.test.*` and `web/features/home/*.test.*` green. Protected files byte-identical to `main` | 2026-10-19 | none. Observation, not a Task 7 change: `grep -rn "submitCommand\|confirmCommand" web/features` is not empty, because `web/features/more/TargetCard.tsx` (Part 1 / Home follow-ups, on `main`) calls `submitCommand` directly; Global Constraints says it should print nothing. Nothing under `features/trades` matches. Left for the finish review. |
-| **C entry checks** | | | | | |
-| 8 Trades page assembly | | | | | |
+| 7 Spreads view | done | 2636741 | vitest 906 (103 files, Task 6 + 25: 16 logic, 9 view); tsc, lint clean; da-vinci lint exit 0. Section B exit met: every `web/features/trades/*.test.*` and `web/features/home/*.test.*` green. Protected files byte-identical to `main` | 2026-10-19 | none. Observation, not a Task 7 change: `grep -rn "submitCommand\|confirmCommand" web/features` is not empty, because `web/features/more/TargetCard.tsx` (Part 1 / Home follow-ups, on `main`) calls `submitCommand` directly; Global Constraints says it should print nothing. Nothing under `features/trades` matches. Left for the finish review. |
+| **C entry checks** | done | (none) | C1-C5 pass, orchestrator-run (C2 included a production build in a scratch copy) | 2026-10-19 | Ruling: C4 (and the same grep repeated as an `Expected: prints nothing` check in Tasks 10 and 11) is read as "no file this plan creates or changes under `web/features` calls `submitCommand`/`confirmCommand`". The only allowed hits are `web/features/more/TargetCard.tsx` and `web/features/more/TargetCard.test.tsx`, which were on `main` before this plan (Home follow-ups, the income-target form) and are not touched. Cost if wrong: the operator decides TargetCard should go through a `components/options` flow, which is a separate change. |
+| 8 Trades page assembly | done | this commit (`git log --oneline` for the hash) | vitest 899 (102 files: Task 7's 906 + 10 TradesPage tests - 17 removed with the legacy page test and TickerPillBar's test; HomePage's 5 tests unchanged after `useHydrated` moved); tsc, lint clean; da-vinci lint exit 0. Protected files byte-identical to `main` | 2026-10-19 | Ruling: in `TradesPage.test.tsx` the `@/lib/test-query` import comes before `@/lib/commands`, with a comment saying why. The plan listed them the other way round; `test-query` registers the `@/lib/api` mock when it is evaluated, so `lib/commands` (which imports `@/lib/api`) loaded first kept the real `apiFetch` and "approving in the sheet moves the card to History at once" never reached `POST /commands`. Cost if wrong: none, test-only. Also ticked the unticked step boxes of Tasks 1 and 2 and the A and C entry checks. |
 | 9 Approval detail page | | | | | |
 | 10 Roll moves to the position page | | | | | |
 | **D entry checks** | | | | | |
@@ -358,10 +358,10 @@ files that gain optional fields.
 
 **Entry checks (the baseline; run from the repo root on `main` before Task 1 Step 1):**
 
-- [ ] **A1. Clean starting point.** `git status --short` shows nothing except this plan file
+- [x] **A1. Clean starting point.** `git status --short` shows nothing except this plan file
   (untracked) and, optionally, `web/design-preview.html`. `git branch --show-current` prints
   `main`.
-- [ ] **A2. Baseline is green.** All of these pass; record the pytest and vitest counts in the
+- [x] **A2. Baseline is green.** All of these pass; record the pytest and vitest counts in the
   Progress log row, because every later gate compares against them:
 
   ```bash
@@ -370,9 +370,9 @@ files that gain optional fields.
   ```
 
   A red baseline is not this plan's to fix: stop and report it.
-- [ ] **A3. The spec is valid.** `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md`
+- [x] **A3. The spec is valid.** `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md`
   exits 0.
-- [ ] **A4. The pieces Task 1 builds on exist.** Each command prints at least one line:
+- [x] **A4. The pieces Task 1 builds on exist.** Each command prints at least one line:
 
   ```bash
   grep -n "def spreads_read_session\|def try_read_spread_rows\|^_COLUMNS" src/api/spreads_db.py
@@ -382,7 +382,7 @@ files that gain optional fields.
   grep -n "class SpreadsAiCfg\|    ai: SpreadsAiCfg" src/common/config.py
   ```
 
-- [ ] **A5. The pieces Task 2 changes are where this plan says.** Each command prints exactly the
+- [x] **A5. The pieces Task 2 changes are where this plan says.** Each command prints exactly the
   line(s) named; anything else means the code moved, so stop and re-read it before editing:
 
   ```bash
@@ -424,7 +424,7 @@ files that gain optional fields.
   - `SpreadPickOut`: `pick_id, created_at, book_mode, choice, reason, fallback_reason, executed_letter, send_rejected, send_reasons, filled, model, regime, side, plan_bias, event_flag, menu_readable, menu: list[SpreadMenuItemOut], spread_id`
   - `SpreadMenuItemOut`: `letter, position, side, short_strike, long_strike, width, contracts, credit_mid, credit_after_costs, max_loss_per_contract_usd, short_delta, spot, dist_spot_pts, dist_em_multiple, be_nominal_exits`
 
-- [ ] **Step 1: Branch**
+- [x] **Step 1: Branch**
 
 ```bash
 git switch -c feat/web-overhaul-2
@@ -434,7 +434,7 @@ If executing in a separate worktree (superpowers:using-git-worktrees), symlink t
 and `web/node_modules` into it and run `python -c "from src.storage.db import init_db; init_db()"`
 (a fresh worktree otherwise fails four monitor tests with "no such table: fills").
 
-- [ ] **Step 2: Write the failing tests** — `tests/test_api_spread_picks.py`
+- [x] **Step 2: Write the failing tests** — `tests/test_api_spread_picks.py`
 
 ```python
 """GET /spreads/picks - one New York day of the spreads picker (web overhaul Part 2, Task 1).
@@ -700,12 +700,12 @@ def test_it_needs_the_owner(client, spreads_file) -> None:
     assert client.get("/spreads/picks").status_code in (401, 403)
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `python -m pytest tests/test_api_spread_picks.py -q`
 Expected: FAIL (every test answers 404: no `/spreads/picks` route; `routes._now` does not exist).
 
-- [ ] **Step 4: Add the reads** — append to `src/api/spreads_db.py`
+- [x] **Step 4: Add the reads** — append to `src/api/spreads_db.py`
 
 Add these imports at the top (keep the existing ones; `date`, `datetime` and `UTC` come from
 `datetime`, `ZoneInfo` from `zoneinfo`, `json` is stdlib):
@@ -818,7 +818,7 @@ def read_activity_days(session: Session) -> set[date]:
     return days
 ```
 
-- [ ] **Step 5: Add the response models** — append to `src/api/models/spreads.py`
+- [x] **Step 5: Add the response models** — append to `src/api/models/spreads.py`
 
 Add `from pydantic import BaseModel` beside the existing `Field` import, then append:
 
@@ -879,7 +879,7 @@ class SpreadPicksResponse(Envelope):
     positions: list[SpreadPositionOut] = Field(default_factory=list)  # every mode, oldest first
 ```
 
-- [ ] **Step 6: Add the route** — `src/api/routers/spreads.py`
+- [x] **Step 6: Add the route** — `src/api/routers/spreads.py`
 
 Replace the module docstring and imports with:
 
@@ -1032,14 +1032,14 @@ def spread_picks(
 
 `Literal` and `Query` stay imported for `spread_positions`.
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `python -m pytest tests/test_api_spread_picks.py tests/test_api_spreads.py tests/test_web_fence.py tests/test_spreads_fence.py -q`
 Expected: PASS. If `test_web_fence.py` or `test_spreads_fence.py` fails, the route or the reads
 broke a fence (an `src.spreads` import, or a second module opening the spreads file): fix the
 code, never the fence test.
 
-- [ ] **Step 8: Regenerate the contract and the client types**
+- [x] **Step 8: Regenerate the contract and the client types**
 
 ```bash
 python -c "import json; from src.api.main import create_app; print(json.dumps(create_app().openapi(), indent=2))" > docs/web/openapi.json
@@ -1050,7 +1050,7 @@ python -m pytest tests/test_openapi_current.py -q
 Expected: PASS; `git diff --stat docs/web/openapi.json web/lib/api-types.ts` shows only additions
 for the three new schemas and the new path.
 
-- [ ] **Step 9: Full gate**
+- [x] **Step 9: Full gate**
 
 ```bash
 python -m pytest -q && ruff check . && mypy src
@@ -1059,7 +1059,7 @@ cd web && npx vitest run && npx tsc --noEmit && npm run lint && cd ..
 
 Expected: pytest = baseline + 12, every other gate as at the baseline.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/api/spreads_db.py src/api/models/spreads.py src/api/routers/spreads.py \
@@ -1117,7 +1117,7 @@ indirection with a two-argument lambda. So `_apply_approval_decision` keeps call
 `real(approval_id, action, decided_by="web")`. That test passes unmodified (its lambda replaces
 the indirection, so in that test the row records `telegram`, which the test does not read).
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_approval_decided_by.py`
+- [x] **Step 1: Write the failing tests** — `tests/test_approval_decided_by.py`
 
 ```python
 """approvals.decided_by - who decided each approval (web overhaul Part 2, Task 2).
@@ -1403,14 +1403,14 @@ def test_previous_and_next_skip_days_with_no_wheel_activity(client, db) -> None:
     assert (last["previous_day"], last["next_day"]) == ("2026-10-14", None)
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `python -m pytest tests/test_approval_decided_by.py tests/test_api_approvals.py tests/test_reporting_day.py tests/test_api_pnl_day.py -q`
 Expected: FAIL (`ApprovalRow` has no `decided_by`; the API has no `decided_by`, `roll_from`,
 `fill_price`, `previous_day` or `next_day`). The fence test fails too, because it finds no hit at
 all yet.
 
-- [ ] **Step 3: The column** — `src/storage/models.py`, in `ApprovalRow` directly under
+- [x] **Step 3: The column** — `src/storage/models.py`, in `ApprovalRow` directly under
   `decided_at`:
 
 ```python
@@ -1430,7 +1430,7 @@ all yet.
     },
 ```
 
-- [ ] **Step 4: The three writers**
+- [x] **Step 4: The three writers**
 
 `src/notify/approval_service.py`: change the signature and add one line beside `decided_at`:
 
@@ -1491,7 +1491,7 @@ Run: `python -m pytest tests/test_approval_decided_by.py tests/test_drain_approv
 Expected: PASS, with `test_the_handler_calls_process_button_rather_than_reimplementing_it`
 unmodified.
 
-- [ ] **Step 5: The approval API** — `src/api/models/options.py`
+- [x] **Step 5: The approval API** — `src/api/models/options.py`
 
 Above `ApprovalSummary`:
 
@@ -1599,7 +1599,7 @@ In the detail route: declare `fill_price: float | None = None` beside `order_id`
 Run: `python -m pytest tests/test_api_approvals.py -q`
 Expected: PASS (every existing test plus the 6 new).
 
-- [ ] **Step 6: The day's cards and History's neighbouring days**
+- [x] **Step 6: The day's cards and History's neighbouring days**
 
 `src/common/schemas.py`, in `DayTrade` after `approval_id`:
 
@@ -1693,7 +1693,7 @@ Run: `python -m pytest tests/test_reporting_day.py tests/test_api_pnl_day.py tes
 Expected: PASS (4 + 1 new). `test_reporting_never_writes_anything` still passes: `activity_days`
 only selects.
 
-- [ ] **Step 7: Regenerate the contract and the client types; add the hand-written fields**
+- [x] **Step 7: Regenerate the contract and the client types; add the hand-written fields**
 
 ```bash
 python -c "import json; from src.api.main import create_app; print(json.dumps(create_app().openapi(), indent=2))" > docs/web/openapi.json
@@ -1732,7 +1732,7 @@ and inside `ApprovalSummary`, after `rationale_tags`:
 `decided_by?: "system" | "web" | "telegram" | null;` and in `DayTradesResponse` add
 `previous_day?: string | null;` and `next_day?: string | null;`.
 
-- [ ] **Step 8: Full gate**
+- [x] **Step 8: Full gate**
 
 ```bash
 python -m pytest -q && ruff check . && mypy src
@@ -1741,7 +1741,7 @@ cd web && npx vitest run && npx tsc --noEmit && npm run lint && cd ..
 
 Expected: pytest = Task 1's count + 19, every other gate as at the baseline.
 
-- [ ] **Step 9: Commit** (with the Progress log row for Task 1 filled in)
+- [x] **Step 9: Commit** (with the Progress log row for Task 1 filled in)
 
 ```bash
 git add src/storage/models.py src/storage/db.py src/notify/approval_service.py src/notify/command_drain.py \
@@ -4880,9 +4880,9 @@ Mounts the new page at `/trades`, restyles the approval detail page, and moves P
 
 **Entry checks (run before Task 8):**
 
-- [ ] **C1. Section B landed.** `git log --oneline main..HEAD` shows seven commits; Tasks 3–7 are
+- [x] **C1. Section B landed.** `git log --oneline main..HEAD` shows seven commits; Tasks 3–7 are
   ticked.
-- [ ] **C2. Gates and a production build green.** `cd web && npx vitest run && npx tsc --noEmit && npm run lint`,
+- [x] **C2. Gates and a production build green.** `cd web && npx vitest run && npx tsc --noEmit && npm run lint`,
   then the build in a scratch copy (never inside `web/`, whose `.next` the operator's dev server
   shares):
 
@@ -4891,16 +4891,16 @@ Mounts the new page at `/trades`, restyles the approval detail page, and moves P
     && ln -s "$PWD/web/node_modules" "$S/node_modules" && (cd "$S" && npm run build)
   ```
 
-- [ ] **C3. The views exist.** This prints nothing:
+- [x] **C3. The views exist.** This prints nothing:
 
   ```bash
   cd web/features/trades && for f in ProposalsView HistoryView SpreadsView; do
     [ -f "$f.tsx" ] || echo "MISSING $f.tsx"; done; cd -
   ```
 
-- [ ] **C4. Nothing in features sends a command itself.** `grep -rn "submitCommand\|confirmCommand" web/features`
+- [x] **C4. Nothing in features sends a command itself.** `grep -rn "submitCommand\|confirmCommand" web/features`
   prints nothing.
-- [ ] **C5. The protected files are untouched.** This prints nothing:
+- [x] **C5. The protected files are untouched.** This prints nothing:
 
   ```bash
   git diff --stat main -- web/components/options/DecideControls.tsx web/components/options/ConfirmAction.tsx \
@@ -4931,11 +4931,11 @@ its cases live in `TradesPage.test.tsx`.
   `AssessedBrowser({ strategy })`, `usePendingApprovals`.
 - Produces: `useHydrated(): boolean` (`lib/useHydrated.ts`); `TradesPage()`; the `/trades` route.
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded. Brief: the page's first viewport per
+- [x] **Step 1: Load da-vinci** if it is not already loaded. Brief: the page's first viewport per
   the Trades contract written in Task 3; the strategy switcher on its white track, the view chips
   below it as filter chips, never two controls with the same look stacked.
 
-- [ ] **Step 2: Move `useHydrated` to `web/lib/useHydrated.ts`**
+- [x] **Step 2: Move `useHydrated` to `web/lib/useHydrated.ts`**
 
 ```ts
 import { useSyncExternalStore } from "react";
@@ -4964,7 +4964,7 @@ In `web/features/home/HomePage.tsx` delete the local `noSubscribe` and `useHydra
 Run: `cd web && npx vitest run features/home/HomePage.test.tsx`
 Expected: PASS (its hydration test included).
 
-- [ ] **Step 3: Write the failing page tests** — `web/features/trades/TradesPage.test.tsx`
+- [x] **Step 3: Write the failing page tests** — `web/features/trades/TradesPage.test.tsx`
 
 ```tsx
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -5158,12 +5158,12 @@ describe("TradesPage", () => {
 The reload test leans on ruling 2: the persisted command takes AAPL out of the pending count, so
 nothing waits on you and the default is History, where the card sits in flight.
 
-- [ ] **Step 4: Run them to verify they fail**
+- [x] **Step 4: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/trades/TradesPage.test.tsx`
 Expected: FAIL (`./TradesPage` not found).
 
-- [ ] **Step 5: Write `web/features/trades/TradesPage.tsx`**
+- [x] **Step 5: Write `web/features/trades/TradesPage.tsx`**
 
 ```tsx
 "use client";
@@ -5258,7 +5258,7 @@ export function TradesPage() {
 }
 ```
 
-- [ ] **Step 6: Mount it** — replace `web/app/trades/page.tsx` with:
+- [x] **Step 6: Mount it** — replace `web/app/trades/page.tsx` with:
 
 ```tsx
 import { Suspense } from "react";
@@ -5274,7 +5274,7 @@ export default function Page() {
 }
 ```
 
-- [ ] **Step 7: Delete what the new page replaced**
+- [x] **Step 7: Delete what the new page replaced**
 
 ```bash
 git rm web/app/trades/page.test.tsx web/components/options/TickerPillBar.tsx web/components/options/TickerPillBar.test.tsx
@@ -5288,13 +5288,13 @@ sheet moves the card to History at once" and Task 5's "a failed command hands th
 reload persistence → "a reload mid-command keeps the card in flight". `OrdersTable` and
 `FillsTable` keep their own tests, unmounted until Part 3.
 
-- [ ] **Step 8: Run the tests and the gate**
+- [x] **Step 8: Run the tests and the gate**
 
 Run: `cd web && npx vitest run && npx tsc --noEmit && npm run lint && python3 ~/.claude/skills/da-vinci/scripts/lint.py features/trades`
 Expected: the whole suite PASSES (TradesPage 10 new; the deleted page and pill-bar tests gone);
 tsc 0; lint clean; da-vinci lint exit 0.
 
-- [ ] **Step 9: Commit** (with the Progress log rows for Task 7 and the C entry checks filled in)
+- [x] **Step 9: Commit** (with the Progress log rows for Task 7 and the C entry checks filled in)
 
 ```bash
 git add web/lib/useHydrated.ts web/features/home/HomePage.tsx web/features/trades/TradesPage.tsx \
