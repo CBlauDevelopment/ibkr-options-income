@@ -81,8 +81,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 7 Spreads view | done | 2636741 | vitest 906 (103 files, Task 6 + 25: 16 logic, 9 view); tsc, lint clean; da-vinci lint exit 0. Section B exit met: every `web/features/trades/*.test.*` and `web/features/home/*.test.*` green. Protected files byte-identical to `main` | 2026-10-19 | none. Observation, not a Task 7 change: `grep -rn "submitCommand\|confirmCommand" web/features` is not empty, because `web/features/more/TargetCard.tsx` (Part 1 / Home follow-ups, on `main`) calls `submitCommand` directly; Global Constraints says it should print nothing. Nothing under `features/trades` matches. Left for the finish review. |
 | **C entry checks** | done | (none) | C1-C5 pass, orchestrator-run (C2 included a production build in a scratch copy) | 2026-10-19 | Ruling: C4 (and the same grep repeated as an `Expected: prints nothing` check in Tasks 10 and 11) is read as "no file this plan creates or changes under `web/features` calls `submitCommand`/`confirmCommand`". The only allowed hits are `web/features/more/TargetCard.tsx` and `web/features/more/TargetCard.test.tsx`, which were on `main` before this plan (Home follow-ups, the income-target form) and are not touched. Cost if wrong: the operator decides TargetCard should go through a `components/options` flow, which is a separate change. |
 | 8 Trades page assembly | done | 0a0a152 | vitest 899 (102 files: Task 7's 906 + 10 TradesPage tests - 17 removed with the legacy page test and TickerPillBar's test; HomePage's 5 tests unchanged after `useHydrated` moved); tsc, lint clean; da-vinci lint exit 0. Protected files byte-identical to `main` | 2026-10-19 | Ruling: in `TradesPage.test.tsx` the `@/lib/test-query` import comes before `@/lib/commands`, with a comment saying why. The plan listed them the other way round; `test-query` registers the `@/lib/api` mock when it is evaluated, so `lib/commands` (which imports `@/lib/api`) loaded first kept the real `apiFetch` and "approving in the sheet moves the card to History at once" never reached `POST /commands`. Cost if wrong: none, test-only. Also ticked the unticked step boxes of Tasks 1 and 2 and the A and C entry checks. |
-| 9 Approval detail page | done | this commit (`git log --oneline` for the hash) | vitest 910 (103 files, Task 8's 899 + 11: 6 detail, 5 IdealZoneBar); tsc, lint clean; da-vinci lint exit 0. Every existing `ApprovalDetail`, `ReviewPanel` and `RationaleTags` test passed unmodified (the decide-flow tests included); the replaced back-link assertion is the only changed one. Protected files byte-identical to `main` | 2026-10-19 | none. All 11 new/replaced tests failed first. |
-| 10 Roll moves to the position page | | | | | |
+| 9 Approval detail page | done | f7a9d8d | vitest 910 (103 files, Task 8's 899 + 11: 6 detail, 5 IdealZoneBar); tsc, lint clean; da-vinci lint exit 0. Every existing `ApprovalDetail`, `ReviewPanel` and `RationaleTags` test passed unmodified (the decide-flow tests included); the replaced back-link assertion is the only changed one. Protected files byte-identical to `main` | 2026-10-19 | none. 11 of the 12 new or replaced tests failed first; "says when no zone was derived" passes on the old bar too, as a guard. |
+| 10 Roll moves to the position page | done | this commit (`git log --oneline` for the hash) | vitest 922 (105 files, Task 9's 910 + 12: 7 RollCard, 2 PositionPage, 2 `positions.alert`, 1 PositionsCard); tsc, lint clean; da-vinci lint exit 0; `design_md_check.py web/DESIGN.md` exit 0. `ShortsTable.test.tsx` (22 tests) passes UNMODIFIED and is byte-identical to `main`, which is the proof the extraction changed no behaviour. Protected files byte-identical to `main`. `grep -rn "submitCommand\|confirmCommand" web/features` prints only `features/more/TargetCard.tsx` and `TargetCard.test.tsx` (the C entry checks ruling). Section C exit met: three commits (Tasks 8-10), `/trades` is the new page, `app/trades/page.test.tsx` is deleted and its cases live in `TradesPage.test.tsx` | 2026-10-19 | Ruling: `ShortsRow`'s receipt row now renders `RollReceipt` (payslip classes: `rounded-xl bg-sunk`, semibold underlined links) instead of the old `border-border` markup, as the plan's replacement file does; the row itself (cells, the button) is unchanged and `ShortsRow` is not mounted anywhere, so no visible change. Cost if wrong: none, unmounted until Part 4 deletes it. The Roll alert test on `PositionsCard` did not get a separate red run (its implementation and test were written in the same step after `positions.alert.test.ts` had failed first). |
 | **D entry checks** | | | | | |
 | 11 Docs, da-vinci finish, full gate | | | | | |
 
@@ -5983,7 +5983,7 @@ git commit -m "feat(web): approval detail on the payslip - the trade, Claude's r
   - `buildPositionRows(groups, spreads, todayIso, underlying = "SPY", alerted: ReadonlySet<string> = new Set())`;
     `PositionRow.alert: boolean`
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded, and write the contract first. In
+- [x] **Step 1: Load da-vinci** if it is not already loaded, and write the contract first. In
   `web/DESIGN.md`:
   - Under `### Position`, change the **OWN-WORLD** bullet's last sentence "No lime: nothing on
     this page is an action." to "No lime. Its one action, Propose a roll on a held short option,
@@ -6003,7 +6003,7 @@ contract.
 
 Run: `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md` → exit 0.
 
-- [ ] **Step 2: Lift the flow out of `ShortsRow`** — create `web/components/options/RollProposal.tsx`
+- [x] **Step 2: Lift the flow out of `ShortsRow`** — create `web/components/options/RollProposal.tsx`
 
 ```tsx
 "use client";
@@ -6260,7 +6260,7 @@ function describeError(e: unknown): string {
 If `ConfirmAction`'s `onConfirm` prop is typed `() => void`, an async function is still
 assignable; leave `ConfirmAction` untouched either way (it is protected).
 
-- [ ] **Step 3: Make `ShortsRow` thin** — replace `web/components/options/ShortsRow.tsx` with:
+- [x] **Step 3: Make `ShortsRow` thin** — replace `web/components/options/ShortsRow.tsx` with:
 
 ```tsx
 "use client";
@@ -6352,7 +6352,7 @@ Run: `cd web && npx vitest run components/options/ShortsTable.test.tsx`
 Expected: PASS with **no change to the test file**. This is the proof the extraction changed no
 behaviour; a failure means the hook differs from the old row, so fix the hook.
 
-- [ ] **Step 4: Write the failing Roll card tests** — `web/features/position/RollCard.test.tsx`
+- [x] **Step 4: Write the failing Roll card tests** — `web/features/position/RollCard.test.tsx`
 
 ```tsx
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -6468,12 +6468,12 @@ describe("RollCard", () => {
 `renderWithQuery` throws for an unmapped path, which the query reports as an error: that is how
 the last test makes `/options/shorts` fail.
 
-- [ ] **Step 5: Run them to verify they fail**
+- [x] **Step 5: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/position/RollCard.test.tsx`
 Expected: FAIL (`./RollCard` not found).
 
-- [ ] **Step 6: Write `web/features/position/RollCard.tsx`**
+- [x] **Step 6: Write `web/features/position/RollCard.tsx`**
 
 ```tsx
 "use client";
@@ -6558,7 +6558,7 @@ export function RollCard({
 Run: `cd web && npx vitest run features/position/RollCard.test.tsx`
 Expected: PASS (7 tests).
 
-- [ ] **Step 7: Mount it on the position page**
+- [x] **Step 7: Mount it on the position page**
 
 In `web/features/position/PositionPage.tsx` add `import { RollCard } from "./RollCard";` and, in
 the right-hand column directly after the line
@@ -6619,7 +6619,7 @@ use `strike: undefined` and record it; the page's `typeof ... === "number"` cove
 Run: `cd web && npx vitest run features/position`
 Expected: PASS (every existing PositionPage test plus the two new ones, and RollCard's 7).
 
-- [ ] **Step 8: The Roll alert word on Home's rows**
+- [x] **Step 8: The Roll alert word on Home's rows**
 
 `web/features/home/positions.alert.test.ts`:
 
@@ -6722,13 +6722,13 @@ top-level `describe`; reuse the file's existing imports, adding `within` if it i
 Run: `cd web && npx vitest run features/home features/position components/options`
 Expected: PASS (the new alert tests plus every existing Home, Position and options test).
 
-- [ ] **Step 9: Gate and da-vinci lint**
+- [x] **Step 9: Gate and da-vinci lint**
 
 Run: `cd web && npx vitest run && npx tsc --noEmit && npm run lint && python3 ~/.claude/skills/da-vinci/scripts/lint.py features/position features/home components/options/RollProposal.tsx`
 Expected: all green; da-vinci lint exit 0. Also `grep -rn "submitCommand\|confirmCommand" web/features`
 prints nothing (the Roll card reaches the command only through `RollProposal.tsx`).
 
-- [ ] **Step 10: Commit** (with the Progress log row for Task 9 filled in)
+- [x] **Step 10: Commit** (with the Progress log row for Task 9 filled in)
 
 ```bash
 git add web/DESIGN.md web/components/options/RollProposal.tsx web/components/options/ShortsRow.tsx \

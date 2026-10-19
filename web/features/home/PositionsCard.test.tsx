@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { renderWithQuery } from "@/lib/test-query";
@@ -46,14 +46,14 @@ function Harness() {
 
 describe("PositionsCard", () => {
   it("lists rows and counts per strategy chip", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     expect(await screen.findByText("AMD $150 put")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All 2" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "CSPs 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "CCs 1" })).toBeInTheDocument();
   });
   it("follows the page's strategy switcher, and its own chips narrow further", async () => {
-    renderWithQuery(<Harness />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<Harness />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     expect(await screen.findByText("KO $72 call")).toBeInTheDocument();
     expect(screen.queryByText("AMD $150 put")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "All 2" }));
@@ -63,15 +63,15 @@ describe("PositionsCard", () => {
     expect(screen.getByText("AMD $150 put")).toBeInTheDocument();
   });
   it("renders option rows when spreads are unavailable", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions });
     expect(await screen.findByText("AMD $150 put")).toBeInTheDocument();
   });
   it("says nothing is open for an empty filter, in words", async () => {
-    renderWithQuery(<PositionsCard strategy="spread" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<PositionsCard strategy="spread" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     expect(await screen.findByText("No credit spreads open.")).toBeInTheDocument();
   });
   it("names the filter in its empty copy", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     await screen.findByText("AMD $150 put");
     fireEvent.click(screen.getByRole("button", { name: /^Shares/ }));
     expect(screen.getByText("No shares held.")).toBeInTheDocument();
@@ -79,36 +79,36 @@ describe("PositionsCard", () => {
   });
   it("tells no snapshot apart from no positions", async () => {
     renderWithQuery(<PositionsCard strategy="all" />, {
-      "/portfolio/positions": { ...positions, source: "none", groups: [] },
+      "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": { ...positions, source: "none", groups: [] },
       "/spreads/positions": spreadsOn,
     });
     expect(await screen.findByText("No positions captured yet.")).toBeInTheDocument();
   });
   it("does not say no spreads are open when the spreads book cannot be read", async () => {
-    renderWithQuery(<PositionsCard strategy="spread" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
+    renderWithQuery(<PositionsCard strategy="spread" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
     expect(await screen.findByText("Credit spreads are unavailable right now.")).toBeInTheDocument();
     expect(screen.queryByText("No credit spreads open.")).toBeNull();
   });
   it("lists the options and notes what is missing under All when spreads cannot be read", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
     expect(await screen.findByText("AMD $150 put")).toBeInTheDocument();
     expect(await screen.findByText("Credit spreads are unavailable right now, so they are not listed.")).toBeInTheDocument();
   });
   it("shows no count on the spreads chip until the spreads book has answered", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOff });
     await screen.findByText("AMD $150 put");
     expect(screen.getByRole("button", { name: "Credit spreads" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Credit spreads 0" })).toBeNull();
   });
   it("signs the open P&L in words and symbols", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     expect(await screen.findByText("−$212.00")).toBeInTheDocument();
     expect(screen.getByText("+$30.00")).toBeInTheDocument();
     expect(screen.getAllByText("open P&L")).toHaveLength(2);
   });
   it("flags a delayed snapshot in words rather than passing it off as live", async () => {
     renderWithQuery(<PositionsCard strategy="all" />, {
-      "/portfolio/positions": { ...positions, source: "eod", degraded: true, as_of: "2020-01-01T00:00:00Z" },
+      "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": { ...positions, source: "eod", degraded: true, as_of: "2020-01-01T00:00:00Z" },
       "/spreads/positions": spreadsOn,
     });
     expect(await screen.findByText("Delayed")).toBeInTheDocument();
@@ -133,7 +133,7 @@ describe("PositionsCard", () => {
         },
       ],
     };
-    const serve = { "/portfolio/positions": rich, "/spreads/positions": spreadsOn };
+    const serve = { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": rich, "/spreads/positions": spreadsOn };
     const type = (text: string) =>
       fireEvent.change(screen.getByRole("textbox", { name: "Search positions" }), { target: { value: text } });
 
@@ -188,9 +188,33 @@ describe("PositionsCard", () => {
   });
 
   it("opens each contract's own page from its row", async () => {
-    renderWithQuery(<PositionsCard strategy="all" />, { "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
+    renderWithQuery(<PositionsCard strategy="all" />, { "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": positions, "/spreads/positions": spreadsOn });
     const link = (await screen.findByText("AMD $150 put")).closest("a");
     expect(link).toHaveAttribute("href", "/positions/AMD/2099-10-24_P150");
     expect(screen.getByText("KO $72 call").closest("a")).toHaveAttribute("href", "/positions/KO/2099-11-14_C72");
+  });
+
+  it("marks a short option the monitor raised a roll alert on, in words", async () => {
+    const group = {
+      as_of: "", underlying: "AAPL", stock: null,
+      options: [{
+        as_of: "", symbol: "AAPL  261121P00180000", right: "P", strike: 180, expiry: "2099-11-21", dte: 30,
+        contracts: 1, short: true, delta: -0.2, delta_source: "ibkr", market_price: 0.6, market_value: -60,
+        unrealized_pnl: 175, moneyness: "otm", assignment_risk: false,
+      }],
+    };
+    renderWithQuery(<PositionsCard strategy="all" />, {
+      "/portfolio/positions": { as_of: new Date().toISOString(), source: "monitor", degraded: false, groups: [group] },
+      "/spreads/positions": { as_of: "", available: true, underlying: "SPY", mode: "paper", positions: [] },
+      "/options/shorts": {
+        as_of: "",
+        shorts: [{
+          position_symbol: "AAPL  261121P00180000",
+          alerts: [{ id: 1, trigger: "delta_breach", trigger_label: "Delta breach", detail: "", claude_recommendation: null, created_at: "" }],
+        }],
+      },
+    });
+    const row = await screen.findByRole("link", { name: /AAPL \$180 put/ });
+    expect(within(row).getByText("Roll alert")).toBeInTheDocument();
   });
 });

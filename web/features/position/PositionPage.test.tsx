@@ -107,6 +107,12 @@ const serve = (d: PositionDetail = detail(), extra: Record<string, unknown> = {}
   [`/portfolio/positions/AAPL/${d.slug}`]: d,
   "/research/AAPL/bars?range=1y": bars,
   "/research/AAPL/headlines": headlines,
+  "/options/shorts": { as_of: "", shorts: [] },
+  "/options/controls": {
+    as_of: "", autonomy: { level: "approve", label: "Approve each trade" }, rungs: [], halted: false,
+    halt_reason: null, halted_at: null, mode: "paper", drain_healthy: true, drain_last_seen: null,
+    pending_commands: 0,
+  },
   ...extra,
 });
 
@@ -261,5 +267,25 @@ describe("PositionPage", () => {
     renderWithQuery(<PositionPage underlying="AAPL" slug={SLUG} />, serve());
     expect(screen.getByRole("status", { name: "Loading the position" })).toBeInTheDocument();
     await screen.findByRole("heading", { level: 1, name: "AAPL $180 put" });
+  });
+
+  it("offers Propose a roll on a held short option", async () => {
+    renderWithQuery(<PositionPage underlying="AAPL" slug={SLUG} />, serve());
+    expect(await screen.findByRole("button", { name: "Propose a roll" })).toBeInTheDocument();
+  });
+
+  it("offers no roll for a long option, a contract no longer held, or one whose strike is unknown", async () => {
+    const held = detail();
+    const cases = [
+      detail({ option: { ...held.option!, short: false } }),
+      detail({ held: false, option: null }),
+      detail({ option: { ...held.option!, strike: null } }),
+    ];
+    for (const d of cases) {
+      const { unmount } = renderWithQuery(<PositionPage underlying="AAPL" slug={SLUG} />, serve(d));
+      await screen.findByRole("heading", { level: 1 });
+      expect(screen.queryByRole("button", { name: "Propose a roll" })).toBeNull();
+      unmount();
+    }
   });
 });

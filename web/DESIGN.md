@@ -401,6 +401,15 @@ Status words: Expires today (lime); Assignment likely and In the money (flag); A
 Out of the money (sunk). They come only from fields the API returns (expiry, assignment risk,
 moneyness). A position with none of those known shows no status word rather than a guessed one.
 
+**Roll card** (Position page, a held short option only): "Roll", then each alert the monitor
+fired on this contract (the trigger as a flag word, its age, the detail, and Claude's stored
+view labelled "Claude's view"), or "No roll alert has fired on this contract."; one sentence
+("Proposing a roll prices one now and raises it for your approval. Nothing trades until you
+approve it."); then **Propose a roll** (secondary, never lime), which opens the existing
+confirmation; the command receipt follows, and "No qualifying roll" is a plain answer, not an
+error. Home's position rows carry a flag word **Roll alert** when an alert has fired on that
+contract.
+
 **Needs you** (Home, from 1024px): a right column of proposal cards under "Needs you · N
 proposals". Below 1024px it becomes the **proposals banner**: one card, "2 proposals need you",
 the first names, and a lime Open that goes to Trades.
@@ -595,7 +604,8 @@ news directly under it), so da-vinci's structure workshop was skipped: pinned be
   are the three things this page answers.
 - **OWN-WORLD:** the payslip. Sage paper, an ink chart line with a dashed strike line (the
   perforation, as a rule across the chart), white cards, a stub that sums the initial trade. No
-  lime: nothing on this page is an action.
+  lime. Its one action, Propose a roll on a held short option, is secondary: it raises a roll for
+  approval and never trades.
 - **STORY:** where the stock is against your strike, what you were paid and what that is as a
   return, what the position is doing now, and what the news says, in that order of glance.
 - **FIRST VIEWPORT:** desktop: back link, the contract as a title with its status words, then two

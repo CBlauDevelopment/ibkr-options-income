@@ -19,6 +19,8 @@ export type PositionRow = {
   href: string | null;
   title: string;
   status: { word: string; tone: StatusTone } | null;
+  /** A roll alert has fired on this option contract (from GET /options/shorts). */
+  alert: boolean;
   sub: string;
   value: number | null;
   valueLabel: string;
@@ -81,6 +83,7 @@ export function buildPositionRows(
   spreads: SpreadPosition[],
   todayIso: string,
   underlying = "SPY",
+  alerted: ReadonlySet<string> = new Set(),
 ): PositionRow[] {
   const rows: PositionRow[] = [];
   for (const g of groups) {
@@ -101,6 +104,7 @@ export function buildPositionRows(
         href: known ? pageFor(g.underlying, optionSlug(o.expiry!, o.right!, o.strike as number)) : null,
         title: `${o.short ? "" : "Long "}${g.underlying} ${strike} ${word}`,
         status,
+        alert: alerted.has(o.symbol),
         sub: parts.join(" · "),
         value: o.unrealized_pnl,
         valueLabel: "open P&L",
@@ -117,6 +121,7 @@ export function buildPositionRows(
         href: pageFor(g.underlying, "shares"),
         title: `${g.underlying} · ${s.shares} shares`,
         status: null,
+        alert: false,
         sub: `avg ${money(s.avg_cost)}${basis}`,
         value: s.unrealized_pnl_adjusted ?? s.unrealized_pnl,
         valueLabel: "open P&L",
@@ -137,6 +142,7 @@ export function buildPositionRows(
           : p.status === "expiring"
             ? { word: "Expiring", tone: "neutral" }
             : { word: "Open", tone: "neutral" },
+      alert: false,
       sub: `${expiryLabel(p.expiry, null)} · daily spreads book · ${p.mode}`,
       value: p.entry_credit * 100 * p.contracts,
       valueLabel: "sold for",

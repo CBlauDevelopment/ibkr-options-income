@@ -27,7 +27,7 @@ const responses = {
     pay: { month: "2026-10-01", strategy: "all", premium_collected: 0, bought_back: 0, commissions: 0, commissions_complete: true, net: 0, n_opened: 0, n_closed: 0, month_start_value: null, target_pct: null, target_mode: "off", target_amount: null, target_base: null, target: null, progress_pct: null, days_left: 18 },
   },
   "/pnl/day": { as_of: "", date: "2026-10-15", book: "paper", strategy: "all", trades: [], spreads_available: true },
-  "/portfolio/positions": { as_of: "", source: "none", degraded: true, groups: [] },
+  "/options/shorts": { as_of: "", shorts: [] }, "/portfolio/positions": { as_of: "", source: "none", degraded: true, groups: [] },
   "/spreads/positions": { as_of: "", available: false, underlying: "SPY", mode: "paper", positions: [] },
   "/options/approvals": { as_of: "", approvals: [] },
   "/options/controls": { as_of: "", autonomy: { level: "a", label: "A" }, rungs: [], halted: false, halt_reason: null, halted_at: null, mode: "paper", drain_healthy: true, drain_last_seen: null, pending_commands: 0 },
