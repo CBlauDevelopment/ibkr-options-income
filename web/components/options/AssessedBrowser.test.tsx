@@ -153,4 +153,32 @@ describe("AssessedBrowser", () => {
     // The StageBadge renders a text label for every stage.
     expect(await screen.findByText("Filtered")).toBeDefined();
   });
+
+  it("scopes the contracts to the strategy and drops a symbol left with none", async () => {
+    const { apiFetch } = await import("@/lib/api");
+    const c = (id: string, symbol: string, strategy: string) => ({
+      as_of: "x", candidate_id: id, symbol, strategy, strike: 190.0, expiry: null, stage: "passed",
+      reasons: [], reasons_text: [], blended_score: 72.0, premium: 3.25, ideal: null,
+      promotable: false, promote_note: null,
+    });
+    (apiFetch as any).mockResolvedValue({
+      as_of: "x", run_id: "r1", computed_at: null,
+      groups: [
+        { as_of: "x", symbol: "NVDA", contracts: [c("a", "NVDA", "cash_secured_put")], counts: { passed: 1 } },
+        { as_of: "x", symbol: "MSFT", contracts: [c("b", "MSFT", "covered_call")], counts: { passed: 1 } },
+      ],
+    });
+    withClient(<AssessedBrowser strategy="cc" />);
+    expect(await screen.findByText("MSFT")).toBeDefined();
+    expect(screen.queryByText("NVDA")).toBeNull();
+  });
+
+  it("names its two filters with visible labels", async () => {
+    const { apiFetch } = await import("@/lib/api");
+    (apiFetch as any).mockResolvedValue({ as_of: "x", run_id: "r1", computed_at: null, groups: [] });
+    withClient(<AssessedBrowser />);
+    await screen.findByText(/No assessed contracts/i);
+    expect(screen.getByLabelText("Stage")).toBeDefined();
+    expect(screen.getByLabelText("Symbol")).toBeDefined();
+  });
 });

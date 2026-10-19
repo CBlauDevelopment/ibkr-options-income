@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api";
 import {
   confirmCommand,
@@ -146,54 +147,50 @@ export function AssessedRow({
       : null;
 
   return (
-    <li className="px-4 py-2">
+    <li className="border-t border-border py-3 first:border-t-0">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <StageBadge stage={contract.stage} />
-          <span className="tabular font-mono text-xs text-content">
-            {contract.strike != null ? contract.strike.toFixed(2) : "?"} {contract.strategy}
+          <span className="text-sm font-bold">
+            {contract.strike != null ? `$${contract.strike}` : "strike n/a"} {contract.strategy.replace(/_/g, " ")}
           </span>
-        </div>
-        <span className="tabular text-xs text-muted">
-          {contract.blended_score != null ? contract.blended_score.toFixed(1) : "n/a"}
+        </p>
+        <span className="tabular font-mono text-[0.8125rem] text-muted">
+          score{" "}
+          {contract.blended_score != null ? (
+            contract.blended_score.toFixed(1)
+          ) : (
+            <span className="hatch text-unknown">n/a</span>
+          )}
         </span>
       </div>
       {contract.reasons_text.length > 0 && (
-        <p className="mt-1 text-xs text-muted">{contract.reasons_text.join(" - ")}</p>
+        <p className="mt-1 text-[0.8125rem] text-muted">{contract.reasons_text.join(" · ")}</p>
       )}
       {!canPromote && contract.promote_note && (
-        <p className="mt-1 text-xs text-muted">{contract.promote_note}</p>
+        <p className="mt-1 text-[0.8125rem] text-muted">{contract.promote_note}</p>
       )}
 
       {canPromote && (
         <div className="mt-2">
-          <button
-            type="button"
-            disabled={inFlight}
-            onClick={() => setConfirming(true)}
-            className="rounded-sm border border-border bg-background px-3 py-1.5 text-sm text-content enabled:hover:bg-elevated disabled:cursor-default disabled:opacity-50 focus-visible:ring-focus"
-          >
+          {/* Secondary, not lime: promote re-prices and re-gates; it never trades. */}
+          <Button variant="secondary" disabled={inFlight} onClick={() => setConfirming(true)}>
             Promote
-          </button>
+          </Button>
         </div>
       )}
 
       {error && (
-        <p className="mt-2 text-xs text-loss" data-testid="command-error" role="alert">
+        <p className="mt-2 text-[0.8125rem] text-loss" data-testid="command-error" role="alert">
           {error}
         </p>
       )}
 
-      {current && (
-        <CommandReceipt command={current} order={null} drainHealthy={drainHealthy} />
-      )}
+      {current && <CommandReceipt command={current} order={null} drainHealthy={drainHealthy} />}
 
       {approvalId != null && (
-        <p className="mt-1 text-xs">
-          <Link
-            href={`/trades/${approvalId}`}
-            className="text-content underline hover:text-focus focus-visible:ring-focus"
-          >
+        <p className="mt-1 text-[0.8125rem]">
+          <Link href={`/trades/${approvalId}`} className="font-semibold underline underline-offset-2">
             View approval
           </Link>
         </p>

@@ -76,8 +76,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | **B entry checks** | done | (none) | B1-B5 pass | 2026-10-19 | none |
 | 3 Trades contract, views, Proposals | done | ad32f5c | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
 | 4 Rolls say what they roll | done | 2f3dbf4 | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
-| 5 History | done | (hash in Task 6's row) | vitest 879 (101 files, Task 4 + 23: 10 logic, 12 HistoryView, 1 calendar); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | Ruling: `timeET` strips both U+202F and U+00A0 (`/[  ]/g`) instead of the plan's single literal character, because a literal narrow no-break space is invisible in a diff and easy to lose; same behaviour, one more character class. |
-| 6 Assessed | | | | | |
+| 5 History | done | a642822 | vitest 879 (101 files, Task 4 + 23: 10 logic, 12 HistoryView, 1 calendar); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | Ruling: `timeET` strips both U+202F and U+00A0 (`/[  ]/g`) instead of the plan's single literal character, because a literal narrow no-break space is invisible in a diff and easy to lose; same behaviour, one more character class. |
+| 6 Assessed | done | (hash in Task 7's row) | vitest 881 (101 files, Task 5 + 2); tsc, lint clean; da-vinci lint exit 0 | 2026-10-19 | none. Both new tests failed first; every existing Assessed, AssessedRow and ApprovalDetail test passed unchanged. |
 | 7 Spreads view | | | | | |
 | **C entry checks** | | | | | |
 | 8 Trades page assembly | | | | | |
@@ -3730,11 +3730,11 @@ git commit -m "feat(web): History - a New York day of in-flight work, trades and
 - Produces: `AssessedBrowser({ strategy?: StrategyFilter })`, `stageCounts(contracts): string`
   ("passed: 1 · risk gate: 1"), `STAGE_LABEL` (StageBadge.tsx).
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded. Brief: cards per symbol on paper,
+- [x] **Step 1: Load da-vinci** if it is not already loaded. Brief: cards per symbol on paper,
   rows without table chrome, Promote as a secondary button (it proposes, it never trades), the
   stage as a word.
 
-- [ ] **Step 2: Write the failing tests** — append inside `describe("AssessedBrowser")` in
+- [x] **Step 2: Write the failing tests** — append inside `describe("AssessedBrowser")` in
   `web/components/options/AssessedBrowser.test.tsx`:
 
 ```tsx
@@ -3767,13 +3767,13 @@ git commit -m "feat(web): History - a New York day of in-flight work, trades and
   });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `cd web && npx vitest run components/options/AssessedBrowser.test.tsx`
 Expected: FAIL (`strategy` ignored, so NVDA shows; the legacy labels are not tied to their
 controls).
 
-- [ ] **Step 4: Rewrite `web/components/options/StageBadge.tsx`**
+- [x] **Step 4: Rewrite `web/components/options/StageBadge.tsx`**
 
 ```tsx
 import { StatusWord } from "@/components/ui/StatusWord";
@@ -3795,7 +3795,7 @@ export function StageBadge({ stage }: { stage: Stage }) {
 }
 ```
 
-- [ ] **Step 5: Rewrite `web/components/options/AssessedBrowser.tsx`**
+- [x] **Step 5: Rewrite `web/components/options/AssessedBrowser.tsx`**
 
 ```tsx
 "use client";
@@ -3963,7 +3963,7 @@ function Group({
 `formatDateTime` returns `""` for a missing or unparseable time, which the `computed ?` guard
 handles.
 
-- [ ] **Step 6: Restyle `AssessedRow`'s markup** — in `web/components/options/AssessedRow.tsx`
+- [x] **Step 6: Restyle `AssessedRow`'s markup** — in `web/components/options/AssessedRow.tsx`
   add `import { Button } from "@/components/ui/Button";` and replace everything from
   `<li className="px-4 py-2">` down to (not including) `{liveStep && (` with:
 
@@ -4022,19 +4022,19 @@ handles.
 The two `ConfirmAction` blocks, the closing `</li>`, `describeError` and everything above
 `return (` stay exactly as they are.
 
-- [ ] **Step 7: Run the tests to verify they pass, then the gate**
+- [x] **Step 7: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run components/options && npx tsc --noEmit && npm run lint`
 Expected: PASS: every existing `AssessedBrowser`, `AssessedRow` and `ApprovalDetail` test
 unchanged plus the 2 new ones. An existing promote test that fails means the markup change
 touched the flow: restore the flow, never edit that test.
 
-- [ ] **Step 8: da-vinci lint**
+- [x] **Step 8: da-vinci lint**
 
 Run: `python3 ~/.claude/skills/da-vinci/scripts/lint.py web/components/options/AssessedBrowser.tsx web/components/options/AssessedRow.tsx web/components/options/StageBadge.tsx`
 Expected: exit 0, or every finding fixed in the code.
 
-- [ ] **Step 9: Commit** (with the Progress log row for Task 5 filled in)
+- [x] **Step 9: Commit** (with the Progress log row for Task 5 filled in)
 
 ```bash
 git add web/components/options/AssessedBrowser.tsx web/components/options/AssessedBrowser.test.tsx \
