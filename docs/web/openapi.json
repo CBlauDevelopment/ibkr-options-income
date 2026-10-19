@@ -3229,6 +3229,62 @@
         }
       }
     },
+    "/spreads/picks": {
+      "get": {
+        "tags": [
+          "spreads"
+        ],
+        "summary": "Spread Picks",
+        "description": "One New York day of the spreads picker: each menu Claude was shown, its choice, what was\nsent, and every spread any book opened that day. `day` defaults to today in New York.",
+        "operationId": "spread_picks_spreads_picks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "day",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadPicksResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/universe": {
       "get": {
         "tags": [
@@ -4105,6 +4161,43 @@
             "type": "array",
             "title": "Rationale Tags"
           },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "roll_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalRollFrom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fill_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Price"
+          },
           "snapshot": {
             "additionalProperties": true,
             "type": "object",
@@ -4191,6 +4284,58 @@
           "as_of"
         ],
         "title": "ApprovalListResponse"
+      },
+      "ApprovalRollFrom": {
+        "properties": {
+          "strike": {
+            "type": "number",
+            "title": "Strike"
+          },
+          "expiry": {
+            "type": "string",
+            "format": "date",
+            "title": "Expiry"
+          },
+          "right": {
+            "type": "string",
+            "title": "Right"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "old_mid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Mid"
+          },
+          "new_mid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Mid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strike",
+          "expiry",
+          "right",
+          "contracts"
+        ],
+        "title": "ApprovalRollFrom",
+        "description": "The short a roll buys back, from the frozen snapshot's ``roll_from`` (2026-10-11 roll\nredesign). The mids are what the roll was priced at when it was proposed, per share: a quote,\nnever a fill."
       },
       "ApprovalSummary": {
         "properties": {
@@ -4335,6 +4480,43 @@
             },
             "type": "array",
             "title": "Rationale Tags"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "roll_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalRollFrom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fill_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Price"
           }
         },
         "type": "object",
@@ -6435,6 +6617,22 @@
             ],
             "title": "Approval Id"
           },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "web",
+                  "telegram"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
           "review": {
             "anyOf": [
               {
@@ -6511,6 +6709,30 @@
           "spreads_available": {
             "type": "boolean",
             "title": "Spreads Available"
+          },
+          "previous_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Day"
+          },
+          "next_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Day"
           }
         },
         "type": "object",
@@ -11510,6 +11732,337 @@
           "as_of"
         ],
         "title": "Sourced[float]"
+      },
+      "SpreadMenuItemOut": {
+        "properties": {
+          "letter": {
+            "type": "string",
+            "title": "Letter"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "inside",
+              "baseline",
+              "outer"
+            ],
+            "title": "Position"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "put",
+              "call"
+            ],
+            "title": "Side"
+          },
+          "short_strike": {
+            "type": "number",
+            "title": "Short Strike"
+          },
+          "long_strike": {
+            "type": "number",
+            "title": "Long Strike"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width"
+          },
+          "contracts": {
+            "type": "integer",
+            "title": "Contracts"
+          },
+          "credit_mid": {
+            "type": "number",
+            "title": "Credit Mid"
+          },
+          "credit_after_costs": {
+            "type": "number",
+            "title": "Credit After Costs"
+          },
+          "max_loss_per_contract_usd": {
+            "type": "number",
+            "title": "Max Loss Per Contract Usd"
+          },
+          "short_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Delta"
+          },
+          "spot": {
+            "type": "number",
+            "title": "Spot"
+          },
+          "dist_spot_pts": {
+            "type": "number",
+            "title": "Dist Spot Pts"
+          },
+          "dist_em_multiple": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dist Em Multiple"
+          },
+          "be_nominal_exits": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Be Nominal Exits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "letter",
+          "position",
+          "side",
+          "short_strike",
+          "long_strike",
+          "width",
+          "contracts",
+          "credit_mid",
+          "credit_after_costs",
+          "max_loss_per_contract_usd",
+          "short_delta",
+          "spot",
+          "dist_spot_pts",
+          "dist_em_multiple",
+          "be_nominal_exits"
+        ],
+        "title": "SpreadMenuItemOut",
+        "description": "One lettered spread on a pick menu, flattened from the stored SpreadMenuItem. Credits are\nper share; every figure was computed by src/spreads/menu.py when the menu was built."
+      },
+      "SpreadPickOut": {
+        "properties": {
+          "pick_id": {
+            "type": "integer",
+            "title": "Pick Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "book_mode": {
+            "type": "string",
+            "title": "Book Mode"
+          },
+          "choice": {
+            "type": "string",
+            "title": "Choice"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason"
+          },
+          "executed_letter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed Letter"
+          },
+          "send_rejected": {
+            "type": "boolean",
+            "title": "Send Rejected"
+          },
+          "send_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Send Reasons"
+          },
+          "filled": {
+            "type": "boolean",
+            "title": "Filled"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "regime": {
+            "type": "string",
+            "title": "Regime"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "plan_bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Bias"
+          },
+          "event_flag": {
+            "type": "boolean",
+            "title": "Event Flag"
+          },
+          "menu_readable": {
+            "type": "boolean",
+            "title": "Menu Readable"
+          },
+          "menu": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadMenuItemOut"
+            },
+            "type": "array",
+            "title": "Menu"
+          },
+          "spread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spread Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pick_id",
+          "created_at",
+          "book_mode",
+          "choice",
+          "reason",
+          "fallback_reason",
+          "executed_letter",
+          "send_rejected",
+          "send_reasons",
+          "filled",
+          "model",
+          "regime",
+          "side",
+          "plan_bias",
+          "event_flag",
+          "menu_readable"
+        ],
+        "title": "SpreadPickOut",
+        "description": "One menu Claude was shown, its choice, and what the service did with it."
+      },
+      "SpreadPicksResponse": {
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "underlying": {
+            "type": "string",
+            "title": "Underlying"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "ai_enabled": {
+            "type": "boolean",
+            "title": "Ai Enabled"
+          },
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "previous_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Day"
+          },
+          "next_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Day"
+          },
+          "picks": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadPickOut"
+            },
+            "type": "array",
+            "title": "Picks"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadPositionOut"
+            },
+            "type": "array",
+            "title": "Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "as_of",
+          "available",
+          "underlying",
+          "mode",
+          "ai_enabled",
+          "day"
+        ],
+        "title": "SpreadPicksResponse"
       },
       "SpreadPositionOut": {
         "properties": {

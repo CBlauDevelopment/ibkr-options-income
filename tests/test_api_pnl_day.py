@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.storage.models import CandidateRow, FillRow
+from src.storage.models import ApprovalRow, CandidateRow, FillRow
 from tests.conftest import OWNER
 
 ET = ZoneInfo("America/New_York")
@@ -184,3 +184,20 @@ def test_a_wheel_only_scope_never_needs_the_spreads_book(client, strategy) -> No
 def test_the_future_is_simply_empty(client) -> None:
     far = (datetime.now(UTC) + timedelta(days=400)).date().isoformat()
     assert client.get(f"/pnl/day?date={far}", headers=OWNER).json()["trades"] == []
+
+
+def test_previous_and_next_skip_days_with_no_wheel_activity(client, db) -> None:
+    seed(db, "early", sold_at=datetime(2026, 10, 5, 14))
+    seed(db, "late", sold_at=datetime(2026, 10, 14, 14), bought_at=datetime(2026, 10, 16, 15), reason="profit_take")
+    with db() as s:
+        # A call proposal raised on the 7th that never traded still makes the 7th a History day.
+        s.add(
+            ApprovalRow(candidate_id="x", status="expired", created_at=datetime(2026, 10, 7, 15),
+                        snapshot={"strategy": "covered_call", "right": "C"})
+        )  # fmt: skip
+    body = client.get("/pnl/day?date=2026-10-09", headers=OWNER).json()
+    assert (body["previous_day"], body["next_day"]) == ("2026-10-07", "2026-10-14")
+    puts = client.get("/pnl/day?date=2026-10-09&strategy=csp", headers=OWNER).json()
+    assert puts["previous_day"] == "2026-10-05"  # the call proposal is outside the puts' scope
+    last = client.get("/pnl/day?date=2026-10-16", headers=OWNER).json()
+    assert (last["previous_day"], last["next_day"]) == ("2026-10-14", None)

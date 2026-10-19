@@ -8,11 +8,14 @@ exist yet or cannot be opened (or is not a SQLite database), so a route answers
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Date, DateTime, create_engine, text
 from sqlalchemy.engine import Engine
@@ -108,3 +111,104 @@ def read_spread_rows(
     """`try_read_spread_rows`, with a failed read (a missing table on an old file) as empty."""
     rows = try_read_spread_rows(session, mode=mode, status=status, limit=limit)
     return rows if rows is not None else []
+
+
+_PICK_COLUMNS = (
+    "id, created_at, day, book_mode, menu, choice, reason, fallback_reason, executed_letter, "
+    "send_rejected, send_reasons, filled, model, regime, side, plan_bias, event_flag"
+)
+_NEW_YORK = ZoneInfo("America/New_York")
+
+
+def _json_list(raw: Any) -> list[Any] | None:
+    """A JSON column read through plain SQL comes back as text. None when it is not a list."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            return None
+        return value if isinstance(value, list) else None
+    return None
+
+
+def _columns_of(session: Session, table: str) -> set[str]:
+    """Column names of a table; empty when the table does not exist (an older file)."""
+    try:
+        return {str(r[1]) for r in session.execute(text(f"PRAGMA table_info({table})"))}
+    except Exception:  # noqa: BLE001 - an unreadable schema reads as no columns
+        session.rollback()
+        return set()
+
+
+def _stamp(dt: datetime) -> str:
+    """A naive-UTC datetime in the text form SQLAlchemy stores in SQLite, for plain-SQL ranges."""
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def try_read_pick_rows(session: Session, *, day: date) -> list[dict[str, Any]] | None:
+    """spread_picks rows for one New York day (the service stamps `day` in New York), newest
+    first, or None when the read failed (an older file without the table: the picker never ran).
+    `menu` and `send_reasons` come back parsed; a `menu` that is not a JSON list is None."""
+    sql = text(
+        f"SELECT {_PICK_COLUMNS} FROM spread_picks WHERE day = :day "
+        "ORDER BY created_at DESC, id DESC"
+    ).columns(day=Date, created_at=DateTime)
+    try:
+        result = session.execute(sql, {"day": day.isoformat()})
+    except Exception as exc:  # noqa: BLE001 - the caller decides what unreadable means
+        log.debug("api spreads_db: pick read failed: %s", exc)
+        session.rollback()  # the next read on this session starts clean
+        return None
+    rows: list[dict[str, Any]] = []
+    for r in result:
+        row = dict(r._mapping)
+        row["menu"] = _json_list(row["menu"])
+        row["send_reasons"] = _json_list(row["send_reasons"]) or []
+        for flag in ("send_rejected", "filled", "event_flag"):
+            row[flag] = bool(row[flag])
+        rows.append(row)
+    return rows
+
+
+def try_read_spread_rows_opened(
+    session: Session, *, start: datetime, end: datetime
+) -> list[dict[str, Any]] | None:
+    """spread_positions rows of every mode opened in [start, end) (naive UTC, as stored), oldest
+    first, each with `pick_id` (None on an older file that has no such column), or None when the
+    read failed."""
+    pick = "pick_id" if "pick_id" in _columns_of(session, "spread_positions") else "NULL AS pick_id"
+    sql = text(
+        f"SELECT {_COLUMNS}, {pick} FROM spread_positions "
+        "WHERE opened_at >= :start AND opened_at < :end ORDER BY opened_at"
+    ).columns(expiry=Date, opened_at=DateTime, closed_at=DateTime)
+    try:
+        result = session.execute(sql, {"start": _stamp(start), "end": _stamp(end)})
+    except Exception as exc:  # noqa: BLE001 - the caller decides what unreadable means
+        log.debug("api spreads_db: opened read failed: %s", exc)
+        session.rollback()
+        return None
+    return [dict(r._mapping) for r in result]
+
+
+def read_activity_days(session: Session) -> set[date]:
+    """New York days with a pick or an opened spread, for the day navigation. A table an older
+    file lacks contributes nothing."""
+    days: set[date] = set()
+    try:
+        for (d,) in session.execute(
+            text("SELECT DISTINCT day FROM spread_picks").columns(day=Date)
+        ):
+            if d is not None:
+                days.add(d)
+    except Exception:  # noqa: BLE001 - no picks table: the picker never ran
+        session.rollback()
+    try:
+        opened = text("SELECT opened_at FROM spread_positions").columns(opened_at=DateTime)
+        for (at,) in session.execute(opened):
+            if at is not None:
+                days.add(at.replace(tzinfo=UTC).astimezone(_NEW_YORK).date())
+    except Exception:  # noqa: BLE001
+        session.rollback()
+    return days

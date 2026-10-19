@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from src.api.models.common import Envelope
 
@@ -36,3 +36,59 @@ class SpreadPositionsResponse(Envelope):
     underlying: str
     mode: str
     positions: list[SpreadPositionOut] = Field(default_factory=list)
+
+
+class SpreadMenuItemOut(BaseModel):
+    """One lettered spread on a pick menu, flattened from the stored SpreadMenuItem. Credits are
+    per share; every figure was computed by src/spreads/menu.py when the menu was built."""
+
+    letter: str
+    position: Literal["inside", "baseline", "outer"]
+    side: Literal["put", "call"]
+    short_strike: float
+    long_strike: float
+    width: float
+    contracts: int  # set by the spreads gate, never by Claude
+    credit_mid: float
+    credit_after_costs: float
+    max_loss_per_contract_usd: float
+    short_delta: float | None
+    spot: float
+    dist_spot_pts: float  # short strike's distance from spot (positive = out of the money)
+    dist_em_multiple: float | None  # the same in expected moves
+    be_nominal_exits: float | None  # break-even win rate (0-1) under the configured exits
+
+
+class SpreadPickOut(BaseModel):
+    """One menu Claude was shown, its choice, and what the service did with it."""
+
+    pick_id: int
+    created_at: datetime
+    book_mode: str
+    choice: str  # a menu letter, or "skip"
+    reason: str  # Claude's reason; "" when it gave none
+    fallback_reason: str | None  # set when Claude's answer could not be used
+    executed_letter: str | None  # the item the service tried to send; None when nothing
+    send_rejected: bool  # True when it did not trade (refused at send time, or not filled)
+    send_reasons: list[str]
+    filled: bool
+    model: str
+    regime: str
+    side: str | None
+    plan_bias: str | None
+    event_flag: bool
+    menu_readable: bool  # False when the stored menu no longer parses; `menu` is then empty
+    menu: list[SpreadMenuItemOut] = Field(default_factory=list)
+    spread_id: str | None = None  # the position this pick opened, when one did
+
+
+class SpreadPicksResponse(Envelope):
+    available: bool  # False when data/spreads.db does not exist or cannot be read
+    underlying: str
+    mode: str  # the spreads service's configured book mode (shadow | paper)
+    ai_enabled: bool  # config spreads.ai.enabled: whether menus are offered at all
+    day: date  # the New York day shown
+    previous_day: date | None = None  # nearest earlier day with a pick or an opened spread
+    next_day: date | None = None
+    picks: list[SpreadPickOut] = Field(default_factory=list)  # newest first
+    positions: list[SpreadPositionOut] = Field(default_factory=list)  # every mode, oldest first

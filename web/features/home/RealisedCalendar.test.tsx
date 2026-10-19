@@ -105,6 +105,16 @@ describe("RealisedCalendar", () => {
     expect(within(dialog).queryByRole("region", { name: /What closed on/ })).toBeNull();
   });
 
+  it("links a tapped day to that day in History", async () => {
+    const dialog = await openIt();
+    fireEvent.click(await within(dialog).findByRole("button", { name: /Fri, Oct 9/ }));
+    const section = await within(dialog).findByRole("region", { name: "What closed on Fri, Oct 9" });
+    expect(within(section).getByRole("link", { name: "Open this day in History" })).toHaveAttribute(
+      "href",
+      "/trades?view=history&day=2026-10-09",
+    );
+  });
+
   it("walks back a month and cannot walk past the current one", async () => {
     const dialog = await openIt();
     await within(dialog).findByRole("heading", { name: "October 2026" });

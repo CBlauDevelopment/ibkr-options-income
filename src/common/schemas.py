@@ -1112,6 +1112,10 @@ class DayTrade(BaseModel):
     reason: str | None = None  # closed / rolled: the headline reason, one sentence
     facts: list[DayFact] = Field(default_factory=list)
     approval_id: int | None = None
+    # Who approved the trade this card is about (web overhaul Part 2): an opened card's entry
+    # approval, a rolled card's roll approval. A closed card has none (a close is not the
+    # opening approval's decision). None when not recorded; never inferred.
+    decided_by: Literal["system", "web", "telegram"] | None = None
     review: DayReview | None = None  # opened: Claude's stored review
     rolled_to: DayRolledTo | None = None
 

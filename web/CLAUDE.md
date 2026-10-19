@@ -101,8 +101,18 @@ app/                App Router pages and the root layout
                     from a row of Home's Positions card: <PositionPage/> (features/position/).
                     The slug is `2026-11-21_P180` (an option contract), `shares` or
                     `spread-<id>`.
-  trades/           The options console, moved from options/ (Part 1, Task 5; `/options`
-                    redirects here with a 307). Described under options/ below.
+  trades/           Trades (web overhaul Part 2). `page.tsx` mounts <TradesPage/>
+                    (features/trades/) inside a Suspense boundary: the strategy switcher
+                    (the view chips follow it: the wheel, All / CSPs / CCs, gets Proposals,
+                    History and Assessed; Credit spreads gets Spreads only and hides the
+                    chips), the view in `?view=` with a smart default (Proposals when
+                    something in the strategy waits on you, History otherwise, decided once
+                    per visit; `?view=working` and `?view=decided` open History), History's
+                    New York day in `?day=`, and the "not draining commands" warning
+                    (<DrainWarning/>) above the view. The old tab bar, <ControlsStrip/>,
+                    <TickerPillBar/>, the Working and Decided tabs and the Shorts tab are
+                    gone: halt, resume, the autonomy rung and roll mode live in the bot
+                    card, Propose a roll on the short option's position page.
   activity/         The P&L console, moved from pnl/ (`/pnl` redirects here). Described
                     under pnl/ below.
   more/             More: the bot card (opens Bot controls), the theme toggle (Light /
@@ -136,80 +146,26 @@ app/                App Router pages and the root layout
                     is NOT gated behind a Section's state — it fetches its own data
                     from GET /research/{symbol}/bars independently, so a technicals
                     outage must not hide it too
-  options/          (MOVED to trades/ in web overhaul Part 1; the text below describes it)
-                    Options console (P2 M2 + M3 + M4 Task 4.3). <ControlsStrip/> at
-                    the top (mode, autonomy rung, halt state, drain health), then a
-                    tab bar for Approvals / Submitted / Decided / Assessed /
-                    Orders / Fills / Shorts. The Approvals tab renders <ApprovalsList/> (cards linking
-                    to the detail page). Since M3 the cards and the detail page carry
-                    live Approve / Reject controls through <DecideControls/> - confirm
-                    dialog first, one POST, then a <CommandReceipt/> that never
-                    overstates what happened. Since M4 Task 4.3 the Assessed tab's
-                    <AssessedBrowser/> carries a live Promote control per row
-                    (                    <AssessedRow/>) through the same confirm-then-receipt shape.
-                    Since M5 Task 5.2 the Shorts tab's <ShortsTable/> carries a live
-                    "Propose a roll" control per row (<ShortsRow/>) through the same
-                    confirm-then-receipt shape; no_qualifying_roll renders as a plain
-                    answer, roll_already_working links to the in-flight approval.
-                    Since M6 the strip is live: <HaltControl/> and <AutonomyControl/>
-                    sit in it (plus <RollModeControl/>, 2026-10-15: Auto-execute or
-                    Propose only for breach rolls, `set_roll_mode`, read from
-                    `controls.roll_mode`), and a halted system renders an unmissable banner at
-                    the top of the console with the reason and the time as text.
-                    The page owns a `submitted: Map<approvalId, CommandStatus>` state:
-                    the Approvals tab's <ApprovalsList/> filters OUT any id present in
-                    the map, the new Submitted tab's <ApprovalsList/> filters IN only
-                    those ids, and both pass the same map down as `initialCommands` so
-                    a card's in-flight receipt survives the unmount/remount the tab
-                    switch causes. `onApprovalSubmitted` (fired by <DecideControls/>
-                    the instant Approve is confirmed, before the network call even
-                    resolves) adds to the map; `onApprovalSettled` (fired when the
-                    command ends up failed/expired — it never left "pending"
-                    server-side) removes from it, returning the card to Approvals.
-                    `submitted` is also seeded from `loadAllPersistedCommands()`
-                    (lib/commands.ts) in a `useEffect` after mount — not a `useState`
-                    lazy initializer, which would run during SSR (no `localStorage`
-                    there) and diverge from the client's first paint — so a page
-                    reload while a command is mid-flight restores the card's Submitted
-                    placement, not just its receipt (the receipt itself is restored
-                    independently, inside <DecideControls/> — see components/options/
-                    below).
-                    Below the Approvals tab's list, <TickerPillBar/> renders a
-                    scrollable row of pills — one per distinct `underlying` present in
-                    the (visible, not-yet-submitted) approvals list, with its count.
-                    It is purely presentational, driven by the same approvals array
-                    the page already queries (`["options","approvals","pending"]` —
-                    the identical key/queryFn <ApprovalsList status="pending"/> uses
-                    internally, so react-query dedupes to one request), never a
-                    separate dataset that could be empty while approvals are not.
-                    Picking a pill sets the page's `symbolFilter` state, which
-                    composes into <ApprovalsList>'s `filter` alongside the
-                    `submitted` exclusion — the list narrows to that ticker; picking
-                    the same pill again clears it. The pill row itself is unaffected
-                    by the filter (it always lists every ticker currently visible),
-                    so switching straight to a different ticker needs only one click.
-                    The Decided tab renders <ApprovalsList status="all"/>, filtered
-                    client-side to `status !== "pending"` — every terminal outcome
-                    (approved, rejected, expired), not just rejected/expired, since an
-                    approved approval drops out of both the Approvals and Submitted
-                    views the moment its command applies and otherwise had nowhere
-                    left to be tracked. The only tab that fetches every status rather
-                    than pending-only; each row renders through the same
-                    <DecideControls/>, which already renders a decided approval's
-                    `Decision: …` line instead of controls.
-  options/[approvalId]/  (MOVED to trades/[approvalId]/) Approval detail: <ApprovalDetailCard/> with the five review
-                    fields as labelled sections (<ReviewPanel/>), the ideal zone bar
-                    (<IdealZoneBar/>), humanised gate reasons, the alternatives
-                    table, a Fills section (rendered only when `detail.fills` is
-                    non-empty — the approval-to-order-to-fill lineage the API now
-                    carries on this one response, so tracing a candidate to its fill
-                    price needs no second/third request to the Orders/Fills tabs),
-                    and the same <DecideControls/> as the card — both surfaces decide
-                    through one code path, including in-flight-command restoration
-                    from `localStorage` (this page never receives `initialCommand`
-                    from a parent, unlike the card, so it depends entirely on that
-                    fallback). 404 renders a not-found state with a link back to the
-                    list.
+  options/          (RETIRED) The old tabbed options console. `/options` and `/options/:id`
+                    redirect (307) to `/trades` and `/trades/:id` in next.config.ts; what it
+                    did lives under trades/ above and features/trades/ below, and its
+                    components stay in components/options/.
+  trades/[approvalId]/  The approval detail page, restyled in Part 2 (a payslip shell with its
+                    own loading and not-found states around <ApprovalDetailCard/>,
+                    components/options/ApprovalDetail.tsx): <BackToTrades/>, then the
+                    trade (the title, a status word and where it came from, one
+                    consequence-first sentence, the stub, the facts and the IV-rank tag; a
+                    roll shows its two legs and the net at the quotes it was priced at,
+                    labelled as the quote and never a fill; who decided, in words, from
+                    `decided_by` only), Claude's review (<ReviewPanel/>, labelled as
+                    Claude's), the decision in a 340px column from 1024px (the unchanged
+                    <DecideControls/>, still fed from GET /options/controls so the receipt
+                    can say a drain is dead), the ideal zone as two sentences (the strike
+                    against the strike zone, the premium against the least credit worth
+                    taking; the two units are never plotted on one axis), and the
+                    alternatives and fills as rows. The same in-flight-command restoration
+                    from `localStorage` as before, since this page never receives
+                    `initialCommand` from a parent.
   portfolio/        Portfolio console (P3 M3 Tasks 3.1-3.5). <PortfolioShell/> mounts
                     <SummaryPanel/> once above the tab bar (stays mounted across tab
                     changes), then tabs between Positions / Campaigns / Calendar. Each
@@ -556,17 +512,8 @@ components/
                     further `setCommand` call in this component) still clears
                     correctly. Fires `onApprovalSubmitted(id, command)` the instant
                     Approve is confirmed and `onApprovalSettled(id)` if the command
-                    ends up failed/expired),                     TickerPillBar (pure, prop-driven — no fetch of its own; takes
-                    `approvals: ApprovalSummary[]`, `selected`, `onSelect` from the
-                    page. A scrollable row below the Approvals list, one pill per
-                    distinct `underlying` present in that array with its count;
-                    picking a pill calls `onSelect(symbol)`, picking the same one
-                    again calls `onSelect(null)` — the page composes `selected` into
-                    <ApprovalsList>'s `filter`, so a pill filters the list rather
-                    than expanding a second, separate contracts browser. Renders
-                    nothing when `approvals` is empty — deliberately not an
-                    <EmptyState/>, since <ApprovalsList>'s own empty state already
-                    covers that case one element up),                     ConfirmAction
+                    ends up failed/expired),
+                    ConfirmAction
                     (the confirmation dialog: exact contract and contract count in the
                     summary, optional case-sensitive typed-word gate (used by resume
                     in M6: releasing the kill switch re-arms execution; halting does
@@ -578,6 +525,23 @@ components/
                     only when an order is working, filled only when a fill exists,
                     stalled stated in words with no spinner, intent id always
                     visible, failed renders the humanised reason plus detail codes)
+                    Web overhaul Part 2 (2026-10-19): RollProposal.tsx holds the roll-proposal
+                    flow lifted out of ShortsRow (`useRollProposal`: the confirm, the one
+                    `roll_request` command, the live second confirmation, the receipt and the
+                    `short:{position_symbol}` persistence; `RollReceipt`; `RollDialogs`), used by
+                    features/position/RollCard.tsx and, thinly, by ShortsRow. AssessedBrowser (a
+                    `strategy` prop), AssessedRow (markup only), StageBadge (a StatusWord;
+                    `STAGE_LABEL` exported), ReviewPanel, IdealZoneBar, AlternativesTable,
+                    RationaleTags and ApprovalDetail are restyled on the payslip tokens under
+                    their existing tests. ControlsStrip changed only in DrainWarning's classes
+                    (the strip is no longer mounted; the component goes in Part 4). OrdersTable
+                    and FillsTable are unmounted and unrestyled until Part 3 mounts them on
+                    Activity as the raw broker-truth list. ApprovalsList, ApprovalCard,
+                    ShortsTable and ShortsRow are no longer mounted and stay for their tests
+                    until Part 4 (those tests are DecideControls' and the roll flow's only
+                    coverage). TickerPillBar is deleted. DecideControls, ConfirmAction,
+                    CommandReceipt, HaltControl, AutonomyControl and RollModeControl are
+                    unchanged.
   portfolio/        Money (null/NaN renders "n/a" with `.hatch` texture never "$0.00",
                     genuine zero renders "$0", colour never alone, `kind` renders as
                     word), FreshnessLabel (renders age in words - null says "not
@@ -821,12 +785,45 @@ features/
                     (`matchesQuery`: commas for several names, only the ticker and contract's own
                     words) and links each row to its page; `optionStatus` is the shared status-word
                     rule. HomePage is one CSS grid, so there is one copy of each card.
+                    Web overhaul Part 2 additions: a "Roll alert" flag word on a position row
+                    (positions.ts, from GET /options/shorts through PositionsCard); proposal.ts
+                    gained `rollTitle`, `rollSentence`, `rollStub` (a roll names both legs and
+                    sums to its net at the quotes it was priced at) and `decisionWords` (who
+                    approved, from `decided_by` only); TradeCard says who approved an opened or
+                    rolled trade; ReviewSheet takes optional `onSubmitted` / `onSettled`
+                    callbacks; and the realised calendar's day panel links "Open this day in
+                    History".
 features/position/  PositionPage (GET /portfolio/positions/{underlying}/{slug}: title and status
                     words, then one grid whose DOM order is the phone order, chart, the trade,
                     headlines), UnderlyingChart (the close as an ink line, a dashed rule at the
                     strike or the cost basis, a Sold marker, 1M / 3M / 6M / 1Y over the stock
                     page's own bars request), Headlines (GET /research/{symbol}/headlines,
-                    sentiment as a word), position.ts (slugs, chart lines, the Now figures).
+                    sentiment as a word), position.ts (slugs, chart lines, the Now figures),
+                    RollCard (web overhaul Part 2: on a held short option with a known strike and
+                    right only; the alerts the monitor fired on this contract with Claude's stored
+                    view labelled as Claude's, then Propose a roll through useRollProposal, the
+                    flow the Shorts table used to run).
+features/trades/    Web overhaul Part 2: TradesPage (the strategy switcher with pending counts, the
+                    view chips, the drain warning, then the view), views.ts (the views a strategy
+                    has, `explicitView`, `defaultView`, `tickerCounts`), useTradesView +
+                    useTradesDay (`?view=` and `?day=` through router.replace; the smart default is
+                    decided once per visit, when the pending count first loads, or History when
+                    that load failed; `?day=` accepts only a real calendar date),
+                    useSubmittedApprovals (the Map of approvals whose Approve this browser sent,
+                    seeded after mount from `loadAllPersistedCommands()` so a reload mid-command
+                    keeps the card in flight; Approve commands only), SubmittedWatcher (one
+                    null-rendering component per approval in flight, mounted by TradesPage whatever
+                    the view: follows the command and, when it ends failed or expired, hands the
+                    card back and clears its persisted entry), ProposalsView (ticker chips from two tickers up,
+                    then Home's ProposalCard and ReviewSheet), HistoryView + useInFlightCount +
+                    useWorkingOrders (one New York day: In flight, Traded, Not traded), history.ts
+                    (`notTradedRows`, `orderContract`, `IN_FLIGHT_STATES`), time.ts (New York
+                    clock times, day labels and shifts), SpreadsView + spreads.ts (GET
+                    /spreads/picks: the day's books, the menu Claude saw, Other picks), types.ts
+                    (hand-written mirrors of the spreads-picks models). Assessed is
+                    components/options/AssessedBrowser. Nothing here reaches `submitCommand` or
+                    `confirmCommand`: an order intent goes through DecideControls inside the review
+                    sheet, a promote through AssessedRow, a roll through RollCard.
 features/more/      TargetCard + target.ts (the income-target form's rules: text in, a validated
                     `set_income_target` payload out, mirroring `IncomeTarget` and its bounds).
 lib/
@@ -862,6 +859,9 @@ lib/
                     render agree, then the stored preference)
   useFocusTrap.ts   The Sheet's focus trap (nested-dialog safe; onEscape through a ref;
                     puts focus back on the panel when a focused control leaves the page)
+  useHydrated.ts    `useHydrated()` (moved out of HomePage; Home and Trades both use it): false for
+                    the server render and the hydration pass, so a page whose query shares a key
+                    with the rail renders its bare shell until hydration is over
   nav.ts            NAV (the seven destinations, which five sit on the phone tab bar),
                     activeKey and phoneActiveKey
   strategy.ts       StrategyKind / StrategyFilter, labels and eyebrows, kindOf (a roll

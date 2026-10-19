@@ -120,8 +120,105 @@ describe("ApprovalDetailCard", () => {
     // render when detail is absent. The page-level 404 is tested via the
     // page component's error branch.
     withClient(<ApprovalDetailCard detail={base} />);
-    // The "Back to approvals" link is always present on the detail card.
-    expect(screen.getByText(/Back to approvals/i)).toBeDefined();
+    expect(screen.getByRole("link", { name: "Back to Trades" })).toHaveAttribute("href", "/trades");
+  });
+
+  it("titles the page with the contract and its status in words", () => {
+    withClient(<ApprovalDetailCard detail={base} />);
+    expect(screen.getByRole("heading", { level: 1, name: "NVDA · Sell $190 put" })).toBeDefined();
+    expect(screen.getByText("Pending")).toBeDefined();
+  });
+
+  it("sums the trade in a stub and labels the review as Claude's", () => {
+    withClient(<ApprovalDetailCard detail={base} />);
+    expect(screen.getByRole("group", { name: "NVDA put math" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Claude's review" })).toBeDefined();
+  });
+
+  it("says who decided it, from the record, and what it filled at", () => {
+    withClient(
+      <ApprovalDetailCard
+        detail={{ ...base, status: "approved", decided_at: "2026-10-16T19:03:40Z", decided_by: "system", order_state: "filled", fill_price: 3.2 }}
+      />,
+    );
+    expect(screen.getByText("Approved by the system")).toBeDefined();
+    expect(screen.getByText("Filled at")).toBeDefined();
+    expect(screen.getByText("$3.20")).toBeDefined();
+  });
+
+  it("says only Approved when who decided was not recorded", () => {
+    withClient(<ApprovalDetailCard detail={{ ...base, status: "approved", decided_at: "2026-10-01T15:00:00Z" }} />);
+    expect(screen.getByText("Approved")).toBeDefined();
+    expect(screen.queryByText(/by the system|by you/)).toBeNull();
+  });
+
+  it("a roll shows both legs and the net it was priced at", () => {
+    const roll = {
+      ...base,
+      source: "roll" as const,
+      strategy: "roll",
+      strike: 190,
+      expiry: "2026-10-30",
+      premium: 1.175,
+      roll_from: { strike: 190, expiry: "2026-10-23", right: "P", contracts: 1, old_mid: 2.1, new_mid: 3.275 },
+    };
+    withClient(<ApprovalDetailCard detail={roll} />);
+    expect(screen.getByRole("heading", { level: 1, name: "NVDA · Roll $190 put Oct 23 → Oct 30" })).toBeDefined();
+    const stub = screen.getByRole("group", { name: "NVDA roll math" });
+    expect(stub.textContent).toMatch(/Buy back \$190 put Oct 23/);
+    expect(stub.textContent).toMatch(/Net credit/);
+    expect(screen.getByText(/At the quotes it was priced at/)).toBeDefined();
+  });
+
+  describe("what a filled roll filled at", () => {
+    const rollOf = (net: number, fill: number): ApprovalDetail => ({
+      ...base,
+      status: "approved",
+      decided_by: "system",
+      order_state: "filled",
+      source: "roll",
+      strategy: "roll",
+      strike: 190,
+      expiry: "2026-10-30",
+      premium: net,
+      fill_price: fill,
+      roll_from: { strike: 190, expiry: "2026-10-23", right: "P", contracts: 1, old_mid: 2.1, new_mid: 3.275 },
+    });
+    const valueOf = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+
+    it("reads as a signed net, labelled so it cannot pass for a single-leg price", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(0.45, 0.45)} />);
+      expect(valueOf("Net filled, a share")).toBe("+$0.45");
+      expect(valueOf("Net a share, as priced")).toBe("+$0.45");
+      expect(screen.queryByText("Filled at")).toBeNull();
+    });
+
+    it("writes a debit roll with the minus sign, never $-0.30", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(-0.3, -0.3)} />);
+      expect(valueOf("Net filled, a share")).toBe("−$0.30");
+      expect(valueOf("Net a share, as priced")).toBe("−$0.30");
+      expect(document.body.textContent).not.toMatch(/\$-/);
+    });
+
+    it("leaves a flat fill as $0", () => {
+      withClient(<ApprovalDetailCard detail={rollOf(0, 0)} />);
+      expect(valueOf("Net filled, a share")).toBe("$0");
+    });
+
+    it("keeps a single-leg order's own price under Filled at", () => {
+      withClient(<ApprovalDetailCard detail={{ ...base, status: "approved", order_state: "filled", fill_price: 3.2 }} />);
+      expect(valueOf("Filled at")).toBe("$3.20");
+    });
+  });
+
+  it("puts the decision after the trade and the review, the phone's order", () => {
+    withClient(<ApprovalDetailCard detail={base} />);
+    const trade = screen.getByRole("heading", { name: "The trade" });
+    const review = screen.getByRole("heading", { name: "Claude's review" });
+    const decision = screen.getByRole("heading", { name: "Decision" });
+    const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(trade, review)).toBe(true);
+    expect(follows(review, decision)).toBe(true);
   });
 
   it("renders decide controls for a pending approval, wired through the confirm gate", () => {

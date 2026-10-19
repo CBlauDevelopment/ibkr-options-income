@@ -1,3 +1,4 @@
+import type { ApprovalRollFrom } from "@/components/options/types";
 import type { StubLineData } from "@/components/ui/Stub";
 import { formatMoneyCell } from "@/lib/money";
 import { kindOf } from "@/lib/strategy";
@@ -80,4 +81,89 @@ export function proposalStub(a: ProposalFields, today: Date): StubLineData[] {
       explain: "The return scaled to 365 days. A yardstick, not a forecast.",
     },
   ];
+}
+
+export type RollFields = {
+  underlying: string;
+  strike: number; // the new leg
+  expiry: string | null; // the new leg
+  right: string;
+  contracts: number;
+  premium: number | null; // the net per share: the new leg's mid less the old leg's
+  roll_from?: ApprovalRollFrom | null;
+};
+
+const md = (iso: string) => SHORT_DATE.format(new Date(`${iso}T00:00:00Z`));
+const rightWord = (r: string) => (r === "C" ? "call" : "put");
+
+/** "NVDA · Roll $250 put Oct 23 → Oct 28"; the strike and the date each show a move only when they move. */
+export function rollTitle(a: RollFields): string {
+  const from = a.roll_from;
+  if (!from) return `${a.underlying} · Roll`;
+  const strikes = from.strike === a.strike ? `$${from.strike}` : `$${from.strike} → $${a.strike}`;
+  const dates = !a.expiry || a.expiry === from.expiry ? md(from.expiry) : `${md(from.expiry)} → ${md(a.expiry)}`;
+  return `${a.underlying} · Roll ${strikes} ${rightWord(from.right)} ${dates}`;
+}
+
+/** What the roll does, then the net at the quotes it was priced at (never presented as a fill). */
+export function rollSentence(a: RollFields): string {
+  const from = a.roll_from;
+  if (!from) return "This rolls a position you already hold. Its legs were not recorded on this proposal.";
+  const sells = a.expiry ? `the $${a.strike} ${rightWord(a.right)} expiring ${md(a.expiry)}` : `the $${a.strike} ${rightWord(a.right)}`;
+  const head = `Buys back the $${from.strike} ${rightWord(from.right)} expiring ${md(from.expiry)} and sells ${sells}.`;
+  if (a.premium === null) return `${head} The net is not known.`;
+  const net = a.premium * 100 * a.contracts;
+  return `${head} At the quotes it was priced at, that is a net ${net < 0 ? "debit" : "credit"} of ${formatMoneyCell(Math.abs(net))}.`;
+}
+
+/** Buy back, Sell, then the net: the roll's own arithmetic at the quotes it was priced at. */
+export function rollStub(a: RollFields): StubLineData[] {
+  const from = a.roll_from;
+  if (!from) return [];
+  const n = a.contracts;
+  const leg = (mid: number | null, sign: 1 | -1) => (mid === null ? null : sign * mid * 100 * n);
+  const net = a.premium === null ? null : a.premium * 100 * n;
+  const per = (mid: number | null, what: string) =>
+    mid === null
+      ? `No quote was recorded for ${what}.`
+      : `${n} contract${n === 1 ? "" : "s"} × $${mid.toFixed(2)} per share × 100 shares, the quote when the roll was proposed.`;
+  return [
+    {
+      label: `Buy back $${from.strike} ${rightWord(from.right)} ${md(from.expiry)}`,
+      value: leg(from.old_mid, -1),
+      format: "signed-money",
+      explain: per(from.old_mid, "the leg bought back"),
+    },
+    {
+      label: `Sell $${a.strike} ${rightWord(a.right)}${a.expiry ? ` ${md(a.expiry)}` : ""}`,
+      value: leg(from.new_mid, 1),
+      format: "signed-money",
+      explain: per(from.new_mid, "the new leg"),
+    },
+    {
+      label: net !== null && net < 0 ? "Net debit" : "Net credit",
+      value: net,
+      format: "signed-money",
+      total: true,
+      explain: "What the roll takes in after buying back the old leg, before commissions. The fill can differ from the quote.",
+    },
+  ];
+}
+
+export type DecidedBy = "system" | "web" | "telegram";
+
+const WHO: Record<DecidedBy, string> = {
+  system: "by the system",
+  web: "by you, on the web",
+  telegram: "by you, in Telegram",
+};
+
+/** The decision in words, naming who decided only when that was recorded. Null while pending. */
+export function decisionWords(status: string, decidedBy?: DecidedBy | null): string | null {
+  if (status === "approved" || status === "rejected") {
+    const verb = status === "approved" ? "Approved" : "Rejected";
+    return decidedBy ? `${verb} ${WHO[decidedBy]}` : verb;
+  }
+  if (status === "expired") return "Expired unanswered";
+  return null;
 }

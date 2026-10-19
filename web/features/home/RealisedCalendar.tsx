@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
@@ -17,7 +18,7 @@ const EARLIEST_BACK = 24; // months of history the arrows walk through
 
 const tone = (v: number) => (v > 0 ? "text-gain" : v < 0 ? "text-loss" : "text-muted");
 
-function DayCloses({ date }: { date: string }) {
+function DayCloses({ date, onLeave }: { date: string; onLeave: () => void }) {
   const { data, isError } = useQuery({
     queryKey: ["pnl", "day", "all", date],
     queryFn: () => apiFetch<DayTradesResponse>(`/pnl/day?date=${date}&strategy=all`),
@@ -47,6 +48,13 @@ function DayCloses({ date }: { date: string }) {
           ))}
         </ul>
       )}
+      <Link
+        href={`/trades?view=history&day=${date}`}
+        onClick={onLeave}
+        className="mt-2 inline-flex min-h-11 items-center gap-1 text-[0.8125rem] font-semibold underline-offset-2 hover:underline"
+      >
+        Open this day in History <ChevronRight size={14} aria-hidden="true" />
+      </Link>
     </section>
   );
 }
@@ -129,7 +137,7 @@ function Grid({
   );
 }
 
-function CalendarBody({ now }: { now?: Date }) {
+function CalendarBody({ now, onLeave }: { now?: Date; onLeave: () => void }) {
   const thisMonth = currentMonth(now);
   const [month, setMonth] = useState(thisMonth);
   const [selected, setSelected] = useState<string | null>(null);
@@ -193,7 +201,7 @@ function CalendarBody({ now }: { now?: Date }) {
             )}
           </div>
           <Grid cal={cal} month={month} today={today} selected={selected} onSelect={setSelected} />
-          {selected && <DayCloses date={selected} />}
+          {selected && <DayCloses date={selected} onLeave={onLeave} />}
           <div className="mt-4 grid gap-2 text-[0.8125rem] text-muted">
             {!cal.complete && (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -237,7 +245,7 @@ export function RealisedCalendarButton({ now }: { now?: Date }) {
         <CalendarDays size={20} aria-hidden="true" />
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Realised P&L">
-        <CalendarBody now={now} />
+        <CalendarBody now={now} onLeave={() => setOpen(false)} />
       </Sheet>
     </>
   );

@@ -13,6 +13,7 @@ import { optionStatus } from "@/features/home/positions";
 import { ApiError, apiFetch } from "@/lib/api";
 import { formatMoneyCell } from "@/lib/money";
 import { Headlines } from "./Headlines";
+import { RollCard } from "./RollCard";
 import { UnderlyingChart } from "./UnderlyingChart";
 import { chartLines, nowLines, openedOn, positionTitle, subline } from "./position";
 import type { PositionDetail } from "./types";
@@ -195,6 +196,15 @@ export function PositionPage({ underlying, slug }: { underlying: string; slug: s
             </Card>
           )}
           {data.held ? <NowCard d={data} lastClose={lastClose} /> : data.closed && <TradeCard trade={data.closed} when="date" heading="none" />}
+          {/* Only a held short option with a known contract can be rolled. */}
+          {data.held && data.option?.short && typeof data.option.strike === "number" && data.option.right && (
+            <RollCard
+              underlying={data.underlying}
+              symbol={data.option.symbol}
+              strike={data.option.strike}
+              right={data.option.right}
+            />
+          )}
           {data.kind === "spread" && !data.spreads_available && (
             <p className="text-[0.8125rem] text-muted">The spreads book could not be read, so this spread is incomplete.</p>
           )}

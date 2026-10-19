@@ -96,6 +96,8 @@ def queue_roll_candidate(
                 status=ApprovalStatus.APPROVED if auto_approve else ApprovalStatus.PENDING,
                 chat_id=chat_id,
                 decided_at=now if auto_approve else None,
+                # Who decided: the system on FULL autonomy. Shown on the web, never read back.
+                decided_by="system" if auto_approve else None,
                 expires_at=now + timedelta(minutes=ttl_minutes),
                 snapshot=snapshot,  # freeze the approved payload (N2a)
             )

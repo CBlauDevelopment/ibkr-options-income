@@ -77,7 +77,7 @@ from src.common.schemas import (
     VerdictRecord,
 )
 from src.reporting.account_value import month_start_value
-from src.reporting.day import build_day_trades, build_month_calendar
+from src.reporting.day import activity_days, build_day_trades, build_month_calendar
 from src.reporting.pay import build_month_pay
 from src.reporting.pnl import build_campaigns, build_legs, build_summary, equity_curve
 from src.storage.models import SystemSettingRow
@@ -531,6 +531,7 @@ def pnl_day(
     trades = build_day_trades(
         _session_factory(db), legs, spreads or [], day=the_day, strategy=strategy
     )
+    days = activity_days(_session_factory(db), legs, strategy=strategy)
     return DayTradesResponse(
         as_of=now,
         date=the_day,
@@ -538,6 +539,8 @@ def pnl_day(
         strategy=strategy,
         trades=trades,
         spreads_available=spreads is not None,
+        previous_day=max((d for d in days if d < the_day), default=None),
+        next_day=min((d for d in days if d > the_day), default=None),
     )
 
 

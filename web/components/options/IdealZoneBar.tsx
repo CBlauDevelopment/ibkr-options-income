@@ -1,100 +1,88 @@
+import clsx from "clsx";
 import { UNKNOWN } from "@/lib/format";
 import type { IdealZonePayload } from "./types";
 
-// The ideal zone renders as a bar with the actual premium marked against lo, hi
-// and min_credit, with numbers visible. No fabricated precision: render at the
-// precision the source provides.
+// Two questions, two lines: is the strike where it ought to be (a share price against the strike
+// zone), and does the premium clear the least credit worth taking (an option price against the
+// floor)? They are different units, so they never share an axis.
+
+export function zoneWords(strike: number | null, lo: number | null, hi: number | null): string | null {
+  if (strike == null || lo == null || hi == null) return null;
+  if (strike < Math.min(lo, hi)) return "below the zone";
+  if (strike > Math.max(lo, hi)) return "above the zone";
+  return "inside the zone";
+}
+
+export function creditWords(premium: number | null, minCredit: number | null): string | null {
+  if (premium == null || minCredit == null) return null;
+  if (Math.abs(premium - minCredit) < 0.005) return "exactly at it";
+  return premium > minCredit ? "above it" : "below it";
+}
+
+function Figure({ value }: { value: number | null }) {
+  if (value == null) return <span className="hatch font-mono text-unknown">{UNKNOWN}</span>;
+  // A debit roll's net is below zero: the minus sign leads the dollar sign, never "$-0.30".
+  const text = value < 0 ? `−$${Math.abs(value).toFixed(2)}` : `$${value.toFixed(2)}`;
+  return <span className="tabular font-mono">{text}</span>;
+}
+
+function StrikeBand({ lo, hi, strike }: { lo: number; hi: number; strike: number }) {
+  const min = Math.min(lo, hi, strike);
+  const max = Math.max(lo, hi, strike);
+  const range = max - min || 1;
+  // 5% to 95%, so a marker at either end stays inside the track.
+  const pct = (v: number) => 5 + ((v - min) / range) * 90;
+  return (
+    <div aria-hidden="true" className="relative mt-2 h-2.5 rounded-full bg-sunk">
+      <div
+        className="absolute top-0 h-full rounded-full bg-sunk-deep"
+        style={{ left: `${pct(Math.min(lo, hi))}%`, width: `${Math.abs(pct(hi) - pct(lo))}%` }}
+      />
+      <div className="absolute -top-1 h-[18px] w-0.5 -translate-x-1/2 rounded-full bg-content" style={{ left: `${pct(strike)}%` }} />
+    </div>
+  );
+}
+
 export function IdealZoneBar({
   ideal,
   premium,
+  strike,
 }: {
   ideal: IdealZonePayload;
   premium: number | null;
+  strike: number | null;
 }) {
-  const lo = ideal.lo;
-  const hi = ideal.hi;
-  const minCredit = ideal.min_credit;
-
+  const { lo, hi, min_credit: minCredit } = ideal;
   if (lo == null && hi == null && minCredit == null) {
-    return <p className="text-xs text-muted">No ideal zone derived.</p>;
+    return <p className="text-sm text-muted">No ideal zone derived.</p>;
   }
-
-  // Build a scale from the available numbers so the bar is proportional.
-  const vals = [lo, hi, minCredit, premium].filter(
-    (v): v is number => v != null && !Number.isNaN(v),
-  );
-  if (vals.length === 0) {
-    return (
-      <div className="text-xs text-muted">
-        lo {fmt(lo)} - hi {fmt(hi)} - min credit {fmt(minCredit)}
-      </div>
-    );
-  }
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const range = max - min || 1;
-  const pct = (v: number) => ((v - min) / range) * 100;
-
+  const zone = zoneWords(strike, lo, hi);
+  const credit = creditWords(premium, minCredit);
   return (
-    <div className="space-y-1">
-      <div className="relative h-6 rounded-sm bg-surface">
-        {/* lo to hi band */}
-        {lo != null && hi != null && (
-          <div
-            className="absolute top-0 h-full rounded-sm bg-elevated"
-            style={{
-              left: `${Math.min(pct(lo), pct(hi))}%`,
-              width: `${Math.abs(pct(hi) - pct(lo))}%`,
-            }}
-          />
-        )}
-        {/* min_credit marker */}
-        {minCredit != null && (
-          <Marker pct={pct(minCredit)} label="min" />
-        )}
-        {/* premium marker */}
+    <div className="grid gap-4 text-sm">
+      <div>
+        <p>
+          Strike zone <Figure value={lo} /> to <Figure value={hi} />
+          {strike != null && (
+            <>
+              {" · this strike "}
+              <Figure value={strike} />
+              {zone && <span className="text-muted">, {zone}</span>}
+            </>
+          )}
+        </p>
+        {lo != null && hi != null && strike != null && <StrikeBand lo={lo} hi={hi} strike={strike} />}
+      </div>
+      <p>
+        Least credit worth taking <Figure value={minCredit} /> a share
         {premium != null && (
-          <Marker pct={pct(premium)} label="premium" highlight />
+          <>
+            {" · this one pays "}
+            <Figure value={premium} />
+            {credit && <span className={clsx("text-muted")}>, {credit}</span>}
+          </>
         )}
-      </div>
-      <div className="flex gap-4 text-xs text-muted tabular">
-        <span>lo {fmt(lo)}</span>
-        <span>hi {fmt(hi)}</span>
-        <span>min credit {fmt(minCredit)}</span>
-        <span>premium {fmt(premium)}</span>
-      </div>
+      </p>
     </div>
   );
-}
-
-function Marker({
-  pct,
-  label,
-  highlight,
-}: {
-  pct: number;
-  label: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className="absolute top-0 h-full w-px"
-      style={{ left: `${pct}%` }}
-      aria-label={label}
-    >
-      <div
-        className={
-          "absolute -top-3 -translate-x-1/2 text-[10px] " +
-          (highlight ? "text-content" : "text-muted")
-        }
-      >
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function fmt(v: number | null): string {
-  if (v == null) return UNKNOWN;
-  return `$${v.toFixed(2)}`;
 }

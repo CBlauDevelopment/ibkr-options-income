@@ -139,6 +139,29 @@ describe("NeedsYou", () => {
     expect(within(roll).getByText(/This rolls a position you already hold/)).toBeInTheDocument();
     expect(within(roll).queryByRole("group")).toBeNull();
   });
+  it("names a roll's two legs and sums them to the net", async () => {
+    const leg = { strike: 250, expiry: "2099-10-23", right: "P", contracts: 1, old_mid: 2.1, new_mid: 3.275 };
+    renderWithQuery(<NeedsYou strategy="all" />, {
+      "/options/approvals": list(
+        approval(9, { source: "roll", strategy: "roll", strike: 250, expiry: "2099-10-28", premium: 1.175, roll_from: leg }),
+      ),
+      "/options/controls": controls,
+    });
+    const card = await screen.findByRole("article", { name: "AAPL · Roll $250 put Oct 23 → Oct 28" });
+    const stub = within(card).getByRole("group", { name: "AAPL roll math" });
+    expect(within(stub).getByText("Net credit")).toBeInTheDocument();
+    expect(within(card).getByText(/At the quotes it was priced at/)).toBeInTheDocument();
+  });
+
+  it("says a roll without recorded legs has none, never inventing them", async () => {
+    renderWithQuery(<NeedsYou strategy="all" />, {
+      "/options/approvals": list(approval(9, { source: "roll", strategy: "roll", roll_from: null })),
+      "/options/controls": controls,
+    });
+    const card = await screen.findByRole("article", { name: "AAPL · Roll" });
+    expect(within(card).getByText(/legs were not recorded/)).toBeInTheDocument();
+    expect(within(card).queryByRole("group", { name: /math/ })).toBeNull();
+  });
   it("counts the waiting proposals in its heading", async () => {
     renderWithQuery(<NeedsYou strategy="all" />, {
       "/options/approvals": list(approval(1), approval(2, { underlying: "KO" })),

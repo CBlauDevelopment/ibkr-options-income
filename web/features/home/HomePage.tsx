@@ -1,8 +1,8 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { STRATEGY_FILTERS, STRATEGY_LABEL, kindOf } from "@/lib/strategy";
+import { useHydrated } from "@/lib/useHydrated";
 import { useStrategyFilter } from "@/lib/useStrategyFilter";
 import { AccountHero } from "./AccountHero";
 import { NeedsYou, usePendingApprovals } from "./NeedsYou";
@@ -10,24 +10,6 @@ import { PayCard } from "./PayCard";
 import { PositionsCard } from "./PositionsCard";
 import { ProposalsBanner } from "./ProposalsBanner";
 import { TodayTrades } from "./TodayTrades";
-
-const noSubscribe = () => () => {};
-
-/**
- * False for the server render and for the hydration pass, true from then on. Home sits inside a
- * Suspense boundary (useSearchParams), which React hydrates after the rail; by then the rail's
- * approvals query, which shares Home's key, may already have landed, so Home's cards and counts
- * would render from data the server never had and hydration would fail. Rendering the bare page
- * until hydration is over keeps the two passes identical; production prerenders this page with
- * the boundary's empty fallback anyway, so nothing is lost there.
- */
-function useHydrated(): boolean {
-  return useSyncExternalStore(
-    noSubscribe,
-    () => true,
-    () => false,
-  );
-}
 
 export function HomePage() {
   const hydrated = useHydrated();

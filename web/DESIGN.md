@@ -221,7 +221,7 @@ components:
     backgroundColor: "{colors.ink}"
     textColor: "{colors.ground}"
 ---
-<!-- da-vinci schema=1 status=ratified updated=2026-10-14 -->
+<!-- da-vinci schema=1 status=ratified updated=2026-10-19 -->
 # Design System: IBKR Income
 
 ## Overview
@@ -343,7 +343,12 @@ CALL, CREDIT SPREAD), expiry and days left at the right, then a title ("AAPL · 
 one consequence-first sentence. Below it, the **Why this trade** disclosure (Claude's review,
 collapsed by default, sitting *above* the stub; it carries For, Against and If challenged lines and
 is labelled as Claude's view), then the stub, then Review (primary, opens the review sheet) and
-Details (secondary, the full approval page). Approve and reject happen only inside the sheet,
+Details (secondary, the full approval page). A roll's title names both legs
+("NVDA · Roll $250 put Oct 23 → Oct 28", or "$250 → $245 put" when the strike moves), its
+sentence says what it buys back and what it sells, and its stub sums Buy back, Sell and the
+Net credit (or Net debit) at the quotes it was priced at, which the stub says, so a quote
+never reads as a fill. A roll frozen before the 2026-10-11 redesign carries no legs and says
+so. Approve and reject happen only inside the sheet,
 behind the existing confirmation, so the card itself never decides anything in one tap. Review says
 it opens a dialog (`aria-haspopup`). States: loading (a labelled block), empty ("Nothing needs you
 right now."), error (a sentence that names the retry), pending, submitted (the receipt replaces the
@@ -375,6 +380,8 @@ Trades. The selected button takes an ink fill (never lime or green) and `aria-pr
 everything below the hero: proposals, October pay (that strategy's premium and stub), and
 positions. The account-value hero stays account-wide, because account value cannot be split by
 strategy honestly. The choice is kept in the URL (`?strategy=csp`), so a link or reload keeps it.
+On Trades it also picks which views exist: the wheel (All, CSPs, CCs) gets Proposals, History and
+Assessed; Credit spreads gets Spreads only, so the view chips are hidden there.
 The Positions card carries the same tabs as smaller chips, plus Shares.
 
 **Account hero** (Home): "Account value", the number (display, 38px on phones, 46px from 768px),
@@ -395,6 +402,15 @@ coverage, % of premium kept); value right-aligned with its label beneath ("sold 
 Status words: Expires today (lime); Assignment likely and In the money (flag); At the money and
 Out of the money (sunk). They come only from fields the API returns (expiry, assignment risk,
 moneyness). A position with none of those known shows no status word rather than a guessed one.
+
+**Roll card** (Position page, a held short option only): "Roll", then each alert the monitor
+fired on this contract (the trigger as a flag word, its age, the detail, and Claude's stored
+view labelled "Claude's view"), or "No roll alert has fired on this contract."; one sentence
+("Proposing a roll prices one now and raises it for your approval. Nothing trades until you
+approve it."); then **Propose a roll** (secondary, never lime), which opens the existing
+confirmation; the command receipt follows, and "No qualifying roll" is a plain answer, not an
+error. Home's position rows carry a flag word **Roll alert** when an alert has fired on that
+contract.
 
 **Needs you** (Home, from 1024px): a right column of proposal cards under "Needs you · N
 proposals". Below 1024px it becomes the **proposals banner**: one card, "2 proposals need you",
@@ -453,8 +469,53 @@ above the stub (an opened trade: Claude's review, labelled; a close or roll: "Wh
 "Why it was rolled", "the system's rules", plus "and Claude's view" when a line is Claude's, which
 carries Claude's name in its label); then the stub, which sums the whole trade (opened: Premium,
 Commission, On $X held, A year; closed: Premium collected, Bought back, Commissions, Net P&L, with
-"Net on this leg" for a roll). Details (secondary) links to the approval when there is one. No
+"Net on this leg" for a roll). An opened or rolled card says who approved it under its sentence
+("Approved by the system", "Approved by you, on the web", "Approved by you, in Telegram"), from
+the stored record only; a card whose decider was not recorded says nothing rather than guess.
+Details (secondary) links to the approval when there is one. No
 lime: nothing on it decides anything. The filter pills above the stack are filter chips.
+
+**In-flight order row** (Trades, History, today only): the ticker and the contract bold, then a
+state word (Queued, Submitted; Partial is the one flag word), then one line in the figure face:
+the limit price, the filled count, the time it was sent (New York) and paper or live, with n/a
+hatched where a price is unknown. The humanised detail sits beneath when there is one. A row with
+an approval is a link to it (a muted chevron says so). Under the list, one sentence says a working
+order is cancelled in IBKR for now, because the web cannot cancel one until Part 5 (Order control).
+No lime, no button.
+
+**Not-traded row** (Trades, History): the Position row's anatomy. The whole row opens the approval's
+detail page. Title in bold with the outcome as a status word (Expired, Rejected, Order cancelled,
+Order rejected), then a muted line saying who decided and when it was raised ("Approved by the
+system · raised 2:39 AM ET", "Rejected by you, in Telegram · raised 2:39 AM ET", "Expired
+unanswered"), from the stored record only; the premium is right-aligned with its label beneath, or
+a roll's net labelled "net, as priced".
+
+**History** (Trades): one New York day. The day line ("Mon, Oct 19 · today") with previous and next
+(the nearest day with wheel activity, 44px) and Today when the day is not today; then In flight
+(today only: the cards you approved in this browser, with their receipts, then the working
+orders), Traded (Home's trade cards, two columns from 1024px; this section says so when the
+day had none) and Not traded, in that order. A section with nothing in it is left out, except
+Traded. Under All, one line sends credit spreads to their switcher.
+
+**Spreads books** (Trades, Credit spreads): the day's spreads as rows grouped by book, each in its
+own card: the paper book first, the baseline book (simulated, always the deterministic pick) beside
+it from 1024px, then the shadow book when it has rows. A row is "SPY 763/758 put spread", a status
+word, the contracts and credit, and the credit taken or the P&L realised at the right; only a
+paper spread links to its position page. A paper spread carries **The menu Claude saw**, collapsed
+(a Disclosure): the outcome sentence, "Claude's view:" with Claude's reason, then the lettered menu
+under a perforation, each row a letter, the strikes, Baseline, Claude's pick and what became of the
+chosen item as words (Sent only when the spread filled; otherwise "Chosen, did not trade" with the
+stored reason, or "Chosen, no result recorded yet"), and its figures in the stub face. **Other picks** follow as short cards (a skip, a fallback with
+nothing sent, a send refusal, a pick whose spread is not on record), each with its menu collapsed.
+A menu that no longer parses says "This menu could not be read." beside a small hatched mark, never
+with the hatch drawn over the sentence. No lime.
+
+**Assessed card** (Trades, Assessed): one card per symbol. The symbol, its stage counts in words
+("score floor: 1 · risk gate: 2", never colour alone) and a chevron open the contracts; each row is
+a stage word (Gate rejected is the one flag word), the contract, the reasons in plain sentences
+and the score and premium in the figure face. **Promote** is secondary, and only on a row the
+system says can be promoted; a row that cannot says why in a sentence instead of a disabled
+button. Two labelled filters (Stage, Symbol) sit above the cards.
 
 **Realised calendar** (Home chart, a sheet): each day's realised P&L for a month, as a labelled
 table (Mon to Sun), a month total ("Realised in October"), previous and next month (44px). A day
@@ -587,7 +648,8 @@ news directly under it), so da-vinci's structure workshop was skipped: pinned be
   are the three things this page answers.
 - **OWN-WORLD:** the payslip. Sage paper, an ink chart line with a dashed strike line (the
   perforation, as a rule across the chart), white cards, a stub that sums the initial trade. No
-  lime: nothing on this page is an action.
+  lime. Its one action, Propose a roll on a held short option, is secondary: it raises a roll for
+  approval and never trades.
 - **STORY:** where the stock is against your strike, what you were paid and what that is as a
   return, what the position is doing now, and what the news says, in that order of glance.
 - **FIRST VIEWPORT:** desktop: back link, the contract as a title with its status words, then two
@@ -600,8 +662,34 @@ news directly under it), so da-vinci's structure workshop was skipped: pinned be
 - **FINISH:** unreviewed and undocumented is unfinished.
 
 ### Trades
-Operate. Proposals, Working, Decided, Assessed and Spreads segments. Proposal cards as on Home, at
-full width; the review sheet opens from Review. Spreads is read-only.
+Operate. Dials as the project default. Built in web overhaul Part 2
+(docs/superpowers/plans/2026-10-19-web-overhaul-2-trades.md).
+- **THESIS:** what the wheel did and why, a day at a time, and the few things that wait on you.
+  The account runs on full autonomy, so the page leads with what happened, not with an empty
+  queue. Refuses the order-management grid: a proposal is a card you judge, a trade is the card
+  Home shows, an order or a passed-over proposal is a sentence with a state word, and a spreads
+  menu is the menu Claude saw, kept as the reason under the spread it opened.
+- **OWN-WORLD:** the payslip. Proposal and trade cards exactly as on Home (lime only on Review);
+  in-flight orders and not-traded proposals as rows without table chrome; who approved a trade
+  in words ("Approved by the system"), from the record only; the spreads menu as a lettered list
+  under a perforation, its figures in the stub face. Nothing on History or Spreads is an action
+  apart from the unchanged decide flow inside a sent card's receipt.
+- **STORY:** what needs me (Proposals), what the wheel did today or on any day (History: in
+  flight, traded, not traded), what the scan passed over and why (Assessed), and, under Credit
+  spreads, what each book traded and the menu behind it (Spreads).
+- **FIRST VIEWPORT:** the title, the strategy switcher (All, CSPs, CCs, Credit spreads, with
+  pending counts), the view chips (Proposals, History, Assessed; Proposals carries the pending
+  count, History the in-flight count), a flag line when the trading service is not draining
+  commands, then the view. With no view in the URL the page opens on Proposals when something
+  waits on you and on History otherwise, decided once per visit. Proposals: ticker chips (from
+  two tickers up), then proposal cards, one column below 1024px and two from 1024px. History: the
+  day with previous, next and Today, then In flight (today only), Traded, Not traded. Credit
+  spreads has one view, so its chips are hidden and Spreads shows.
+- **FORM:** one page; the view and the day live in the URL (`?view=history&day=2026-10-09`)
+  beside the strategy (`?strategy=csp`), so a link or a reload keeps all three. Review opens the
+  review sheet exactly as on Home; approving moves the card to History's In flight at once, and
+  a failed command hands it back.
+- **FINISH:** unreviewed and undocumented is unfinished.
 
 ### Portfolio
 Operate. Positions, Campaigns, Expiry calendar. Position rows as on Home; "Propose a roll" moves
@@ -647,12 +735,38 @@ sibling keys; re-run the check after edits.
 - **The decide controls' look:** a lime, round primary Approve (and round Reject, Halt and dialog
   buttons) needs a reviewed restyle of the protected `DecideControls`, `ConfirmAction`,
   `HaltControl` and `AutonomyControl`.
+- **A disabled quiet button (proposed 2026-10-19):** the Buttons rule drops every disabled button to
+  muted ink on sunk, so a quiet button that cannot be pressed (History's and Spreads' day arrows at
+  the end of the range) shows a filled circle while the live one is bare, which reads backwards.
+  Proposed: a disabled quiet button stays transparent and only dims. It changes a shared
+  component's rule, so it waits for the operator.
 - **The unknown grey: RESOLVED 2026-10-14.** The light `unknown` is now `#61685d` (4.72:1 on
   pressed sage, 5.20:1 on paper, 5.76:1 on white), so small "n/a" passes AA anywhere, including the
   legacy pages that Parts 2-4 have yet to restyle.
 
 ## Decision Log
 
+- 2026-10-19: Web overhaul Part 2, Trades, built
+  (docs/superpowers/plans/2026-10-19-web-overhaul-2-trades.md) and revised by the operator the same
+  day for the account's full autonomy. `/trades` is the strategy switcher and three wheel views,
+  Proposals, History and Assessed (Credit spreads has Spreads only), kept in `?view=`, with a smart
+  default (Proposals when something waits on you, History otherwise, decided once per visit) and
+  History's day in `?day=`. Who approved each trade is recorded (`approvals.decided_by`: the
+  system, the web or Telegram) and shown in words, never guessed. A roll names both legs on the
+  card, the History rows and the detail page, and sums to its net at the quotes it was priced at.
+  The spreads books are trade-first, with the menu Claude saw kept as the reason, over the new
+  `GET /spreads/picks`. The approval detail page is restyled, and its ideal zone no longer plots a
+  premium on a strike axis (the strike against the strike zone; the premium against the least
+  credit worth taking). Propose a roll moved from the Shorts table to the short option's own page
+  (the **Roll card**), with a **Roll alert** word on Home's position rows; the controls strip left
+  Trades (the bot card has them) and only the not-draining line stayed. New components: In-flight
+  order row, Not-traded row, History, Spreads books, Assessed card, Roll card. No new colour, font,
+  radius, elevation or token. The da-vinci finish moved the hatch off whole sentences (an
+  unreadable menu, the IV-rank-unavailable tag) onto a small mark beside the words, since
+  same-coloured lines through every letter made them hard to read. Open and proposed, not decided:
+  a disabled quiet button (the day arrows) takes the sunk fill, so the one you cannot press looks
+  more solid than the one you can; keeping it transparent would change the Buttons rule for every
+  variant. Protected files unchanged, and the decide controls' look stays the recorded exception.
 - 2026-10-15: Web Home follow-ups, at the operator's request
   (docs/superpowers/plans/2026-10-15-web-home-followups.md). Added the Trade card ("Done today" under
   Needs you, filter pills All / Opened / Closed / Rolled; Closed and Rolled give their reason and a

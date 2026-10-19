@@ -1,86 +1,72 @@
-import { FactCard } from "@/components/explain/FactCard";
 import type { ClaudeReviewPayload } from "./types";
 
-// The five review fields render as five labelled cards, never one paragraph, so the bull
-// case, the risk case, and the mechanical notes read as distinct ideas rather than one
-// undifferentiated block - the same FactCard/Tag language the System Explanation tab uses
-// for its own "what comes back, every time" summary of this exact payload shape (see
-// components/explain/ClaudePanel.tsx). A null review renders nothing at all, not "No
-// review available" in a box. Since Task 10 a review also carries a plain-English
-// `summary` (shown first, as the verdict) and the `evidence` ids it cites.
+// The five review fields render as five labelled entries, never one paragraph, so the bull case,
+// the risk case and the mechanical notes read as distinct ideas. A null review, or one with every
+// field empty, renders nothing at all. The plain-English `summary` leads, as the verdict, and the
+// `evidence` ids it cites follow.
+
+type Section = { label: string; tag: string; text: string };
+
+function sectionsOf(review: ClaudeReviewPayload): Section[] {
+  return [
+    { label: "Why attractive", tag: "Bull case", text: review.why_attractive },
+    { label: "Risks", tag: "Bear case", text: review.risks },
+    { label: "Tradeoffs", tag: "Balance", text: review.tradeoffs },
+    { label: "Assignment considerations", tag: "Watch for", text: review.assignment_considerations },
+    { label: "Rolling considerations", tag: "If challenged", text: review.rolling_considerations },
+  ].filter((s) => s.text);
+}
+
+/** Whether ReviewPanel would render anything, so a caller can leave out the card around it. */
+export function hasReviewContent(review: ClaudeReviewPayload | null): boolean {
+  return review !== null && (sectionsOf(review).length > 0 || Boolean(review.summary));
+}
+
 export function ReviewPanel({ review }: { review: ClaudeReviewPayload | null }) {
-  if (!review) return null;
-  const sections: {
-    label: string;
-    tag: string;
-    tone: "info" | "positive" | "caution" | "neutral";
-    text: string;
-  }[] = [
-    { label: "Why attractive", tag: "Bull case", tone: "positive", text: review.why_attractive },
-    { label: "Risks", tag: "Bear case", tone: "caution", text: review.risks },
-    { label: "Tradeoffs", tag: "Balance", tone: "neutral", text: review.tradeoffs },
-    {
-      label: "Assignment considerations",
-      tag: "Watch for",
-      tone: "caution",
-      text: review.assignment_considerations,
-    },
-    {
-      label: "Rolling considerations",
-      tag: "If challenged",
-      tone: "info",
-      text: review.rolling_considerations,
-    },
-  ];
-  const present = sections.filter((s) => s.text);
+  if (!review || !hasReviewContent(review)) return null;
+  const present = sectionsOf(review);
   const summary = review.summary ?? "";
   const evidence = review.evidence ?? [];
-  if (present.length === 0 && !summary) return null;
-
   return (
     <div className="space-y-3">
       {summary && (
-        <FactCard
-          tag={review.recommendation ? `Verdict: ${review.recommendation}` : "Verdict"}
-          tone="neutral"
-          title="Summary"
-          bodyClass="text-sm text-content"
-        >
-          {summary}
-        </FactCard>
+        <div className="rounded-xl bg-sunk px-3 py-2.5">
+          <p className="text-xs font-semibold tracking-[0.04em] text-muted">
+            {review.recommendation ? `Verdict: ${review.recommendation}` : "Verdict"}
+          </p>
+          <p className="mt-0.5 text-sm font-bold">Summary</p>
+          <p className="mt-1 text-sm">{summary}</p>
+        </div>
       )}
       {present.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <dl className="grid gap-x-6 sm:grid-cols-2">
           {present.map((s) => (
-            <FactCard
-              key={s.label}
-              tag={s.tag}
-              tone={s.tone}
-              title={s.label}
-              bodyClass="text-sm text-content"
-            >
-              {s.text}
-            </FactCard>
+            <div key={s.label} className="border-t border-border py-2.5">
+              <dt>
+                <span className="block text-xs font-semibold tracking-[0.04em] text-muted">{s.tag}</span>
+                <span className="text-sm font-bold">{s.label}</span>
+              </dt>
+              <dd className="mt-1 text-sm">{s.text}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
       )}
       {evidence.length > 0 && <EvidenceList ids={evidence} />}
     </div>
   );
 }
 
-// The ids the verdict cites. The FACTS and NEWS blocks they point into live only in that
-// scan's prompt, not in the stored review, so each id is shown with what kind of source
-// it is rather than pretending to link to text the console does not have.
+// The ids the verdict cites. The FACTS and NEWS blocks they point into live only in that scan's
+// prompt, not in the stored review, so each id is shown with what kind of source it is rather
+// than pretending to link to text the console does not have.
 function EvidenceList({ ids }: { ids: string[] }) {
   return (
     <div className="text-xs text-muted">
       <span>Cited: </span>
       <ul className="inline-flex flex-wrap gap-2 align-middle">
         {ids.map((id) => (
-          <li key={id} className="rounded border border-border px-1.5 py-0.5">
-            <span className="font-mono text-content">{id}</span>{" "}
-            <span>{evidenceKind(id)}</span>
+          <li key={id} className="rounded-[6px] bg-sunk px-1.5 py-0.5">
+            <span className="font-mono text-content">{id}</span> <span>{evidenceKind(id)}</span>
           </li>
         ))}
       </ul>

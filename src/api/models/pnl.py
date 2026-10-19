@@ -8,6 +8,7 @@ unrealised figure (null when no snapshot exists — never a zero).
 
 from __future__ import annotations
 
+import datetime as dt
 from datetime import date, datetime
 from typing import Literal
 
@@ -102,6 +103,11 @@ class DayTradesResponse(Envelope):
     # False only when a spreads book is in scope and data/spreads.db could not be read: the
     # spreads cards are then missing, not absent, and the card says so.
     spreads_available: bool
+    # Web overhaul Part 2: the nearest New York days with wheel activity (a trade or a proposal)
+    # in this scope, for History's day navigation; None at either end. (`dt.date`: the `date`
+    # field above shadows the type inside this class body.)
+    previous_day: dt.date | None = None
+    next_day: dt.date | None = None
 
 
 class RealisedCalendarResponse(Envelope):

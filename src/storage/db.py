@@ -34,6 +34,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     # Frozen approved candidate payload (N2a) — see Approval/Order row docstrings.
     "approvals": {
         "snapshot": "JSON",
+        "decided_by": "VARCHAR(12)",  # who decided it (web overhaul Part 2, 2026-10-19)
     },
     "orders": {
         "snapshot": "JSON",

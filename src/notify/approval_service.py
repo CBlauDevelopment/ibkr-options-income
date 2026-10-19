@@ -167,11 +167,15 @@ def _is_authorized(update: Update) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _process_button(approval_id: int, action: str) -> tuple[bool, str, str]:
+def _process_button(
+    approval_id: int, action: str, decided_by: str = "telegram"
+) -> tuple[bool, str, str]:
     """Synchronous DB work: update approval status, optionally enqueue an order.
 
     Returns (found, decision_text, candidate_id_short).
     decision_text is plain text (no parse_mode) suitable for edit_message_text.
+    ``decided_by`` records who decided ("telegram" for a tap; the command drain's indirection
+    passes "web"). It is written once, with the decision, and never read back by the trading path.
     """
     found = False
     decision_text = ""
@@ -215,6 +219,7 @@ def _process_button(approval_id: int, action: str) -> tuple[bool, str, str]:
                 candidate_display = candidate_short
 
             approval.decided_at = datetime.now(UTC)
+            approval.decided_by = decided_by
 
             if action == "approve":
                 approval.status = ApprovalStatus.APPROVED

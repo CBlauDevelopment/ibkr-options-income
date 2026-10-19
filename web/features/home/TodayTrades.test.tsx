@@ -195,4 +195,15 @@ describe("TodayTrades", () => {
     renderWithQuery(<TodayTrades strategy="all" />, { "/pnl/day": day([opened], { spreads_available: false }) });
     expect(await screen.findByText(/Credit spreads are unavailable right now/)).toBeInTheDocument();
   });
+
+  it("says who approved an opened trade, from the record", async () => {
+    renderWithQuery(<TodayTrades strategy="all" />, { "/pnl/day": day([{ ...opened, decided_by: "system" }]) });
+    expect(await screen.findByText("Approved by the system")).toBeInTheDocument();
+  });
+
+  it("says nothing about who approved it when that was not recorded", async () => {
+    renderWithQuery(<TodayTrades strategy="all" />, { "/pnl/day": day([{ ...opened, decided_by: null }]) });
+    await screen.findByRole("article");
+    expect(screen.queryByText(/^Approved/)).toBeNull();
+  });
 });

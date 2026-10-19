@@ -280,7 +280,7 @@ credit spreads in the **same IBKR account and Gateway** as the wheel, with its o
   path, `src.notify`, `src.ledger` or `src.storage`, and reaches Claude only through
   `src.claude.cli` (which imports nothing from `src/`). Enforced by `tests/test_spreads_fence.py`.
 - **The web API reads `data/spreads.db` only through `src/api/spreads_db.py`** (SQLite `mode=ro`,
-  plain SQL; `GET /spreads/positions` and `GET /pnl/month`), never by importing `src.spreads`;
+  plain SQL; `GET /spreads/positions`, `GET /spreads/picks` and `GET /pnl/month`), never by importing `src.spreads`;
   asserted by `tests/test_web_fence.py::test_only_spreads_db_opens_the_spreads_file_in_the_api`.
 - `src/spreads/` imports nothing from `src.claude`, `src.engine`, `src.execution`,
   `src.strategies`, `src.orchestrator`, `src.monitor`, `src.notify`, `src.reporting`, `src.api`,
@@ -436,6 +436,11 @@ The build is feature-complete; there are no remaining phases. For any change:
 The API reads the trading database read-only and writes exactly one table, `app_commands`,
 through `src/api/commands.py`. No other module may import `get_command_engine`. Enforced by
 `tests/test_web_fence.py`.
+
+`approvals.decided_by` records who decided an approval (the system, the web or Telegram) for the
+console only: nothing in `src/engine/`, `src/strategies/` or `src/execution/` reads it, and
+`tests/test_approval_decided_by.py::test_the_trading_path_never_reads_who_decided` keeps it that
+way.
 
 Every web action is an intent drained by `approval_service`, never a direct mutation from the API
 process: the drain's approve/reject handlers call `_process_button` unchanged, never reimplement

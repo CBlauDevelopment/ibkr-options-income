@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { ChevronRight, Search, X } from "lucide-react";
 import { useId, useState } from "react";
+import type { ShortListResponse } from "@/components/options/types";
 import { Card } from "@/components/ui/Card";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { StatusWord } from "@/components/ui/StatusWord";
@@ -60,13 +61,21 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
     queryFn: () => apiFetch<SpreadPositionsResponse>("/spreads/positions?status=open"),
     refetchInterval: 60_000,
   });
+  // Roll alerts the monitor fired (same key as the position page's Roll card). Unreadable means
+  // no flag is shown; the rows themselves never depend on it.
+  const shorts = useQuery({
+    queryKey: ["options", "shorts"],
+    queryFn: () => apiFetch<ShortListResponse>("/options/shorts"),
+    refetchInterval: 60_000,
+  });
+  const alerted = new Set((shorts.data?.shorts ?? []).filter((s) => s.alerts.length > 0).map((s) => s.position_symbol));
 
   // Unknown is never none: an unreadable spreads book is not an empty one.
   const spreadsKnown = spreads.data?.available === true;
   const spreadsOut = spreads.isError || spreads.data?.available === false;
   const spreadRows = spreadsKnown ? spreads.data!.positions : [];
   const rows = positions.data
-    ? buildPositionRows(positions.data.groups, spreadRows, todayNewYork(), spreads.data?.underlying)
+    ? buildPositionRows(positions.data.groups, spreadRows, todayNewYork(), spreads.data?.underlying, alerted)
     : [];
   // The search narrows first, so every chip's count says what that chip would show right now.
   const searched = rows.filter((r) => matchesQuery(r, query));
@@ -163,6 +172,11 @@ export function PositionsCard({ strategy }: { strategy: StrategyFilter }) {
                   {r.status && (
                     <span className="ml-1.5 align-[1px]">
                       <StatusWord tone={r.status.tone}>{r.status.word}</StatusWord>
+                    </span>
+                  )}
+                  {r.alert && (
+                    <span className="ml-1.5 align-[1px]">
+                      <StatusWord tone="flag">Roll alert</StatusWord>
                     </span>
                   )}
                   <div className="text-[0.8125rem] text-muted">{r.sub}</div>
