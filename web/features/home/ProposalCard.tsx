@@ -7,28 +7,28 @@ import { Card } from "@/components/ui/Card";
 import { Stub } from "@/components/ui/Stub";
 import type { ApprovalSummary } from "@/components/options/types";
 import { STRATEGY_EYEBROW, kindOf } from "@/lib/strategy";
-import { daysToExpiry, proposalSentence, proposalStub } from "./proposal";
+import { daysToExpiry, proposalSentence, proposalStub, rollSentence, rollStub, rollTitle } from "./proposal";
 import { WhyDisclosure } from "./WhyDisclosure";
 
 const DAY = new Intl.DateTimeFormat("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
 export function proposalTitle(a: ApprovalSummary): string {
-  if (a.source === "roll") return `${a.underlying} · Roll`;
+  if (a.source === "roll") return rollTitle(a);
   const word = a.right === "P" ? "put" : a.right === "C" ? "call" : "option";
   return `${a.underlying} · Sell $${a.strike} ${word}`;
 }
 
 export function ProposalBody({ approval }: { approval: ApprovalSummary }) {
   const isRoll = approval.source === "roll";
+  const roll = isRoll ? rollStub(approval) : [];
   return (
     <>
-      <p className="mt-2 text-sm">
-        {isRoll ? "This rolls a position you already hold. Open Details for both legs." : proposalSentence(approval)}
-      </p>
+      <p className="mt-2 text-sm">{isRoll ? rollSentence(approval) : proposalSentence(approval)}</p>
       <WhyDisclosure review={approval.review} />
       {!isRoll && (
         <Stub label={`${approval.underlying} ${approval.right === "C" ? "call" : "put"} math`} lines={proposalStub(approval, new Date())} />
       )}
+      {roll.length > 0 && <Stub label={`${approval.underlying} roll math`} lines={roll} />}
     </>
   );
 }

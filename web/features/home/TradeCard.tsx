@@ -5,6 +5,7 @@ import { useId } from "react";
 import { Card } from "@/components/ui/Card";
 import { Disclosure } from "@/components/ui/Disclosure";
 import { Stub } from "@/components/ui/Stub";
+import { decisionWords } from "./proposal";
 import { WhyDisclosure } from "./WhyDisclosure";
 import { dateLabel, timeLabel, tradeEyebrow, tradeSentence, tradeStub, tradeTitle } from "./trades";
 import type { DayFact, DayTrade } from "./types";
@@ -76,6 +77,9 @@ export function TradeCard({
         </h3>
       )}
       <p className="mt-2 text-sm">{tradeSentence(trade)}</p>
+      {trade.action !== "closed" && trade.decided_by && (
+        <p className="mt-1 text-[0.8125rem] text-muted">{decisionWords("approved", trade.decided_by)}</p>
+      )}
       {trade.action === "opened" ? (
         <WhyDisclosure review={trade.review} />
       ) : (

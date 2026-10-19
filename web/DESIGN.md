@@ -343,7 +343,12 @@ CALL, CREDIT SPREAD), expiry and days left at the right, then a title ("AAPL · 
 one consequence-first sentence. Below it, the **Why this trade** disclosure (Claude's review,
 collapsed by default, sitting *above* the stub; it carries For, Against and If challenged lines and
 is labelled as Claude's view), then the stub, then Review (primary, opens the review sheet) and
-Details (secondary, the full approval page). Approve and reject happen only inside the sheet,
+Details (secondary, the full approval page). A roll's title names both legs
+("NVDA · Roll $250 put Oct 23 → Oct 28", or "$250 → $245 put" when the strike moves), its
+sentence says what it buys back and what it sells, and its stub sums Buy back, Sell and the
+Net credit (or Net debit) at the quotes it was priced at, which the stub says, so a quote
+never reads as a fill. A roll frozen before the 2026-10-11 redesign carries no legs and says
+so. Approve and reject happen only inside the sheet,
 behind the existing confirmation, so the card itself never decides anything in one tap. Review says
 it opens a dialog (`aria-haspopup`). States: loading (a labelled block), empty ("Nothing needs you
 right now."), error (a sentence that names the retry), pending, submitted (the receipt replaces the
@@ -453,7 +458,10 @@ above the stub (an opened trade: Claude's review, labelled; a close or roll: "Wh
 "Why it was rolled", "the system's rules", plus "and Claude's view" when a line is Claude's, which
 carries Claude's name in its label); then the stub, which sums the whole trade (opened: Premium,
 Commission, On $X held, A year; closed: Premium collected, Bought back, Commissions, Net P&L, with
-"Net on this leg" for a roll). Details (secondary) links to the approval when there is one. No
+"Net on this leg" for a roll). An opened or rolled card says who approved it under its sentence
+("Approved by the system", "Approved by you, on the web", "Approved by you, in Telegram"), from
+the stored record only; a card whose decider was not recorded says nothing rather than guess.
+Details (secondary) links to the approval when there is one. No
 lime: nothing on it decides anything. The filter pills above the stack are filter chips.
 
 **Realised calendar** (Home chart, a sheet): each day's realised P&L for a month, as a labelled

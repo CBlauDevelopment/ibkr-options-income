@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daysToExpiry, proposalSentence, proposalStub } from "./proposal";
+import { daysToExpiry, decisionWords, proposalSentence, proposalStub, rollSentence, rollStub, rollTitle } from "./proposal";
 
 const TODAY = new Date("2026-10-13T12:00:00Z");
 const csp = { underlying: "AAPL", strategy: "cash_secured_put", right: "P", strike: 180, contracts: 1, premium: 2.35, expiry: "2026-11-21" };
@@ -62,5 +62,53 @@ describe("proposalStub", () => {
   it("has no annual figure on expiry day", () => {
     const lines = proposalStub({ ...csp, expiry: "2026-10-13" }, TODAY);
     expect(lines[3].value).toBeNull();
+  });
+});
+
+const roll = {
+  underlying: "NVDA", strike: 250, expiry: "2026-10-28", right: "P", contracts: 1, premium: 1.175,
+  roll_from: { strike: 250, expiry: "2026-10-23", right: "P", contracts: 1, old_mid: 2.1, new_mid: 3.275 },
+};
+
+describe("rolls", () => {
+  it("titles a roll with both legs", () => {
+    expect(rollTitle(roll)).toBe("NVDA · Roll $250 put Oct 23 → Oct 28");
+    expect(rollTitle({ ...roll, strike: 245, expiry: "2026-11-20" })).toBe("NVDA · Roll $250 → $245 put Oct 23 → Nov 20");
+    expect(rollTitle({ ...roll, expiry: "2026-10-23", strike: 255 })).toBe("NVDA · Roll $250 → $255 put Oct 23");
+  });
+  it("keeps the plain title for a roll frozen before its legs were recorded", () => {
+    expect(rollTitle({ ...roll, roll_from: null })).toBe("NVDA · Roll");
+  });
+  it("says what it buys back and sells, and the net at the quotes it was priced at", () => {
+    expect(rollSentence(roll)).toBe(
+      "Buys back the $250 put expiring Oct 23 and sells the $250 put expiring Oct 28. At the quotes it was priced at, that is a net credit of $117.50.",
+    );
+    expect(rollSentence({ ...roll, premium: -0.4 })).toMatch(/a net debit of \$40\.00\.$/);
+    expect(rollSentence({ ...roll, premium: null })).toMatch(/The net is not known\.$/);
+  });
+  it("sums the two legs to the net", () => {
+    const lines = rollStub(roll);
+    expect(lines.map((l) => l.label)).toEqual(["Buy back $250 put Oct 23", "Sell $250 put Oct 28", "Net credit"]);
+    expect(lines[0].value).toBeCloseTo(-210);
+    expect(lines[1].value).toBeCloseTo(327.5);
+    expect(lines[2].value).toBeCloseTo(117.5);
+    expect(lines[2].total).toBe(true);
+    expect(rollStub({ ...roll, premium: -0.4 })[2].label).toBe("Net debit");
+  });
+  it("leaves an unknown leg unknown, never zero", () => {
+    expect(rollStub({ ...roll, roll_from: { ...roll.roll_from, old_mid: null } })[0].value).toBeNull();
+    expect(rollStub({ ...roll, premium: null })[2].value).toBeNull();
+  });
+});
+
+describe("decisionWords", () => {
+  it("names who decided, from the record only", () => {
+    expect(decisionWords("approved", "system")).toBe("Approved by the system");
+    expect(decisionWords("approved", "web")).toBe("Approved by you, on the web");
+    expect(decisionWords("rejected", "telegram")).toBe("Rejected by you, in Telegram");
+    expect(decisionWords("approved", null)).toBe("Approved");
+    expect(decisionWords("approved")).toBe("Approved");
+    expect(decisionWords("expired", null)).toBe("Expired unanswered");
+    expect(decisionWords("pending", null)).toBeNull();
   });
 });

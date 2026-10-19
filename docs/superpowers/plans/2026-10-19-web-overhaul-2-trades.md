@@ -74,8 +74,8 @@ adds one commit; record it in the Progress log and add one to every later entry 
 | 1 Spreads picks API | done | 1c635b8 | pytest 3848 (baseline + 12); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | none |
 | 2 Who decided, the roll's leg, the fill, History's days | done | 36c2f4d | pytest 3867 (Task 1 + 19); ruff, mypy, vitest 817, tsc, lint clean | 2026-10-19 | Ruling: `DayTradesResponse` annotates `previous_day`/`next_day` as `dt.date` (`import datetime as dt`), because its own `date` field shadows the type inside the class body and mypy rejects `date \| None` there. Ruling: `reporting/day.py` types the decider as `DecidedBy = Literal["system","web","telegram"]` and narrows with one `cast`, because `in (...)` does not narrow a `str` for mypy. Ruling: ran `ruff format` on the four files this task wrote or extended (`spreads_db.py`, `day.py`, the two new test files); other pre-existing format drift left alone. |
 | **B entry checks** | done | (none) | B1-B5 pass | 2026-10-19 | none |
-| 3 Trades contract, views, Proposals | done | (hash in Task 4's row; the plan edit rides with Task 4's commit) | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
-| 4 Rolls say what they roll | | | | | |
+| 3 Trades contract, views, Proposals | done | ad32f5c | vitest 846 (98 files, baseline + 29); tsc, lint clean; da-vinci lint exit 0; DESIGN.md check exit 0 | 2026-10-19 | none. `ReviewSheet.tsx`'s `DecideControls` line was one line in the file (the plan showed it already split), so the edit split it. |
+| 4 Rolls say what they roll | done | (hash in Task 5's row) | vitest 856 (98 files, Task 3 + 10); tsc, lint clean | 2026-10-19 | none. 9 of the 10 new tests failed first; "says nothing about who approved it when that was not recorded" passes before the code exists, as a guard. The existing roll card test (no `roll_from`) passed unchanged: the new no-legs sentence still contains "This rolls a position you already hold". |
 | 5 History | | | | | |
 | 6 Assessed | | | | | |
 | 7 Spreads view | | | | | |
@@ -2578,7 +2578,7 @@ git commit -m "feat(web): Trades contract, view state in the URL, and the Propos
 
 Home's cards change too: that is the point. A roll on Home's Needs you column now names its legs.
 
-- [ ] **Step 1: Load da-vinci** if it is not already loaded, and write the contract first. In
+- [x] **Step 1: Load da-vinci** if it is not already loaded, and write the contract first. In
   `web/DESIGN.md` § Components:
   - **Proposal card**: after the sentence that ends "then Review (primary, opens the review sheet)
     and Details (secondary, the full approval page).", add: "A roll's title names both legs
@@ -2594,7 +2594,7 @@ Home's cards change too: that is the point. A roll on Home's Needs you column no
 
   Run: `python3 ~/.claude/skills/da-vinci/scripts/design_md_check.py web/DESIGN.md` → exit 0.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 In `web/features/home/proposal.test.ts`, change the import to
 `import { daysToExpiry, decisionWords, proposalSentence, proposalStub, rollSentence, rollStub, rollTitle } from "./proposal";`
@@ -2693,13 +2693,13 @@ Append inside the top-level `describe` in `web/features/home/TodayTrades.test.ts
   });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `cd web && npx vitest run features/home`
 Expected: FAIL (`rollTitle`, `rollSentence`, `rollStub`, `decisionWords` not exported; the roll
 card's title is "AAPL · Roll"; no "Approved by the system").
 
-- [ ] **Step 4: Add to `web/features/home/proposal.ts`**
+- [x] **Step 4: Add to `web/features/home/proposal.ts`**
 
 Add `import type { ApprovalRollFrom } from "@/components/options/types";` to the imports, then
 append:
@@ -2791,7 +2791,7 @@ export function decisionWords(status: string, decidedBy?: DecidedBy | null): str
 }
 ```
 
-- [ ] **Step 5: Use them on the cards**
+- [x] **Step 5: Use them on the cards**
 
 `web/features/home/ProposalCard.tsx`: import `rollSentence, rollStub, rollTitle` from
 `./proposal` beside the existing names; in `proposalTitle` replace the roll line with
@@ -2821,7 +2821,7 @@ the sentence `<p className="mt-2 text-sm">{tradeSentence(trade)}</p>` add:
       )}
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass, then the gate**
+- [x] **Step 6: Run the tests to verify they pass, then the gate**
 
 Run: `cd web && npx vitest run features/home && npx tsc --noEmit && npm run lint`
 Expected: PASS (10 new; every existing Home test unchanged, including the roll card's old
@@ -2830,7 +2830,7 @@ sentence "Open Details for both legs", replace that assertion with the new "legs
 recorded" sentence and record the ruling: the old sentence promised legs the detail page did not
 show.
 
-- [ ] **Step 7: Commit** (with the Progress log row for Task 3 filled in)
+- [x] **Step 7: Commit** (with the Progress log row for Task 3 filled in)
 
 ```bash
 git add web/DESIGN.md web/features/home/proposal.ts web/features/home/proposal.test.ts web/features/home/ProposalCard.tsx \
