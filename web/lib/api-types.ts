@@ -1074,6 +1074,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/spreads/picks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Spread Picks
+         * @description One New York day of the spreads picker: each menu Claude was shown, its choice, what was
+         *     sent, and every spread any book opened that day. `day` defaults to today in New York.
+         */
+        get: operations["spread_picks_spreads_picks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/universe": {
         parameters: {
             query?: never;
@@ -4292,6 +4313,123 @@ export interface components {
              */
             stale: boolean;
         };
+        /**
+         * SpreadMenuItemOut
+         * @description One lettered spread on a pick menu, flattened from the stored SpreadMenuItem. Credits are
+         *     per share; every figure was computed by src/spreads/menu.py when the menu was built.
+         */
+        SpreadMenuItemOut: {
+            /** Letter */
+            letter: string;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "inside" | "baseline" | "outer";
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "put" | "call";
+            /** Short Strike */
+            short_strike: number;
+            /** Long Strike */
+            long_strike: number;
+            /** Width */
+            width: number;
+            /** Contracts */
+            contracts: number;
+            /** Credit Mid */
+            credit_mid: number;
+            /** Credit After Costs */
+            credit_after_costs: number;
+            /** Max Loss Per Contract Usd */
+            max_loss_per_contract_usd: number;
+            /** Short Delta */
+            short_delta: number | null;
+            /** Spot */
+            spot: number;
+            /** Dist Spot Pts */
+            dist_spot_pts: number;
+            /** Dist Em Multiple */
+            dist_em_multiple: number | null;
+            /** Be Nominal Exits */
+            be_nominal_exits: number | null;
+        };
+        /**
+         * SpreadPickOut
+         * @description One menu Claude was shown, its choice, and what the service did with it.
+         */
+        SpreadPickOut: {
+            /** Pick Id */
+            pick_id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Book Mode */
+            book_mode: string;
+            /** Choice */
+            choice: string;
+            /** Reason */
+            reason: string;
+            /** Fallback Reason */
+            fallback_reason: string | null;
+            /** Executed Letter */
+            executed_letter: string | null;
+            /** Send Rejected */
+            send_rejected: boolean;
+            /** Send Reasons */
+            send_reasons: string[];
+            /** Filled */
+            filled: boolean;
+            /** Model */
+            model: string;
+            /** Regime */
+            regime: string;
+            /** Side */
+            side: string | null;
+            /** Plan Bias */
+            plan_bias: string | null;
+            /** Event Flag */
+            event_flag: boolean;
+            /** Menu Readable */
+            menu_readable: boolean;
+            /** Menu */
+            menu?: components["schemas"]["SpreadMenuItemOut"][];
+            /** Spread Id */
+            spread_id?: string | null;
+        };
+        /** SpreadPicksResponse */
+        SpreadPicksResponse: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Available */
+            available: boolean;
+            /** Underlying */
+            underlying: string;
+            /** Mode */
+            mode: string;
+            /** Ai Enabled */
+            ai_enabled: boolean;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Previous Day */
+            previous_day?: string | null;
+            /** Next Day */
+            next_day?: string | null;
+            /** Picks */
+            picks?: components["schemas"]["SpreadPickOut"][];
+            /** Positions */
+            positions?: components["schemas"]["SpreadPositionOut"][];
+        };
         /** SpreadPositionOut */
         SpreadPositionOut: {
             /**
@@ -6173,6 +6311,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpreadPositionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    spread_picks_spreads_picks_get: {
+        parameters: {
+            query?: {
+                day?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadPicksResponse"];
                 };
             };
             /** @description Validation Error */
