@@ -158,6 +158,7 @@ class IbkrSpreadsBroker:
         account: str,
         *,
         quote_wait_seconds: float = 3.0,
+        index_wake_seconds: float = 8.0,
         bid_grace_seconds: float = 0.75,
         greeks_grace_seconds: float = 3.0,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -167,6 +168,7 @@ class IbkrSpreadsBroker:
         self.account = account
         self.max_lines = max(1, cfg.max_market_data_lines)
         self.quote_wait = quote_wait_seconds
+        self.index_wake = index_wake_seconds
         self.bid_grace = bid_grace_seconds
         self.greeks_grace = greeks_grace_seconds
         self.now = now
@@ -191,26 +193,59 @@ class IbkrSpreadsBroker:
             self._indexes[symbol] = idx
         return self._indexes[symbol]
 
-    async def index_spot(self, symbol: str, exchange: str, sec_type: str = "IND") -> float | None:
+    async def index_spot(
+        self,
+        symbol: str,
+        exchange: str,
+        sec_type: str = "IND",
+        *,
+        second_wait: float | None = None,
+    ) -> float | None:
         """Last print. Outside regular hours the prior close stands in; during them a missing
         print is None, never yesterday's close passed off as the live spot. None without the
-        data entitlement or an unqualified contract."""
+        data entitlement or an unqualified contract.
+
+        ``second_wait`` subscribes a second time, waiting that long, when the first subscription
+        brought nothing. Two things make a first subscription come up empty, and the same retry
+        covers both (2026-10-21):
+
+        * A dormant farm. SPX is served by the Gateway's ``usfarm.nj`` farm, which sleeps ~2 min
+          after its last use; the hourly GEX map is its only user, so each build's first request
+          woke it (Error 2119 "connecting", then 2104 "OK") and the first price landed 2.7-3.4 s
+          in, astride the 3 s ceiling. Measured at 3/6/10/15 min idle: 2.72, 3.35, 2.84, 3.38 s;
+          an immediate second subscription: 0.25-1.5 s. The 5-min retry met a dormant farm
+          again, so one failure became a stretch of failures. The farm's status messages are INFO
+          and so never reached the log. The chain build passes ``index_wake``: it has no latency
+          to protect.
+        * A lost request. A subscribe within ~0.3 s of the tape's subscribe/cancel of the same
+          instrument sometimes never answers (SPY: 2 of 40 on a fresh connection); an immediate
+          retry answered both times. ``spot()`` passes its ordinary ceiling: the exit checks and
+          the send-time re-gate pay at most one more ``quote_wait``, and only on a miss."""
         idx = await self._index(symbol, exchange, sec_type)
         if not getattr(idx, "conId", 0):
             return None
-        t = req_fresh_mkt_data(self.ib, idx, "", False, False)
-        # Only the last print is a spot during regular hours, so only it may end the wait. A
-        # fresh subscription delivers the prior close first (SPX: ~0.5 s in, the last print
-        # later or not at all that early); ending on it returned None and the hourly GEX map
-        # "could not build" (2026-10-21).
         after_hours = not is_rth(self.now())
+        value = await self._index_price(idx, symbol, after_hours, self.quote_wait)
+        if value is None and second_wait is not None:
+            log.info("spreads: %s subscribing again, waiting up to %.1fs", symbol, second_wait)
+            value = await self._index_price(idx, symbol, after_hours, second_wait)
+        return value
+
+    async def _index_price(
+        self, idx: Any, symbol: str, after_hours: bool, ceiling: float
+    ) -> float | None:
+        """One subscribe -> wait -> cancel. Only the last print is a spot during regular hours,
+        so only it may end the wait. A fresh subscription delivers the prior close first (SPX:
+        ~0.5 s in, the last print later or not at all that early); ending on it returned None
+        and the hourly GEX map "could not build" (2026-10-21)."""
+        t = req_fresh_mkt_data(self.ib, idx, "", False, False)
         try:
             await _wait(
                 lambda: (
                     _num(getattr(t, "last", None)) is not None
                     or (after_hours and _num(getattr(t, "close", None)) is not None)
                 ),
-                self.quote_wait,
+                ceiling,
             )
             value = _num(getattr(t, "last", None))
             if value is None and after_hours:
@@ -219,7 +254,7 @@ class IbkrSpreadsBroker:
                 log.info(
                     "spreads: %s gave no price within %.1fs (last=%s, close=%s)",
                     symbol,
-                    self.quote_wait,
+                    ceiling,
                     _num(getattr(t, "last", None)),
                     _num(getattr(t, "close", None)),
                 )
@@ -230,7 +265,10 @@ class IbkrSpreadsBroker:
 
     async def spot(self) -> float | None:
         return await self.index_spot(
-            self.cfg.underlying, self.cfg.exchange, self.cfg.underlying_sec_type
+            self.cfg.underlying,
+            self.cfg.exchange,
+            self.cfg.underlying_sec_type,
+            second_wait=self.quote_wait,
         )
 
     async def session_quote(self) -> SessionSnapshot | None:
@@ -307,7 +345,7 @@ class IbkrSpreadsBroker:
         if not getattr(idx, "conId", 0):
             log.warning("spreads: %s is not qualified yet — no chain this pass", symbol)
             return None
-        spot = await self.index_spot(symbol, exchange, sec_type)
+        spot = await self.index_spot(symbol, exchange, sec_type, second_wait=self.index_wake)
         if spot is None:
             spot = spot_hint
         if spot is None:

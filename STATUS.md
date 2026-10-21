@@ -386,14 +386,35 @@ failed too.
 as *either* the last print or the prior close arrived, but during regular hours it only uses the
 last print. A fresh SPX subscription delivers `close` first (probed 2026-10-21 pre-market: close
 at +0.5 s, `last` never), so the wait ended on the close with `last` still empty and the function
-returned `None`. **Not proved:** how late `last` can arrive in regular hours under load. If a
-failure survives this fix, `spreads.log` now says why (`spreads: SPX gave no price within 3.0s
-(last=…, close=…)`).
+returned `None`.
+
+**Second cause (found the same day, after the first fix had shipped and the alert fired again at
+the open).** The new diagnostic read `SPX gave no price within 3.0s (last=None, close=None)` — not
+even the close — at 09:31 ET and again on the 5-minute retry, while a separate connection running
+the same code got SPX in 0.8 s. The Gateway's `usfarm.nj` market-data farm, which serves SPX, goes
+dormant about two minutes after its last use (`Error 2108 … inactive but should be available upon
+demand`); the hourly GEX map is its only user, so each build's first request woke a sleeping farm
+(`2119 … connecting`, then `2104 … OK`) and the first price landed 2.7–3.4 s in. Measured with
+idle gaps of 3/6/10/15 min: 2.72, 3.35, 2.84, 3.38 s, against the 3.0 s ceiling; an immediate
+second subscription: 0.25–1.5 s. The retry five minutes later met a dormant farm again, which is
+why failures came in runs and why the first refresh of the day failed most often (13:31 UTC map,
+then 14:31 failed and 14:36 built, on 15, 16 and 20 Oct; 19 Oct failed one refresh later, 21 Oct is below). These farm messages are INFO in
+ib_async and the log level hides them, so they never showed. A smaller, separate miss also
+reproduced: a SPY subscribe 0.3 s after the tape's subscribe/cancel returned nothing in 2 of 40
+trials (an immediate retry worked both times) — the same retry covers it.
 
 **Fixed.**
 - **`index_spot` waits for `last` in regular hours** (`src/spreads/chain.py`); the close still ends
   the wait after hours. A real absence of a last print still ends in `None` at `quote_wait_seconds`
   — the prior close is never passed off as a live spot.
+- **A first subscription that brings nothing is retried once** (`index_spot(..., second_wait=…)`,
+  `src/spreads/chain.py`): it cancels, subscribes again and waits again. The chain build
+  (`fetch_chain`) waits up to `index_wake_seconds` (8 s) the second time, which is what a dormant
+  farm needs; `spot()` (the exit checks and the send-time re-gate) waits its ordinary
+  `quote_wait_seconds` (3 s), so a gate pays one more 3 s only on a miss and never sits on a feed
+  that is still waking. Still `None` after the second wait (the chain build then retries in
+  5 min). Live: 4 of 4 dormant-farm wakes recovered (1.55–3.27 s); 90 back-to-back SPY reads, one
+  first-attempt miss, none left empty after the retry.
 - **Error 322 in `spreads.log`** (156 lines): ib_async re-requests the account summary on every
   Error 1102, IBKR allows one at a time and the wheel's scan connection holds it, and the spreads
   never read the summary (they use `accountValues`). `make_ib()` removes that request with

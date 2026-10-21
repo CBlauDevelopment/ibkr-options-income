@@ -121,6 +121,7 @@ class FakeIB:
         self.subscribed: list[int] = []
         self.qualify_fails = 0
         self.last_delay = 0.0  # > 0: the last print lands this many seconds after the close
+        self.silent_subscriptions = 0  # the next N spot subscriptions never deliver a tick
 
     def reqMktData(self, contract, *args, **kwargs):
         self.subscribed.append(getattr(contract, "conId", 0))
@@ -128,6 +129,9 @@ class FakeIB:
         self.max_open = max(self.max_open, self.open)
         if contract.secType in ("IND", "STK"):
             self.priced.append((contract.secType, contract.symbol))
+            if self.silent_subscriptions:
+                self.silent_subscriptions -= 1
+                return SimpleNamespace(last=math.nan, **{**self.session, "close": math.nan})
             if self.last_delay and self.spot:
                 late = SimpleNamespace(last=math.nan, **self.session)
                 asyncio.get_running_loop().call_later(
@@ -180,7 +184,9 @@ class FakeIB:
 
 
 def _broker(ib: FakeIB) -> IbkrSpreadsBroker:
-    return IbkrSpreadsBroker(ib, CFG, "DU1", quote_wait_seconds=0.05, now=lambda: NOW)
+    return IbkrSpreadsBroker(
+        ib, CFG, "DU1", quote_wait_seconds=0.05, index_wake_seconds=0.1, now=lambda: NOW
+    )
 
 
 async def test_fetch_chain_bands_strikes_and_never_exceeds_the_line_budget() -> None:
@@ -367,6 +373,78 @@ async def test_no_last_print_in_regular_hours_still_ends_in_none_at_the_ceiling(
     with caplog.at_level("INFO", logger="src.spreads.chain"):
         assert await _broker(ib).spot() is None  # the close is never passed off as the live spot
     assert "gave no price within 0.1s (last=None, close=688.0)" in caplog.text  # self-explaining
+
+
+# 2026-10-21 — SPX is served by the Gateway's usfarm.nj farm, which goes dormant ~2 min after its
+# last use. The hourly map is its only user, so each build woke a sleeping farm and the first
+# price landed 2.7-3.4 s in (measured at 3/6/10/15 min idle), astride the 3 s ceiling; the 5-min
+# retry met a dormant farm again. The chain build subscribes a second time and waits longer.
+def _slow_farm(ib: FakeIB, wake: float = 0.3) -> IbkrSpreadsBroker:
+    ib.last_delay = wake  # past the 0.1 s first wait, inside the 1.0 s second wait
+    return IbkrSpreadsBroker(
+        ib, CFG, "DU1", quote_wait_seconds=0.1, index_wake_seconds=1.0, now=lambda: NOW
+    )
+
+
+async def test_the_chain_build_waits_for_a_dormant_farm_to_wake() -> None:
+    ib = FakeIB()
+    snap = await _slow_farm(ib).fetch_chain(
+        symbol="XSP", trading_class="XSP", exchange="CBOE", expiries=1, band_pct=0.03
+    )
+    assert snap is not None and snap.spot == 690.0
+    assert ib.open == 0  # both index subscriptions were cancelled
+
+
+async def test_a_silent_first_subscription_is_retried_by_the_chain_build() -> None:
+    ib = FakeIB()
+    ib.silent_subscriptions = 1
+    snap = await _broker(ib).fetch_chain(
+        symbol="XSP", trading_class="XSP", exchange="CBOE", expiries=1, band_pct=0.03
+    )
+    assert snap is not None and snap.spot == 690.0
+    assert ib.priced.count(("IND", "XSP")) == 2
+
+
+async def test_the_chain_build_gives_up_after_the_second_subscription() -> None:
+    ib = FakeIB(spot=None)
+    snap = await _broker(ib).fetch_chain(
+        symbol="XSP", trading_class="XSP", exchange="CBOE", expiries=1, band_pct=0.03
+    )
+    assert snap is None
+    assert ib.priced.count(("IND", "XSP")) == 2
+    assert ib.open == 0
+
+
+async def test_a_plain_spot_retries_a_lost_request_once() -> None:
+    """A subscribe right after the tape's own sometimes never answers (SPY, 2 of 40 on a fresh
+    connection); an immediate retry did every time. spot() feeds the exit checks and the
+    send-time re-gate, so one quiet retry beats an aborted entry."""
+    ib = FakeIB()
+    ib.silent_subscriptions = 1
+    assert await _broker(ib).spot() == 690.0
+    assert len(ib.priced) == 2
+    assert ib.open == 0
+
+
+async def test_a_plain_spot_gives_up_after_one_retry() -> None:
+    ib = FakeIB()
+    ib.silent_subscriptions = 2
+    assert await _broker(ib).spot() is None
+    assert len(ib.priced) == 2  # a second try, never a third
+
+
+async def test_a_plain_spot_does_not_wait_for_a_dormant_farm() -> None:
+    """The long wait is the chain build's: a gate never sits on a feed that is still waking."""
+    ib = FakeIB()
+    ib.last_delay = 0.3  # past spot()'s two 0.1 s tries, inside the chain build's 1.0 s wait
+    broker = IbkrSpreadsBroker(
+        ib, CFG, "DU1", quote_wait_seconds=0.1, index_wake_seconds=1.0, now=lambda: NOW
+    )
+    assert await broker.spot() is None
+    snap = await broker.fetch_chain(
+        symbol="XSP", trading_class="XSP", exchange="CBOE", expiries=1, band_pct=0.03
+    )
+    assert snap is not None and snap.spot == 690.0
 
 
 # Review minor — a non-USD base account reports excess liquidity in its base currency.
