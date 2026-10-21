@@ -49,6 +49,7 @@ from src.strategies._scoring import (
     relative_strength_score,
     technical_score,
 )
+from src.strategies.csp_ssrn import evaluate_ssrn
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +95,18 @@ def screen_csp_candidates(
     if symbol not in effective_universe()["would_own"]:
         result.skipped = "not_in_would_own"
         return result
+
+    # SSRN-grounded router (opt-in). Flag read from strategy.csp.engine; falls through to the
+    # generic technical/fundamental screener when unset or "generic". See src/strategies/csp_ssrn.py.
+    engine_choice = getattr(getattr(cfg, "strategy", None), "csp", {})
+    if isinstance(engine_choice, dict):
+        engine_name = engine_choice.get("engine", "generic")
+    else:
+        engine_name = getattr(engine_choice, "engine", "generic")
+    if engine_name == "ssrn":
+        return evaluate_ssrn(
+            symbol, quotes, account, iv_stats, tech_stats, fund_stats, positions=positions
+        )
 
     risk = get_config().risk
     csp_cfg = risk["cash_secured_put"]
