@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import itertools
 import math
 from datetime import UTC, date, datetime
@@ -119,6 +120,7 @@ class FakeIB:
         self.open_trades: list[SimpleNamespace] = []
         self.subscribed: list[int] = []
         self.qualify_fails = 0
+        self.last_delay = 0.0  # > 0: the last print lands this many seconds after the close
 
     def reqMktData(self, contract, *args, **kwargs):
         self.subscribed.append(getattr(contract, "conId", 0))
@@ -126,6 +128,12 @@ class FakeIB:
         self.max_open = max(self.max_open, self.open)
         if contract.secType in ("IND", "STK"):
             self.priced.append((contract.secType, contract.symbol))
+            if self.last_delay and self.spot:
+                late = SimpleNamespace(last=math.nan, **self.session)
+                asyncio.get_running_loop().call_later(
+                    self.last_delay, setattr, late, "last", self.spot
+                )
+                return late
             return SimpleNamespace(last=self.spot if self.spot else math.nan, **self.session)
         return SimpleNamespace(
             bid=0.40,
@@ -328,6 +336,37 @@ async def test_the_prior_close_is_not_a_spot_during_regular_hours() -> None:
         now=lambda: datetime(2026, 10, 7, 23, 0, tzinfo=UTC),
     )
     assert await evening.spot() == 688.0
+
+
+# 2026-10-21 — a fresh index subscription delivers the prior close at once (SPX: ~0.5 s) and the
+# last print later. During regular hours only the last print is a spot, so the wait must not
+# end on the close: it ended there, spot() said None, and the GEX map "could not build" (it
+# failed at least once on each of the first eight sessions, 9-20 Oct).
+async def test_spot_waits_for_the_last_print_when_the_prior_close_lands_first() -> None:
+    ib = FakeIB()
+    ib.session = {"open": math.nan, "high": math.nan, "low": math.nan, "close": 688.0}
+    ib.last_delay = 0.1
+    broker = IbkrSpreadsBroker(ib, CFG, "DU1", quote_wait_seconds=1.0, now=lambda: NOW)
+    assert await broker.spot() == 690.0
+
+
+async def test_the_gex_chain_builds_when_the_last_print_trails_the_close() -> None:
+    ib = FakeIB()
+    ib.session = {"open": math.nan, "high": math.nan, "low": math.nan, "close": 688.0}
+    ib.last_delay = 0.1
+    broker = IbkrSpreadsBroker(ib, CFG, "DU1", quote_wait_seconds=1.0, now=lambda: NOW)
+    snap = await broker.fetch_chain(
+        symbol="XSP", trading_class="XSP", exchange="CBOE", expiries=1, band_pct=0.03
+    )
+    assert snap is not None and snap.spot == 690.0
+
+
+async def test_no_last_print_in_regular_hours_still_ends_in_none_at_the_ceiling(caplog) -> None:
+    ib = FakeIB(spot=None)
+    ib.session = {"open": math.nan, "high": math.nan, "low": math.nan, "close": 688.0}
+    with caplog.at_level("INFO", logger="src.spreads.chain"):
+        assert await _broker(ib).spot() is None  # the close is never passed off as the live spot
+    assert "gave no price within 0.1s (last=None, close=688.0)" in caplog.text  # self-explaining
 
 
 # Review minor — a non-USD base account reports excess liquidity in its base currency.

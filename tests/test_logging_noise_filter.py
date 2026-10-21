@@ -50,6 +50,48 @@ def test_repeat_count_resets_on_distinct_message(caplog):
     assert any("suppressed" in r.message for r in caplog.records)
 
 
+def test_the_suppressed_summary_keeps_the_level_of_the_run_it_summarises(caplog):
+    """A run of INFO lines cut off by an ERROR used to log "ERROR … (suppressed N …)": the
+    summary took the interrupting record's level, so 12 harmless "ledger ingest: no-op" lines
+    read as an error storm in the logs (approval.log carries 150+ phantom ledger ERRORs)."""
+    f = _NoiseFilter()
+    for _ in range(6):
+        f.filter(_record("src.ledger.ingest", "ledger ingest (live ): no-op", logging.INFO))
+
+    with caplog.at_level(logging.DEBUG, logger="src.ledger.ingest"):
+        f.filter(_record("ib_async.wrapper", "Error 300, reqId 1: Can't find EId", logging.ERROR))
+
+    summary = [r for r in caplog.records if "suppressed" in r.message]
+    assert [(r.name, r.levelno) for r in summary] == [("src.ledger.ingest", logging.INFO)]
+
+
+_CAP_322 = (
+    "Error 322, reqId 1297: Error processing request.-'ReqAccountSummary(62)' : cause - "
+    "Maximum number of account summary requests exceeded; desubscribe to previous request first"
+)
+
+
+def test_the_account_summary_cap_is_logged_as_info_not_error():
+    """Every Gateway flap makes a second connection's auto-resubscribe hit IBKR's one-summary
+    cap (Error 322): ~2,000 red lines in monitor.log/approval.log, though the connection that
+    holds the subscription is unaffected. Kept (a real empty-summary failure must stay
+    greppable) but not at ERROR."""
+    f = _NoiseFilter()
+    rec = _record("ib_async.wrapper", _CAP_322)
+    assert f.filter(rec) is True
+    assert (rec.levelno, rec.levelname) == (logging.INFO, "INFO")
+    assert f.filter(rec) is True  # a second handler sees the same record: still INFO, once
+    assert rec.getMessage() == _CAP_322
+
+
+def test_only_the_account_summary_cap_is_demoted():
+    f = _NoiseFilter()
+    other = _record("ib_async.wrapper", "Error 322, reqId 9: Duplicate ticker ID")
+    assert f.filter(other) is True and other.levelno == logging.ERROR
+    elsewhere = _record("src.somewhere", _CAP_322)
+    assert f.filter(elsewhere) is True and elsewhere.levelno == logging.ERROR
+
+
 def test_suppresses_runs_that_alternate_option_right():
     """A chain probe fires 'Unknown contract' once per (strike, right) combo, alternating
     right='C'/'P' every other line. Since that token used to survive normalisation, it

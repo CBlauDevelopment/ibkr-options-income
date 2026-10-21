@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -121,6 +121,7 @@ class FakeBroker:
         self.calls: list[str] = []
         self.legs: dict[int, float] = {}
         self.fail_requote = False
+        self.spx_down = False  # True: the SPX chain can't be built (no index price)
         self.spx_oi = {"P": 1_000, "C": 40_000}
         self.xsp_atm = {"C": (2.9, 3.1), "P": (2.7, 2.9)}
         self.session: dict[str, float | None] = {
@@ -141,6 +142,8 @@ class FakeBroker:
         self.calls.append(symbol)
         if symbol == "SPX":
             assert sec_type == "IND"
+            if self.spx_down:
+                return None
             return ChainSnapshot(
                 symbol="SPX",
                 spot=6900.0,
@@ -486,6 +489,28 @@ async def test_nothing_happens_on_a_weekend(tmp_path, spreads_db) -> None:
     assert broker.calls == []
 
 
+# 2026-10-21 — ib_async re-requests the account summary on every Error 1102. IBKR allows one at
+# a time and the wheel's scan connection holds it, so each flap logged an Error 322 here (156
+# lines in spreads.log). The spreads read ``accountValues`` and never the summary.
+async def test_the_spreads_ib_does_not_resubscribe_the_account_summary_on_1102(
+    monkeypatch,
+) -> None:
+    import ib_async
+
+    import src.spreads.service as service
+
+    calls: list[int] = []
+
+    async def tracked(self) -> None:
+        calls.append(1)
+
+    monkeypatch.setattr(ib_async.IB, "reqAccountSummaryAsync", tracked)
+    ib = service.make_ib()
+    ib.errorEvent.emit(-1, 1102, "Connectivity restored", None)
+    await asyncio.sleep(0)
+    assert calls == []
+
+
 async def test_run_idles_when_disabled_and_refuses_live(monkeypatch) -> None:
     import src.spreads.service as service
 
@@ -753,6 +778,40 @@ async def test_a_failed_map_rebuild_drops_the_old_map(tmp_path, spreads_db, monk
     clock[0] = datetime(2026, 10, 7, 14, 46, tzinfo=UTC)  # 10:46, an hour later: refresh due
     await svc.tick()
     assert svc.levels is None and svc.map_failed_at == clock[0]
+
+
+# 2026-10-21 — the "could not build the GEX map" alert fired once a day and recovery was silent, so
+# it read as still broken after the 5-minute retry had already built the map. It now fires once
+# per outage and a "back" notice closes it.
+async def test_a_map_outage_alerts_once_and_announces_the_recovery(tmp_path, spreads_db) -> None:
+    clock = [T0945]
+    svc, broker, notifier = make(tmp_path, clock, ONE_A_DAY)
+
+    def count(text: str) -> int:
+        return sum(text in m for m in notifier.sent)
+
+    broker.spx_down = True
+    await svc.tick()
+    assert svc.levels is None and count("could not build the GEX map") == 1
+    assert "retrying every 5 min" in next(m for m in notifier.sent if "could not build" in m)
+    clock[0] = T0945 + timedelta(minutes=5)
+    await svc.tick()  # the retry fails too: still one alert, no "back"
+    assert count("could not build the GEX map") == 1 and count("GEX map is back") == 0
+
+    broker.spx_down = False
+    clock[0] += timedelta(minutes=5)
+    await svc.tick()
+    assert svc.levels is not None and count("GEX map is back") == 1
+    assert "built 09:55 ET" in next(m for m in notifier.sent if "GEX map is back" in m)
+
+    broker.spx_down = True  # a second outage, at the next hourly refresh, is news again
+    clock[0] += timedelta(minutes=60)
+    await svc.tick()
+    assert count("could not build the GEX map") == 2
+    broker.spx_down = False
+    clock[0] += timedelta(minutes=5)
+    await svc.tick()
+    assert count("GEX map is back") == 2
 
 
 T1550 = datetime(2026, 10, 7, 19, 50, tzinfo=UTC)

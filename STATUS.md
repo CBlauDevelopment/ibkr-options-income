@@ -373,6 +373,76 @@ databases are separate `Base`/engine pairs so `create_all()` can never cross-bui
 
 ---
 
+## Fixed (2026-10-21 — spreads: the hourly GEX map "could not build"; Error 322 and phantom ERROR lines in the logs)
+
+**What the logs showed.** The Telegram alert *"could not build the GEX map (no chain or no index
+price) — no entries until it builds"* fired on every one of the 8 sessions from 9 to 20 Oct
+(`spreads: no SPX index price (index-data subscription?) and no hint`, 29 times; SPY 6 times) — at
+all hours, though 10:31 ET (the first hourly refresh) was the commonest time. The 5-minute retry
+usually built the map, so entries were lost for minutes, not a day; on 14, 19 and 20 Oct the retry
+failed too.
+
+**Root cause (the part that is proved).** `IbkrSpreadsBroker.index_spot` stopped waiting as soon
+as *either* the last print or the prior close arrived, but during regular hours it only uses the
+last print. A fresh SPX subscription delivers `close` first (probed 2026-10-21 pre-market: close
+at +0.5 s, `last` never), so the wait ended on the close with `last` still empty and the function
+returned `None`. **Not proved:** how late `last` can arrive in regular hours under load. If a
+failure survives this fix, `spreads.log` now says why (`spreads: SPX gave no price within 3.0s
+(last=…, close=…)`).
+
+**Fixed.**
+- **`index_spot` waits for `last` in regular hours** (`src/spreads/chain.py`); the close still ends
+  the wait after hours. A real absence of a last print still ends in `None` at `quote_wait_seconds`
+  — the prior close is never passed off as a live spot.
+- **Error 322 in `spreads.log`** (156 lines): ib_async re-requests the account summary on every
+  Error 1102, IBKR allows one at a time and the wheel's scan connection holds it, and the spreads
+  never read the summary (they use `accountValues`). `make_ib()` removes that request with
+  `suppress_account_summary_on_reconnect`. The monitor does call `accountSummaryAsync`, so the same
+  suppression is not safe there; instead the **noise filter logs that Error 322 at INFO** (1,282
+  lines in `monitor.log`, 751 in `approval.log`, all harmless: the connection that holds IBKR's one
+  account-summary subscription is unaffected). Kept, not dropped: a summary that really stays
+  empty after a reconnect (the June bug below) must stay greppable.
+- **A map outage alerts once and announces its end** (`src/spreads/service.py`): the "could not
+  build the GEX map" alert used to fire once a day with no all-clear, so it read as still broken
+  after the 5-minute retry had already built the map. It now fires once per outage (and names
+  the retry interval) and a `✅ GEX map is back (built HH:MM ET)` notice closes it
+  (`notify.fmt_recovered`); a second outage the same day alerts again.
+- **Phantom ERROR lines** (`src/common/logging.py`): the noise filter's *"(suppressed N further
+  repeats)"* line took the level of the record that ended the run, so a run of INFO lines (the
+  ledger's `no-op, discarding run row`) followed by any error logged as `ERROR src.ledger.ingest`.
+  It now logs at the suppressed run's own level.
+
+**Still open (not changed).**
+- **The spreads book was close to inert — floor lowered, unvalidated.** Across ~120 armed checks
+  (13–21 Oct) the best credit at the nearest eligible strike was $0.23 against the $0.25 floor; the
+  only trade was the baseline book's on 15 Oct. **On 2026-10-21 the operator lowered
+  `selection.min_credit_pct_of_width` from 0.05 to 0.03 ($0.25 → $0.15 on a 5-wide) in the private
+  `config/spreads.yaml`** (the committed example still ships 0.05). By the logged credits that
+  passes 17% of armed checks (19 of 110, on 6 of 7 sessions) instead of none. It is **not
+  backtested** (ThetaData was down and `data/spreads_bt` empty): round-trip commission is ~$0.026/sh,
+  17% of a $0.15 credit against 10% of $0.25, and Claude's 15 Oct skip put the break-even win rate at
+  94.9% for a ~$0.14 credit while simple 2×-stop arithmetic gives ~78% — the gap is what the backtest
+  must settle. Judge it on the paper book's and the baseline book's expectancy after costs; revert to
+  0.05 if negative. The 0.15 delta cap, 1× expected-move distance and wall buffer are unchanged.
+- **GOOGL put roll: about ten timed-out attempts before it filled** (20 Oct 00:48 – 21 Oct 02:18
+  SGT; order 149 filled at a 0.40 net credit once the combo's natural net credit rose to 0.25). The
+  walk's floor is 80% of the approved credit (`risk_limits.yaml → min_live_premium_ratio`), above
+  the 0.05–0.25 the market paid for most of that time, so the system waited for a tighter combo
+  instead of conceding the credit. Working as designed; the cost is a 5-minute combo order about
+  every 30 minutes and log noise. The chain has since hit `roll_limit_reached`, so the GOOGL puts
+  are now set to be assigned.
+
+**Restart required** — the daemons do not hot-reload; `./ibkr restart` for the spreads fixes to
+take effect.
+
+Tests: `tests/test_spreads_chain.py` (a close-first/last-later subscription, the GEX chain on
+that subscription, no-last-print still `None`), `tests/test_spreads_service.py`
+(`make_ib` drops the 1102 account-summary request; one alert and one all-clear per map outage),
+`tests/test_spreads_notify.py` (`fmt_recovered`), `tests/test_logging_noise_filter.py` (summary
+level; Error 322 at INFO).
+
+---
+
 ## Built (2026-10-19 — web overhaul Part 2: Trades, who approved each trade, the spreads picks route, the Roll card)
 
 `docs/superpowers/plans/2026-10-19-web-overhaul-2-trades.md`, revised by the operator the same

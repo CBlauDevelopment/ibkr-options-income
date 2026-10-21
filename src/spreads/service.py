@@ -79,6 +79,7 @@ from src.spreads.notify import (
     fmt_eod,
     fmt_exit,
     fmt_pick,
+    fmt_recovered,
     status_nothing_to_sell,
 )
 from src.spreads.pricing import ET, day_schedule
@@ -203,6 +204,7 @@ class SpreadsService:
         self.entries_blocked: str | None = None
         self.eod_sent_for: date | None = None
         self._alerted: set[tuple[date, str]] = set()
+        self._map_down_alerted = False  # an outage alert is out and its all-clear is owed
         self._mismatch_ticks = 0
         self.picker = picker
         # The baseline book (ai.enabled): always the deterministic pick, always simulated —
@@ -460,10 +462,15 @@ class SpreadsService:
         if gex_chain is None or traded is None:
             self.map_failed_at = now
             self.levels = None
-            await self.alert_once(
-                "map_missing",
-                "[SPREADS] could not build the GEX map (no chain or no index price) — no entries until it builds",
-            )
+            if not self._map_down_alerted:  # once per outage, not once per day (2026-10-21)
+                self._map_down_alerted = True
+                retry = int(_MAP_RETRY.total_seconds() // 60)
+                await self.notifier.send(
+                    fmt_alert(
+                        "[SPREADS] could not build the GEX map (no chain or no index price) — "
+                        f"no entries until it builds; retrying every {retry} min"
+                    )
+                )
             return
         try:
             # The gamma-flip search is scipy-heavy: keep it off the loop so the heartbeat runs.
@@ -478,6 +485,14 @@ class SpreadsService:
         self.gex_chain = gex_chain
         self.levels = levels
         store.record_map(self.levels)
+        if self._map_down_alerted:
+            self._map_down_alerted = False
+            await self.notifier.send(
+                fmt_recovered(
+                    f"[SPREADS] GEX map is back (built {now.astimezone(ET):%H:%M} ET) — "
+                    "entries can resume"
+                )
+            )
         tape = self._tape_for(now)
         if tape.day_em is None:
             # The day's FIRST expected move, from spreads.db: a restart must not swap in the
@@ -1276,6 +1291,19 @@ async def _note_ledger_account(account: str) -> None:
         )
 
 
+def make_ib() -> Any:
+    """The process's one IB handle. ib_async re-requests the account summary on every Error 1102,
+    which IBKR refuses (Error 322) while the wheel's scan connection holds the one it allows; the
+    spreads read ``accountValues`` and never the summary, so that request is dropped here."""
+    from ib_async import IB
+
+    from src.ibkr.connection import suppress_account_summary_on_reconnect
+
+    ib = IB()
+    suppress_account_summary_on_reconnect(ib)
+    return ib
+
+
 async def run(
     stop_event: asyncio.Event | None = None, picker_factory: PickerFactory | None = None
 ) -> None:
@@ -1293,8 +1321,6 @@ async def run(
         await stop.wait()
         return
 
-    from ib_async import IB
-
     from src.ibkr.connection import connect_with_retry
     from src.ledger.live import attach_live_hook
     from src.spreads.chain import IbkrSpreadsBroker
@@ -1309,7 +1335,7 @@ async def run(
         client_id,
         sc.ai.enabled,
     )
-    ib: Any = IB()
+    ib = make_ib()
 
     async def connect(retries: int | None = None) -> bool:
         try:

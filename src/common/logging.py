@@ -70,9 +70,19 @@ class _NoiseFilter(logging.Filter):
         ("ib_async.ib", re.compile(r"^Unknown contract: Option\(")),
     )
 
+    # IBKR allows one account-summary subscription at a time. On every Gateway flap (Error 1102)
+    # each ib_async connection re-requests it and all but the holder get Error 322 (2026-10-21:
+    # ~2,000 ERROR lines in monitor.log/approval.log). The holder is unaffected, so the line is
+    # demoted to INFO — not dropped: a summary that really stays empty must remain greppable.
+    _SUMMARY_CAP = (
+        "ib_async.wrapper",
+        re.compile(r"^Error 322, .*Maximum number of account summary requests exceeded"),
+    )
+
     def __init__(self) -> None:
         super().__init__()
         self._last_key: tuple[str, str] | None = None
+        self._last_level = logging.INFO
         self._repeat_count = 0
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -87,6 +97,8 @@ class _NoiseFilter(logging.Filter):
         if any(record.name == name and rx.match(msg) for name, rx in self._OPTION_PROBE):
             record._noise_decision = False
             return False
+        if record.name == self._SUMMARY_CAP[0] and self._SUMMARY_CAP[1].match(msg):
+            record.levelno, record.levelname = logging.INFO, "INFO"
         normalised = self._DIGITS.sub("#", msg)
         normalised = self._OPTION_RIGHT.sub("right='#'", normalised)
         key = (record.name, normalised[: self._PREFIX_LEN])
@@ -97,14 +109,21 @@ class _NoiseFilter(logging.Filter):
                 record._noise_decision = False
                 return False
         else:
-            prev_key, prev_count = self._last_key, self._repeat_count
+            prev_key, prev_count, prev_level = (
+                self._last_key,
+                self._repeat_count,
+                self._last_level,
+            )
             # Reset state before emitting the summary — the summary log re-enters this
             # filter, and it must see a fresh (non-suppressing) state or it recurses forever.
             self._last_key = key
+            self._last_level = record.levelno
             self._repeat_count = 0
             if prev_count > self._SUPPRESS_AFTER and prev_key is not None:
+                # At the suppressed run's own level: the interrupting record's would label a
+                # run of INFO lines an ERROR whenever an error happened to follow it.
                 logging.getLogger(prev_key[0]).log(
-                    record.levelno,
+                    prev_level,
                     "(suppressed %d further repeats of the previous message)",
                     prev_count - self._SUPPRESS_AFTER,
                 )

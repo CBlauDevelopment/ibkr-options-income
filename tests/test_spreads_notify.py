@@ -21,6 +21,7 @@ from src.spreads.notify import (
     fmt_entry,
     fmt_eod,
     fmt_exit,
+    fmt_recovered,
     status_nothing_to_sell,
 )
 
@@ -133,6 +134,10 @@ def test_event_formats_carry_the_numbers() -> None:
 def test_alerts_drop_the_bracket_tag_and_escape() -> None:
     assert fmt_alert("[SPREADS] halt file a<b present") == "⚠️ halt file a&lt;b present"
     assert fmt_alert("[SPREADS] URGENT: 1 spread open").startswith("🚨")
+
+
+def test_a_recovery_notice_is_an_all_clear_not_a_warning() -> None:
+    assert fmt_recovered("[SPREADS] GEX map is back <09:55>") == "✅ GEX map is back &lt;09:55&gt;"
 
 
 async def test_send_without_credentials_never_builds_a_bot(monkeypatch) -> None:

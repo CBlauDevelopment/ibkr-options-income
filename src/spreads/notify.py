@@ -255,14 +255,23 @@ def fmt_pick(
     return "\n".join(lines)
 
 
-def fmt_alert(text: str) -> str:
-    """A plain-text operator alert → escaped HTML with one icon instead of a bracket tag."""
+def _untag(text: str) -> str:
     for tag in ("[SPREADS] ", "[PAPER] ", "[SHADOW] ", "[LIVE] "):
         if text.startswith(tag):
-            text = text[len(tag) :]
-            break
+            return text[len(tag) :]
+    return text
+
+
+def fmt_alert(text: str) -> str:
+    """A plain-text operator alert → escaped HTML with one icon instead of a bracket tag."""
+    text = _untag(text)
     icon = "🚨" if "URGENT" in text else "⚠️"
     return f"{icon} {esc(text)}"
+
+
+def fmt_recovered(text: str) -> str:
+    """The all-clear that closes an alert: the same escaping, a ✅ instead of a warning."""
+    return f"✅ {esc(_untag(text))}"
 
 
 # ---------------------------------------------------------------------------

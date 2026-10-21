@@ -199,18 +199,32 @@ class IbkrSpreadsBroker:
         if not getattr(idx, "conId", 0):
             return None
         t = req_fresh_mkt_data(self.ib, idx, "", False, False)
+        # Only the last print is a spot during regular hours, so only it may end the wait. A
+        # fresh subscription delivers the prior close first (SPX: ~0.5 s in, the last print
+        # later or not at all that early); ending on it returned None and the hourly GEX map
+        # "could not build" (2026-10-21).
+        after_hours = not is_rth(self.now())
         try:
             await _wait(
                 lambda: (
                     _num(getattr(t, "last", None)) is not None
-                    or _num(getattr(t, "close", None)) is not None
+                    or (after_hours and _num(getattr(t, "close", None)) is not None)
                 ),
                 self.quote_wait,
             )
             value = _num(getattr(t, "last", None))
-            if value is None and not is_rth(self.now()):
+            if value is None and after_hours:
                 value = _num(getattr(t, "close", None))
-            return value if value is not None and value > 0 else None
+            if value is None or value <= 0:
+                log.info(
+                    "spreads: %s gave no price within %.1fs (last=%s, close=%s)",
+                    symbol,
+                    self.quote_wait,
+                    _num(getattr(t, "last", None)),
+                    _num(getattr(t, "close", None)),
+                )
+                return None
+            return value
         finally:
             self.ib.cancelMktData(idx)
 
